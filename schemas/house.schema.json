@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://corwinjames.github.io/house-builder/schemas/house.schema.json",
+  "title": "House model",
+  "description": "Source of truth for a House Builder design. Units are feet. Wall start/end are centerlines; thickness is centered on that segment. +x is east and +y is north. Do not store prices in this model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "sample",
+    "disclaimer",
+    "units",
+    "footprint",
+    "phases",
+    "levels",
+    "walls",
+    "rooms",
+    "openings",
+    "roof"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "sample": {
+      "type": "boolean",
+      "description": "True when the file is a starting layout, not a final design."
+    },
+    "disclaimer": { "type": "string" },
+    "units": { "const": "feet" },
+    "location": { "$ref": "#/$defs/location" },
+    "orientation": { "$ref": "#/$defs/orientation" },
+    "footprint": { "$ref": "#/$defs/footprint" },
+    "phases": { "$ref": "#/$defs/phases" },
+    "levels": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/level" }
+    },
+    "walls": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/wall" }
+    },
+    "rooms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/room" }
+    },
+    "openings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/opening" }
+    },
+    "roof": { "$ref": "#/$defs/roof" },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "point2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["xAxis", "yAxis", "origin"],
+      "properties": {
+        "xAxis": { "const": "east" },
+        "yAxis": { "const": "north" },
+        "origin": { "type": "string" },
+        "longAxis": { "enum": ["east-west", "north-south"] }
+      }
+    },
+    "footprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "depth", "longAxis"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "depth": { "type": "number", "exclusiveMinimum": 0 },
+        "longAxis": { "enum": ["east-west", "north-south"] }
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x0", "y0", "x1", "y1"],
+      "properties": {
+        "x0": { "type": "number" },
+        "y0": { "type": "number" },
+        "x1": { "type": "number" },
+        "y1": { "type": "number" }
+      }
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase1"],
+      "properties": {
+        "phase1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "bounds"],
+          "properties": {
+            "name": { "type": "string" },
+            "bounds": { "$ref": "#/$defs/bounds" },
+            "note": { "type": "string" }
+          }
+        }
+      }
+    },
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "elevation", "plateHeight"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "elevation": { "type": "number" },
+        "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "floorThickness": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "wall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "levelId", "start", "end", "assembly", "thickness", "height", "phase", "role"],
+      "properties": {
+        "id": { "type": "string" },
+        "levelId": { "type": "string" },
+        "start": { "$ref": "#/$defs/point2" },
+        "end": { "$ref": "#/$defs/point2" },
+        "assembly": { "enum": ["hempcrete", "rammed-earth", "framed"] },
+        "thickness": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Feet. The wall is centered on the start–end segment."
+        },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "phase": { "enum": ["phase1", "future"] },
+        "role": { "enum": ["exterior", "interior"] }
+      }
+    },
+    "room": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "levelId", "name", "phase", "polygon", "finish"],
+      "properties": {
+        "id": { "type": "string" },
+        "levelId": { "type": "string" },
+        "name": { "type": "string" },
+        "phase": { "enum": ["phase1", "future"] },
+        "polygon": {
+          "type": "array",
+          "minItems": 3,
+          "description": "Interior floor polygon, in order. Square feet come from this polygon.",
+          "items": { "$ref": "#/$defs/point2" }
+        },
+        "finish": { "enum": ["wood", "tile", "stone", "concrete"] },
+        "conditioned": { "type": "boolean" },
+        "outdoor": { "type": "boolean" },
+        "labelAt": { "$ref": "#/$defs/point2" },
+        "note": { "type": "string" }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "wallId", "type", "offset", "width", "height", "sill"],
+      "properties": {
+        "id": { "type": "string" },
+        "wallId": { "type": "string" },
+        "type": { "enum": ["door", "window"] },
+        "style": { "enum": ["swing", "sliding", "cased", "overhead"] },
+        "offset": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Feet from the wall start point to the opening's near jamb."
+        },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "sill": { "type": "number", "minimum": 0 },
+        "hinge": { "enum": ["start", "end"] },
+        "swingSide": {
+          "enum": ["left", "right"],
+          "description": "Which side of the start→end direction the swing opens toward. Left is counterclockwise."
+        }
+      }
+    },
+    "roof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "placeholder", "pitch", "pitchRiseOverRun", "overhang", "plateHeight"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["chinese-hip-and-gable"] },
+        "placeholder": { "type": "boolean" },
+        "pitch": { "type": "string" },
+        "pitchRiseOverRun": { "type": "number", "exclusiveMinimum": 0 },
+        "overhang": { "type": "number", "minimum": 0 },
+        "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

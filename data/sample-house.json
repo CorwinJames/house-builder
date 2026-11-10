@@ -1,0 +1,793 @@
+{
+  "schemaVersion": 1,
+  "id": "sample-house",
+  "name": "Sample house",
+  "description": "Sophie's one-story sample: about 3,600 sq ft, 76 ft east-west by 47 ft north-south (a golden-ratio footprint). Rammed earth on the south, hempcrete on the north, east, and west. Living, kitchen, and office face south. Bedrooms sit on the east. Baths, laundry, and the garage sit on the north. A shaded patio is on the west. Phase 1 is a four-room core inside that footprint. Later rooms are future wings.",
+  "sample": true,
+  "disclaimer": "Editable SAMPLE layout, not a final design. Not an engineered drawing and not for permitting.",
+  "units": "feet",
+  "location": {
+    "name": "Jefferson County, Washington",
+    "note": "The parcel, setbacks, and terrain are not in this stage."
+  },
+  "orientation": {
+    "xAxis": "east",
+    "yAxis": "north",
+    "origin": "Southwest corner of the full footprint",
+    "longAxis": "east-west"
+  },
+  "footprint": {
+    "width": 76,
+    "depth": 47,
+    "longAxis": "east-west"
+  },
+  "phases": {
+    "phase1": {
+      "name": "Phase 1 core",
+      "bounds": { "x0": 22, "y0": 0, "x1": 58, "y1": 32 },
+      "note": "Outside faces of the weathertight core. 36 ft by 32 ft, 1,152 sq ft gross."
+    }
+  },
+  "levels": [
+    {
+      "id": "main",
+      "name": "Main floor",
+      "elevation": 0,
+      "plateHeight": 10,
+      "floorThickness": 0.5
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall-s-p1",
+      "levelId": "main",
+      "start": { "x": 22, "y": 0.75 },
+      "end": { "x": 58, "y": 0.75 },
+      "assembly": "rammed-earth",
+      "thickness": 1.5,
+      "height": 10,
+      "phase": "phase1",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-w-p1",
+      "levelId": "main",
+      "start": { "x": 22.5, "y": 1.5 },
+      "end": { "x": 22.5, "y": 31 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "phase1",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-e-p1",
+      "levelId": "main",
+      "start": { "x": 57.5, "y": 1.5 },
+      "end": { "x": 57.5, "y": 31 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "phase1",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-n-p1",
+      "levelId": "main",
+      "start": { "x": 22, "y": 31.5 },
+      "end": { "x": 58, "y": 31.5 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "phase1",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-p1-lk",
+      "levelId": "main",
+      "start": { "x": 40.5, "y": 1.5 },
+      "end": { "x": 40.5, "y": 19.25 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "phase1",
+      "role": "interior"
+    },
+    {
+      "id": "wall-p1-h",
+      "levelId": "main",
+      "start": { "x": 23, "y": 19.5 },
+      "end": { "x": 57, "y": 19.5 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "phase1",
+      "role": "interior"
+    },
+    {
+      "id": "wall-p1-bath",
+      "levelId": "main",
+      "start": { "x": 32, "y": 19.75 },
+      "end": { "x": 32, "y": 31 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "phase1",
+      "role": "interior"
+    },
+    {
+      "id": "wall-s-east",
+      "levelId": "main",
+      "start": { "x": 58, "y": 0.75 },
+      "end": { "x": 76, "y": 0.75 },
+      "assembly": "rammed-earth",
+      "thickness": 1.5,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-e-south",
+      "levelId": "main",
+      "start": { "x": 75.5, "y": 1.5 },
+      "end": { "x": 75.5, "y": 31 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-e-north",
+      "levelId": "main",
+      "start": { "x": 75.5, "y": 32 },
+      "end": { "x": 75.5, "y": 46 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-n-east",
+      "levelId": "main",
+      "start": { "x": 58, "y": 31.5 },
+      "end": { "x": 76, "y": 31.5 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    },
+    {
+      "id": "wall-n-full",
+      "levelId": "main",
+      "start": { "x": 0, "y": 46.5 },
+      "end": { "x": 76, "y": 46.5 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-garage-w",
+      "levelId": "main",
+      "start": { "x": 0.5, "y": 24 },
+      "end": { "x": 0.5, "y": 46 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-garage-s",
+      "levelId": "main",
+      "start": { "x": 0, "y": 23.5 },
+      "end": { "x": 22, "y": 23.5 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-garage-e",
+      "levelId": "main",
+      "start": { "x": 22.5, "y": 32 },
+      "end": { "x": 22.5, "y": 46 },
+      "assembly": "hempcrete",
+      "thickness": 1,
+      "height": 10,
+      "phase": "future",
+      "role": "exterior"
+    },
+    {
+      "id": "wall-office-bed2",
+      "levelId": "main",
+      "start": { "x": 58, "y": 18 },
+      "end": { "x": 75, "y": 18 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    },
+    {
+      "id": "wall-laundry-hall",
+      "levelId": "main",
+      "start": { "x": 36, "y": 32 },
+      "end": { "x": 36, "y": 46 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    },
+    {
+      "id": "wall-hall-primary",
+      "levelId": "main",
+      "start": { "x": 44, "y": 32 },
+      "end": { "x": 44, "y": 46 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    },
+    {
+      "id": "wall-pbath-v",
+      "levelId": "main",
+      "start": { "x": 64, "y": 32 },
+      "end": { "x": 64, "y": 40.5 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    },
+    {
+      "id": "wall-pbath-h",
+      "levelId": "main",
+      "start": { "x": 64, "y": 40.5 },
+      "end": { "x": 75, "y": 40.5 },
+      "assembly": "framed",
+      "thickness": 0.5,
+      "height": 10,
+      "phase": "future",
+      "role": "interior"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "living",
+      "levelId": "main",
+      "name": "Living room",
+      "phase": "phase1",
+      "polygon": [
+        { "x": 23, "y": 1.5 },
+        { "x": 40.25, "y": 1.5 },
+        { "x": 40.25, "y": 19.25 },
+        { "x": 23, "y": 19.25 }
+      ],
+      "finish": "wood",
+      "conditioned": true,
+      "note": "Phase 1. Faces south, on the rammed-earth wall."
+    },
+    {
+      "id": "kitchen",
+      "levelId": "main",
+      "name": "Kitchen",
+      "phase": "phase1",
+      "polygon": [
+        { "x": 40.75, "y": 1.5 },
+        { "x": 57, "y": 1.5 },
+        { "x": 57, "y": 19.25 },
+        { "x": 40.75, "y": 19.25 }
+      ],
+      "finish": "tile",
+      "conditioned": true,
+      "note": "Phase 1. Faces south, on the rammed-earth wall."
+    },
+    {
+      "id": "bathroom",
+      "levelId": "main",
+      "name": "Bathroom",
+      "phase": "phase1",
+      "polygon": [
+        { "x": 23, "y": 19.75 },
+        { "x": 31.75, "y": 19.75 },
+        { "x": 31.75, "y": 31 },
+        { "x": 23, "y": 31 }
+      ],
+      "finish": "tile",
+      "conditioned": true,
+      "note": "Phase 1. Northwest corner of the core."
+    },
+    {
+      "id": "bedroom",
+      "levelId": "main",
+      "name": "Bedroom",
+      "phase": "phase1",
+      "polygon": [
+        { "x": 32.25, "y": 19.75 },
+        { "x": 57, "y": 19.75 },
+        { "x": 57, "y": 31 },
+        { "x": 32.25, "y": 31 }
+      ],
+      "finish": "wood",
+      "conditioned": true,
+      "note": "Phase 1. Reaches the east wall, where later bedrooms attach."
+    },
+    {
+      "id": "patio",
+      "levelId": "main",
+      "name": "Shaded patio",
+      "phase": "future",
+      "polygon": [
+        { "x": 0, "y": 0 },
+        { "x": 22, "y": 0 },
+        { "x": 22, "y": 23 },
+        { "x": 0, "y": 23 }
+      ],
+      "finish": "stone",
+      "conditioned": false,
+      "outdoor": true,
+      "note": "Future outdoor room under the main roof. Open to the south and west."
+    },
+    {
+      "id": "garage",
+      "levelId": "main",
+      "name": "Garage",
+      "phase": "future",
+      "polygon": [
+        { "x": 1, "y": 24 },
+        { "x": 22, "y": 24 },
+        { "x": 22, "y": 46 },
+        { "x": 1, "y": 46 }
+      ],
+      "finish": "concrete",
+      "conditioned": false,
+      "note": "Future. Vehicle door faces north. Clear size is about 21 by 22 feet."
+    },
+    {
+      "id": "office",
+      "levelId": "main",
+      "name": "Office",
+      "phase": "future",
+      "polygon": [
+        { "x": 58, "y": 1.5 },
+        { "x": 75, "y": 1.5 },
+        { "x": 75, "y": 17.75 },
+        { "x": 58, "y": 17.75 }
+      ],
+      "finish": "wood",
+      "conditioned": true,
+      "note": "Future. Faces south, on the rammed-earth wall."
+    },
+    {
+      "id": "bedroom-2",
+      "levelId": "main",
+      "name": "Bedroom 2",
+      "phase": "future",
+      "polygon": [
+        { "x": 58, "y": 18.25 },
+        { "x": 75, "y": 18.25 },
+        { "x": 75, "y": 31 },
+        { "x": 58, "y": 31 }
+      ],
+      "finish": "wood",
+      "conditioned": true,
+      "note": "Future east bedroom."
+    },
+    {
+      "id": "laundry",
+      "levelId": "main",
+      "name": "Laundry",
+      "phase": "future",
+      "polygon": [
+        { "x": 23, "y": 32 },
+        { "x": 35.75, "y": 32 },
+        { "x": 35.75, "y": 46 },
+        { "x": 23, "y": 46 }
+      ],
+      "finish": "tile",
+      "conditioned": true,
+      "note": "Future. The room is sized to include a mudroom."
+    },
+    {
+      "id": "hall-bath",
+      "levelId": "main",
+      "name": "Hall bath",
+      "phase": "future",
+      "polygon": [
+        { "x": 36.25, "y": 32 },
+        { "x": 43.75, "y": 32 },
+        { "x": 43.75, "y": 46 },
+        { "x": 36.25, "y": 46 }
+      ],
+      "finish": "tile",
+      "conditioned": true,
+      "note": "Future. North wing, between the laundry and the primary suite."
+    },
+    {
+      "id": "primary-bedroom",
+      "levelId": "main",
+      "name": "Primary bedroom",
+      "phase": "future",
+      "polygon": [
+        { "x": 44.25, "y": 32 },
+        { "x": 63.75, "y": 32 },
+        { "x": 63.75, "y": 40.75 },
+        { "x": 75, "y": 40.75 },
+        { "x": 75, "y": 46 },
+        { "x": 44.25, "y": 46 }
+      ],
+      "labelAt": { "x": 56, "y": 43.2 },
+      "finish": "wood",
+      "conditioned": true,
+      "note": "Future northeast suite. The ensuite sits in the southeast corner of this zone."
+    },
+    {
+      "id": "primary-bath",
+      "levelId": "main",
+      "name": "Primary bath",
+      "phase": "future",
+      "polygon": [
+        { "x": 64.25, "y": 32 },
+        { "x": 75, "y": 32 },
+        { "x": 75, "y": 40.25 },
+        { "x": 64.25, "y": 40.25 }
+      ],
+      "finish": "tile",
+      "conditioned": true,
+      "note": "Future ensuite."
+    }
+  ],
+  "openings": [
+    {
+      "id": "win-living-s",
+      "wallId": "wall-s-p1",
+      "type": "window",
+      "offset": 3,
+      "width": 8,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "door-entry-s",
+      "wallId": "wall-s-p1",
+      "type": "door",
+      "style": "swing",
+      "offset": 12.5,
+      "width": 3,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "win-kitchen-s",
+      "wallId": "wall-s-p1",
+      "type": "window",
+      "offset": 22,
+      "width": 8,
+      "height": 4,
+      "sill": 3
+    },
+    {
+      "id": "door-patio",
+      "wallId": "wall-w-p1",
+      "type": "door",
+      "style": "sliding",
+      "offset": 6,
+      "width": 6,
+      "height": 6.667,
+      "sill": 0
+    },
+    {
+      "id": "win-bath-w",
+      "wallId": "wall-w-p1",
+      "type": "window",
+      "offset": 21,
+      "width": 3,
+      "height": 3,
+      "sill": 4.5
+    },
+    {
+      "id": "win-kitchen-e",
+      "wallId": "wall-e-p1",
+      "type": "window",
+      "offset": 5,
+      "width": 4,
+      "height": 4,
+      "sill": 3
+    },
+    {
+      "id": "door-to-office",
+      "wallId": "wall-e-p1",
+      "type": "door",
+      "style": "swing",
+      "offset": 14,
+      "width": 3,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "win-bed-e",
+      "wallId": "wall-e-p1",
+      "type": "window",
+      "offset": 22,
+      "width": 6,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "door-bath-laundry",
+      "wallId": "wall-n-p1",
+      "type": "door",
+      "style": "swing",
+      "offset": 4,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "right"
+    },
+    {
+      "id": "door-bed-hall",
+      "wallId": "wall-n-p1",
+      "type": "door",
+      "style": "swing",
+      "offset": 16,
+      "width": 3,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "right"
+    },
+    {
+      "id": "open-living-kitchen",
+      "wallId": "wall-p1-lk",
+      "type": "door",
+      "style": "cased",
+      "offset": 4.5,
+      "width": 8,
+      "height": 8,
+      "sill": 0
+    },
+    {
+      "id": "door-living-bath",
+      "wallId": "wall-p1-h",
+      "type": "door",
+      "style": "swing",
+      "offset": 3,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "door-living-bed",
+      "wallId": "wall-p1-h",
+      "type": "door",
+      "style": "swing",
+      "offset": 12,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "door-kitchen-bed",
+      "wallId": "wall-p1-h",
+      "type": "door",
+      "style": "swing",
+      "offset": 22,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "win-office-s1",
+      "wallId": "wall-s-east",
+      "type": "window",
+      "offset": 2,
+      "width": 5,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "win-office-s2",
+      "wallId": "wall-s-east",
+      "type": "window",
+      "offset": 10,
+      "width": 5,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "win-office-e",
+      "wallId": "wall-e-south",
+      "type": "window",
+      "offset": 6,
+      "width": 4,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "win-bed2-e",
+      "wallId": "wall-e-south",
+      "type": "window",
+      "offset": 20,
+      "width": 5,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "win-pbath-e",
+      "wallId": "wall-e-north",
+      "type": "window",
+      "offset": 1.5,
+      "width": 3,
+      "height": 2.5,
+      "sill": 5
+    },
+    {
+      "id": "win-primary-e",
+      "wallId": "wall-e-north",
+      "type": "window",
+      "offset": 9,
+      "width": 4,
+      "height": 3.5,
+      "sill": 2.5
+    },
+    {
+      "id": "door-garage",
+      "wallId": "wall-n-full",
+      "type": "door",
+      "style": "overhead",
+      "offset": 3,
+      "width": 16,
+      "height": 8,
+      "sill": 0
+    },
+    {
+      "id": "win-laundry-n",
+      "wallId": "wall-n-full",
+      "type": "window",
+      "offset": 26,
+      "width": 3,
+      "height": 3,
+      "sill": 4
+    },
+    {
+      "id": "win-hall-n",
+      "wallId": "wall-n-full",
+      "type": "window",
+      "offset": 38,
+      "width": 3,
+      "height": 3,
+      "sill": 4.5
+    },
+    {
+      "id": "win-primary-n",
+      "wallId": "wall-n-full",
+      "type": "window",
+      "offset": 50,
+      "width": 6,
+      "height": 4,
+      "sill": 2.5
+    },
+    {
+      "id": "door-garage-patio",
+      "wallId": "wall-garage-s",
+      "type": "door",
+      "style": "swing",
+      "offset": 14,
+      "width": 3,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "door-garage-laundry",
+      "wallId": "wall-garage-e",
+      "type": "door",
+      "style": "swing",
+      "offset": 4,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "right"
+    },
+    {
+      "id": "door-office-bed2",
+      "wallId": "wall-office-bed2",
+      "type": "door",
+      "style": "swing",
+      "offset": 7,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "door-bed2-primary",
+      "wallId": "wall-n-east",
+      "type": "door",
+      "style": "swing",
+      "offset": 6,
+      "width": 3,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    },
+    {
+      "id": "door-laundry-hall",
+      "wallId": "wall-laundry-hall",
+      "type": "door",
+      "style": "swing",
+      "offset": 4,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "right"
+    },
+    {
+      "id": "door-hall-primary",
+      "wallId": "wall-hall-primary",
+      "type": "door",
+      "style": "swing",
+      "offset": 4,
+      "width": 2.667,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "right"
+    },
+    {
+      "id": "door-primary-bath",
+      "wallId": "wall-pbath-h",
+      "type": "door",
+      "style": "swing",
+      "offset": 2,
+      "width": 2.5,
+      "height": 6.667,
+      "sill": 0,
+      "hinge": "start",
+      "swingSide": "left"
+    }
+  ],
+  "roof": {
+    "id": "roof-main",
+    "kind": "chinese-hip-and-gable",
+    "placeholder": true,
+    "pitch": "6:12",
+    "pitchRiseOverRun": 0.5,
+    "overhang": 2,
+    "plateHeight": 10,
+    "note": "Placeholder massing only. Not a structural or architectural roof design. The full-house roof also covers the west patio, which is how that patio is shaded."
+  },
+  "notes": [
+    "SAMPLE layout for James and Sophie. Not a final design, not an engineered drawing, and not for permitting.",
+    "Units are feet. +x is east, +y is north. The origin is the southwest corner of the full footprint.",
+    "Wall start and end are centerlines. Thickness is centered on that segment. Corners are butt joints.",
+    "South exterior walls are rammed earth, 18 inches. Other exterior walls are hempcrete, 12 inches. Interior partitions are framed, 6 inches.",
+    "Phase 1 is a weathertight four-room core. Its hempcrete north, east, and west walls remain in the full house, with doors into the later wings.",
+    "The roof is placeholder massing for a Chinese hip-and-gable. It is not a structural design.",
+    "This file has no prices. Do not add one unless it cites a source URL and the date it was checked."
+  ]
+}
