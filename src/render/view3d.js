@@ -236,6 +236,7 @@ export function createView3d(canvas, initialHouse) {
         if (next.camera) applySavedCamera(next.camera);
         appliedSavedCamera = true;
       }
+      roofPivot.visible = next?.roof !== false;
       applyVisibility(next);
     },
     resize,

@@ -940,9 +940,110 @@ button:focus-visible {
 }
 .cost-lines, .cost-lines li, .mini-cost { max-width: 100%; min-width: 0; }
 
+.game-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.game-head h2 { font-family: Fraunces, Palatino, Georgia, serif; font-size: 1.35rem; line-height: 1.1; }
+.status-chip { border-radius: 999px; padding: 4px 8px; font-size: 0.75rem; font-weight: 750; white-space: nowrap; }
+.status-chip.ok { background: #e5f2ea; color: var(--moss); }
+.status-chip.bad { background: #f8e4dc; color: #9c341f; }
+.stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.stat-tile { background: #f7f3eb; border-radius: 12px; padding: 8px 6px; display: grid; gap: 2px; min-width: 0; }
+.stat-icon { font-size: 0.95rem; }
+.stat-value { font-weight: 750; font-size: 0.95rem; }
+.stat-label { color: var(--muted); font-size: 0.68rem; }
+.issue-card { border-radius: 12px; padding: 8px 10px; display: grid; gap: 4px; }
+.issue-card.blocker, .issue-card.warning { background: #f8e4dc; }
+.issue-card.tip { background: #e7f0ea; }
+.issue-card p { font-size: 0.82rem; }
+.issue-card button, .method-choice {
+  min-height: 44px;
+  border-radius: 12px;
+  text-align: left;
+}
+.inspector .btn-quiet {
+  min-height: 36px !important;
+  width: auto;
+  justify-self: start;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #9c341f;
+  font-weight: 650;
+  padding: 4px 8px;
+}
+.tech { border-top: 1px solid var(--line); padding-top: 6px; }
+.tech summary { cursor: pointer; font-weight: 700; }
+.tool-row .tool {
+  min-height: 52px;
+  min-width: 64px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  border-radius: 14px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+}
+.tool-icon { font-size: 1.05rem; line-height: 1; }
+.tool-options.advanced-off .advanced-only { display: none; }
+.suggest-row, .shop-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+}
+.suggest-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.shop-row { grid-template-columns: 1.4fr 0.7fr auto auto; padding: 8px 0; border-top: 1px solid var(--line); font-size: 0.88rem; }
+.price-needed { color: #9c341f; font-weight: 750; }
+.cost-top { position: sticky; top: 0; background: var(--card); z-index: 2; padding-bottom: 8px; }
+.cost-total { font-family: Fraunces, Palatino, Georgia, serif; font-size: 2rem; margin: 0; }
+.cost-progress { height: 8px; border-radius: 999px; background: #efe6d8; overflow: hidden; }
+.cost-progress span { display: block; height: 100%; background: var(--moss); }
+.cat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cat-tile { border: 1px solid var(--line); border-radius: 14px; background: white; padding: 10px; text-align: left; min-height: 64px; }
+.cat-tile strong { display: block; font-size: 0.95rem; }
+.tool-hint {
+  pointer-events: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(47, 93, 69, 0.94);
+  color: #f6f1e8;
+  border-radius: 999px;
+  padding: 6px 10px 6px 14px;
+  font-size: 0.82rem;
+}
+.tool-hint button { min-height: 32px; border: 0; background: transparent; color: inherit; font-weight: 700; }
+.budget-toast, .app-toast {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  top: 64px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #f6f1e8;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 750;
+}
+.focus-note { font-size: 0.75rem; color: var(--muted); }
+
 @media (max-width: 860px) {
   .build-bar { padding-top: 4px; }
-  .tool, .chip { padding: 8px 10px; }
+  .tool, .chip, .inspector button, .cat-tile, .method-choice { min-height: 44px; }
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .build-hud { align-items: stretch; }
+  .tool-row { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; max-width: 100%; }
+  .tool-dock { max-width: 100%; }
+  .layer-panel.open, .layer-panel.showing-selection {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: min(72dvh, 560px);
+    border-radius: 18px 18px 0 0;
+    z-index: 6;
+  }
+  .shop-row { grid-template-columns: 1fr auto; }
 }
 
 [hidden] { display: none !important; }

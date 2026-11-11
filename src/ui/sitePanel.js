@@ -1,4 +1,5 @@
 import { SEPTIC_KINDS, WELL_KINDS, buildSite } from "../site/design.js";
+import { gameHead, quietDelete, statTiles, techBlock } from "./gamecard.js";
 
 export const SITE_KINDS = [
   { id: "well", label: "Well" },
@@ -51,16 +52,16 @@ export function siteInspectorHtml(house, selection) {
     const pump = (house.electrical?.devices || []).some((device) => device.kind === "well-pump" && !device.ghost);
     const entry = house.plumbing?.entry;
     return `
-      <h2>Well</h2>
-      <p>${labelOf(WELL_KINDS, well.kind)}</p>
+      ${gameHead("Well", [])}
+      ${statTiles([
+        { icon: "W", value: labelOf(WELL_KINDS, well.kind), label: "Kind" },
+        { icon: "↪", value: entry ? "Tied in" : "No entry", label: "Water entry" },
+        { icon: "⚡", value: pump ? "On" : "Missing", label: "Pump circuit" },
+        { icon: "$", value: "Needed", label: "Price" },
+      ])}
       <label>Kind <select id="well-kind">${WELL_KINDS.map((item) => `<option value="${item.id}" ${item.id === well.kind ? "selected" : ""}>${item.label}</option>`).join("")}</select></label>
-      <p>${entry ? "Tied to the water entry." : "No water entry yet."} ${pump ? "Well-pump circuit is on." : "No well-pump circuit yet."}</p>
-      <p class="fine">Price needed.</p>
-      <details>
-        <summary>Distances</summary>
-        <p>100 ft from a drainfield. ${well.kind === "public" ? "100" : "50"} ft from the tank. 5 ft from the house. WAC 173-160-171 and Table IV.</p>
-      </details>
-      <button type="button" id="edit-delete">Delete well</button>`;
+      ${techBlock(`<p>100 ft from a drainfield. ${well.kind === "public" ? "100" : "50"} ft from the tank. 5 ft from the house. WAC 173-160-171 and Table IV. No published drilling price was found.</p>`)}
+      ${quietDelete("Delete well")}`;
   }
   if (selection.type === "septic" || selection.type === "drainfield" || selection.type === "reserve") {
     const septic = house.site.septic;
@@ -70,17 +71,19 @@ export function siteInspectorHtml(house, selection) {
       : gravity.ok
         ? "Gravity reaches"
         : `Short ${round(gravity.shortInches)} in`;
+    const issues = gravity.ok || gravity.pumped ? [] : [{ severity: "warning", title: headline, why: "" }];
     return `
-      <h2>Septic</h2>
+      ${gameHead("Septic", issues)}
+      ${statTiles([
+        { icon: "↓", value: `${round(gravity.stubInches)} in`, label: "Stub drop" },
+        { icon: "↔", value: `${round(gravity.runFt)} ft`, label: "To tank" },
+        { icon: "↘", value: `${round(gravity.groundInches)} in`, label: "Ground fall" },
+        { icon: "▦", value: `${Math.round(view.primarySqFt)} sf`, label: "Field" },
+      ])}
       <p>${headline}</p>
-      <p>Stub ${round(gravity.stubInches)} in down · ${round(gravity.runFt)} ft to the tank · ground falls ${round(gravity.groundInches)} in</p>
       <label>Kind <select id="septic-kind">${SEPTIC_KINDS.map((item) => `<option value="${item.id}" ${item.id === septic?.kind ? "selected" : ""}>${item.label}</option>`).join("")}</select></label>
-      <details open>
-        <summary>Field</summary>
-        <p>${view.bedrooms} bedrooms · ${view.flow} gal/day. Primary ${Math.round(view.primarySqFt)} sq ft. Reserve ${Math.round(view.reserveSqFt)} sq ft. Rate ${septic?.loadingRate || 0.2} · confirm Table VIII.</p>
-      </details>
-      <p class="fine">Price needed.</p>
-      <button type="button" id="edit-delete">Delete septic</button>`;
+      ${techBlock(`<p>${view.bedrooms} bedrooms · ${view.flow} gal/day. Primary ${Math.round(view.primarySqFt)} sq ft. Reserve ${Math.round(view.reserveSqFt)} sq ft. Rate ${septic?.loadingRate || 0.2} gal/sq ft/day · confirm Table VIII. Price needed.</p>`)}
+      ${quietDelete("Delete septic")}`;
   }
   return "";
 }

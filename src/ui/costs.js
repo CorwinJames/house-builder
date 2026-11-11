@@ -15,7 +15,7 @@ const GROUPS = [
   ["allowances", "Allowances, not in the total"],
 ];
 
-export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
+export function attachCosts({ getHouse, getPhase, getSelection, setDiy, setPhase }) {
   const chip = document.querySelector("#cost-chip");
   const dialog = document.querySelector("#cost-dialog");
   let hireFinish = false;
@@ -25,6 +25,16 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
     if (!dialog.open) dialog.showModal();
   });
   dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    dialog.querySelector("#cost-phase")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-phase]");
+      if (!button || !setPhase) return;
+      setPhase(button.dataset.phase);
+    });
+  dialog.querySelector("#cost-nav")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-jump]");
+    if (!button) return;
+    dialog.querySelector(`#cost-${button.dataset.jump}`)?.scrollIntoView({ block: "start" });
+  });
   dialog.querySelector("#cost-hire").addEventListener("change", (event) => {
     hireFinish = event.target.checked;
     setDiy(!hireFinish);
@@ -73,19 +83,37 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
       })
       : null;
 
-    dialog.querySelector("#cost-summary").innerHTML = `
-      <p><strong>${phase === "phase1" ? "Phase 1" : "Full house"} ${formatMoney(report.pricedTotal)}</strong></p>
-      <p class="fine">Phase 1 ${formatMoney(report.phase1Total)} · Full house ${formatMoney(report.fullTotal)} · ${report.unpricedCount} price needed</p>
-      <p class="fine">Foundation, slab, and roof are listed and left out of the total. Lines with no published price stay out of the total.</p>`;
-    dialog.querySelector("#cost-load").innerHTML = loadHtml(house, phase);
-    dialog.querySelector("#cost-plumbing").innerHTML = plumbingHtml(house, phase);
+    const pricedLines = report.lines.filter((line) => !line.priceNeeded && !line.allowance);
+    const pricedCount = pricedLines.length;
+    const itemCount = report.lines.filter((line) => !line.allowance).length || 1;
+    dialog.querySelector("#cost-total").textContent = formatMoney(report.pricedTotal);
+    for (const button of dialog.querySelectorAll("#cost-phase button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.phase === phase));
+    }
+    dialog.querySelector("#cost-progress").innerHTML = `
+      <div class="cost-progress"><span style="width:${Math.round((pricedCount / itemCount) * 100)}%"></span></div>
+      <p class="fine">Priced ${pricedCount} of ${itemCount} items. Lines with no published price, and the foundation, slab, and roof allowances, stay out of the total.</p>`;
+    const tiles = [
+      ["structure", "Structure", ["hempcrete", "rammed-earth", "framing", "openings"]],
+      ["electrical", "Electrical", ["electrical"]],
+      ["plumbing", "Plumbing", ["plumbing"]],
+      ["site", "Site", ["site"]],
+      ["finishes", "Finishes", ["finishes"]],
+      ["labor", "Labor", ["labor"]],
+      ["allowances", "Allowances", ["allowances"]],
+    ];
+    const subtotal = (ids) => report.lines.filter((line) => ids.includes(line.category) && typeof line.lineTotal === "number" && !line.allowance)
+      .reduce((sum, line) => sum + line.lineTotal, 0);
+    dialog.querySelector("#cost-nav").innerHTML = tiles.map(([id, label]) => `<button type="button" data-jump="${id}">${label}</button>`).join("");
     dialog.querySelector("#cost-focus").innerHTML = focused
       ? `<h3>This ${selection.type}</h3>${linesHtml(focused.lines)}<p class="fine">${formatMoney(focused.pricedTotal)} priced on this ${selection.type}. ${focused.unpricedCount} still need a price.</p>`
       : "";
-    dialog.querySelector("#cost-groups").innerHTML = GROUPS.map(([id, label]) => {
-      const lines = report.lines.filter((line) => line.category === id);
-      if (!lines.length) return "";
-      return `<section><h3>${label}</h3>${linesHtml(lines)}</section>`;
+    dialog.querySelector("#cost-groups").innerHTML = tiles.map(([id, label, ids]) => {
+      const lines = report.lines.filter((line) => ids.includes(line.category));
+      if (!lines.length && id !== "electrical" && id !== "plumbing") return "";
+      const extra = id === "electrical" ? `<details class="tech"><summary>Service load and circuits</summary>${loadHtml(house, phase)}</details>` : "";
+      const pipes = id === "plumbing" ? `<details class="tech"><summary>Drain sizes and the stub</summary>${plumbingHtml(house, phase)}</details>` : "";
+      return `<section id="cost-${id}"><h3>${label}</h3><p class="fine">${id === "allowances" ? "Not in the total" : formatMoney(subtotal(ids))}</p>${linesHtml(lines)}${extra}${pipes}</section>`;
     }).join("") + report.hooks.map((hook) => `<section><h3>${hook.name}</h3><p class="fine">${hook.note}</p></section>`).join("");
   }
 
@@ -166,7 +194,6 @@ export function fixtureCostHtml(house, fixture) {
   const link = linkedElectrical(house, fixture);
   const well = fixture.kind === "water-heater" ? null : linkedWell(house);
   return `
-    <h3>How this can be piped</h3>
     <div class="method-list">${methods.map((item) => `
       <button type="button" class="method-choice" data-supply="${item.id}" aria-pressed="${item.id === currentMethod}">
         <span>${item.label}</span>
@@ -176,13 +203,15 @@ export function fixtureCostHtml(house, fixture) {
       <button type="button" class="method-choice" data-heater="${item.id}" aria-pressed="${fixture.heaterType === item.id}">
         <span>${item.label}</span>
         <span class="fine">${fixture.heaterType === item.id ? "This heater now" : escapeHtml(`For this fixture, ${methodDiff(heaters.find((row) => row.id === fixture.heaterType)?.report || item.report, item.report)}`)}</span>
-      </button>`).join("")}</div>
-      <p class="fine">${link ? `Tied to the stage 5 ${link.kind} circuit.` : "No matching 240V circuit yet. Place a water heater or heat pump in Electrical."}</p>` : ""}
-    ${fixture.kind !== "water-heater" && house.plumbing?.entry ? `<p class="fine">${well ? "The water entry is tied to the stage 5 well-pump circuit." : "The well pump's 240V circuit is not placed yet. Add a well pump in Electrical. The pressure tank stays a hook until stage 8."}</p>` : ""}
-    ${gallons ? `<p>Hot water in this run: ${gallons} gal. At an assumed 2 gpm that is about ${wait} seconds. The flow rate is an assumption.</p>` : ""}
-    ${design.building.length ? `<p class="fine">Building drain ${design.building.size} in., ${design.building.length} ft, slope ${design.building.slope.inchesPerFoot} in./ft, invert drop ${design.building.slope.inches} in. (${design.building.slope.feet} ft) at the septic stub.</p>` : ""}
-    <h3>This fixture</h3>
-    ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this fixture · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this fixture.</p>`}`;
+      </button>`).join("")}</div>` : ""}
+    <details class="tech">
+      <summary>Technical details</summary>
+      ${heaters.length ? `<p class="fine">${link ? `Tied to the stage 5 ${link.kind} circuit.` : "No matching 240V circuit yet. Place a water heater or heat pump in Electrical."}</p>` : ""}
+      ${fixture.kind !== "water-heater" && house.plumbing?.entry ? `<p class="fine">${well ? "The water entry is tied to the well-pump circuit." : "The well pump's 240V circuit is not placed yet."}</p>` : ""}
+      ${gallons ? `<p>Hot water in this run: ${gallons} gal. At an assumed 2 gpm that is about ${wait} seconds. The flow rate is an assumption.</p>` : ""}
+      ${design.building.length ? `<p class="fine">Building drain ${design.building.size} in., ${design.building.length} ft, slope ${design.building.slope.inchesPerFoot} in./ft, invert drop ${design.building.slope.inches} in. at the septic stub.</p>` : ""}
+      ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this fixture · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this fixture.</p>`}
+    </details>`;
 }
 
 function roundSeconds(value) {
@@ -219,10 +248,12 @@ export function deviceCostHtml(house, device) {
       <span class="fine">${item.id === currentId ? "This wall now" : escapeHtml(`For this wall, ${methodDiff(current, item.report)}`)}</span>
     </button>`).join("");
   return `
-    <h3>How this wall can be wired</h3>
-    ${wall ? `<div class="method-list">${choices}</div><p class="fine">Choosing one sets it for the whole wall. Hempcrete and rammed earth default to conduit so the cable is not buried in the mass. Surface raceway is the other way to stay out of that mass. Both need an electrician and the inspector to confirm.</p>` : `<p class="fine">This one is not on a wall, so the run is treated as ceiling or attic cable.</p>`}
-    <h3>This device</h3>
-    ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this device · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this device.</p>`}`;
+    ${wall ? `<div class="method-list">${choices}</div>` : ""}
+    <details class="tech">
+      <summary>Technical details</summary>
+      <p class="fine">${wall ? "Choosing one sets it for the whole wall. Hempcrete and rammed earth default to conduit so the cable is not buried in the mass. Surface raceway stays out of that mass. Both need an electrician and the inspector to confirm." : "This one is not on a wall, so the run is treated as ceiling or attic cable."}</p>
+      ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this device · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this device.</p>`}
+    </details>`;
 }
 
 export function selectionCostHtml(house, selection) {
@@ -261,11 +292,11 @@ function loadHtml(house, phase) {
 function linesHtml(lines) {
   if (!lines.length) return `<p class="fine">Nothing in this group.</p>`;
   return `<ul class="cost-lines">${lines.map((line) => `
-    <li>
+    <li class="shop-row">
       <span class="cost-name">${escapeHtml(line.name)}</span>
-      <span>${formatQty(line.quantity)} ${escapeHtml(line.unit)}${line.lineTotal == null ? "" : ` · ${formatMoney(line.lineTotal)}`}${line.unitPrice == null ? "" : ` @ ${formatMoney(line.unitPrice)}`}</span>
-      ${line.priceNeeded ? `<span class="price-needed">Price needed</span>` : ""}
-      ${line.url ? `<a href="${escapeAttr(line.url)}" target="_blank" rel="noreferrer">${escapeHtml(line.sourceName)}</a>` : `<span class="fine">${escapeHtml(line.sourceName)}</span>`}
+      <span>${formatQty(line.quantity)} ${escapeHtml(line.unit)}</span>
+      ${line.priceNeeded ? `<span class="price-needed">Price needed</span>` : `<span>${formatMoney(line.lineTotal)}</span>`}
+      ${line.url ? `<a href="${escapeAttr(line.url)}" target="_blank" rel="noreferrer">${escapeHtml(line.sourceName)}</a>` : (line.priceNeeded ? `<span></span>` : `<span class="fine">${escapeHtml(line.sourceName || "")}</span>`)}
     </li>`).join("")}</ul>`;
 }
 
