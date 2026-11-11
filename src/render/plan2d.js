@@ -75,7 +75,8 @@ export function createPlanView(canvas, initialHouse) {
     const { w, h } = size();
     if (w < 20 || h < 20) return;
     const future = state ? isFutureShown(state) : true;
-    const siteView = state?.layers?.site !== false ? buildSite(house) : null;
+    const siteMode = state?.focus === "site";
+    const siteView = siteMode && state?.layers?.site !== false ? buildSite(house) : null;
     const bounds = siteView?.bounds
       ? {
           x0: siteView.bounds.x0 - 20,
@@ -84,10 +85,10 @@ export function createPlanView(canvas, initialHouse) {
           y1: siteView.bounds.y1 + 20,
         }
       : future
-        ? { x0: -12, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 6 }
+        ? { x0: -6, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 8 }
         : {
-            x0: house.phases.phase1.bounds.x0 - 10,
-            y0: house.phases.phase1.bounds.y0 - 8,
+            x0: house.phases.phase1.bounds.x0 - 6,
+            y0: house.phases.phase1.bounds.y0 - 6,
             x1: house.phases.phase1.bounds.x1 + 6,
             y1: house.phases.phase1.bounds.y1 + 6,
           };
@@ -95,7 +96,7 @@ export function createPlanView(canvas, initialHouse) {
     camera.cy = (bounds.y0 + bounds.y1) / 2;
     camera.pxPerFt = Math.max(
       2,
-      Math.min((w - 28) / (bounds.x1 - bounds.x0), (h - 28) / (bounds.y1 - bounds.y0)),
+      Math.min((w - 48) / (bounds.x1 - bounds.x0), (h - 120) / (bounds.y1 - bounds.y0)),
     );
     cameraReady = true;
     if (notify) onChange({ ...camera });
@@ -213,6 +214,7 @@ export function createPlanView(canvas, initialHouse) {
     if (!siteOn()) return;
     const site = house.site;
     ctx.save();
+    if (state?.focus && state.focus !== "site") ctx.globalAlpha = 0.16;
     const path = (points) => {
       ctx.beginPath();
       points.forEach((point, index) => {
@@ -659,11 +661,11 @@ export function createPlanView(canvas, initialHouse) {
     drawOverlay();
     drawDimensions();
     drawLabels();
-    drawMarkers();
     drawConstraintBadges();
     drawGuides();
     drawCompass();
     drawWatermark();
+    drawMarkers();
   }
 
   function drawStuds(wall) {
@@ -724,6 +726,7 @@ export function createPlanView(canvas, initialHouse) {
     const selectedId = overlay?.selection?.type === "fixture" ? overlay.selection.id : null;
     const active = hoverPipeId || (selectedId ? `fixture:${selectedId}` : null);
     ctx.save();
+    if (state?.focus && state.focus !== "plumbing") ctx.globalAlpha = 0.16;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     const drawRun = (points, color, dashed, id, label) => {
@@ -781,7 +784,10 @@ export function createPlanView(canvas, initialHouse) {
       ctx.fillText(letter, screen.x, screen.y);
     };
     const letters = { toilet: "T", lavatory: "L", "kitchen-sink": "S", dishwasher: "D", shower: "H", tub: "B", washer: "W", "laundry-sink": "Y", "hose-bibb": "HB", "water-heater": "WH" };
-    for (const fixture of design.fixtures) mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+    for (const fixture of design.fixtures) {
+      if (state?.issuesOnly && !(state.issueFixtureIds || []).includes(fixture.id) && fixture.id !== selectedId) continue;
+      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+    }
     for (const fixture of house.plumbing.fixtures || []) {
       if (!fixture.ghost || !isPhaseVisible(fixture.phase, state)) continue;
       mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
@@ -903,9 +909,7 @@ export function createPlanView(canvas, initialHouse) {
     const selectedId = overlay?.selection?.type === "device" ? overlay.selection.id : null;
     const activeId = hoverCircuitId || design.circuits.find((circuit) => circuit.deviceIds.includes(selectedId))?.id || null;
     ctx.save();
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    const avoid = roomLabelRects();
+    if (state?.focus && state.focus !== "electrical") ctx.globalAlpha = 0.16;
     design.circuits.forEach((circuit, index) => {
       const color = CIRCUIT_COLORS[index % CIRCUIT_COLORS.length];
       const active = circuit.id === activeId;
@@ -950,6 +954,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawDeviceMark(device, ghost) {
+    if (state?.issuesOnly && !(state.issueDeviceIds || []).includes(device.id) && overlay?.selection?.id !== device.id) return;
     const at = devicePoint(house, device);
     const screen = worldToScreen(at.x, at.y);
     const selected = overlay?.selection?.type === "device" && overlay.selection.id === device.id;
@@ -985,21 +990,30 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawMarkers() {
     if (!markers.length) return;
-    const seen = new Map();
+    const zoomedOut = (camera.pxPerFt || 8) < 8;
+    const buckets = new Map();
+    for (const marker of markers) {
+      if (!marker.point) continue;
+      const screen = worldToScreen(marker.point.x, marker.point.y);
+      const key = zoomedOut ? `${Math.round(screen.x / 36)}:${Math.round((screen.y - 18) / 36)}` : `${marker.point.x.toFixed(1)},${marker.point.y.toFixed(1)}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push({ marker, screen });
+    }
     ctx.save();
     ctx.font = "700 11px Outfit, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const marker of markers) {
-      if (!marker.point) continue;
-      const key = `${marker.point.x.toFixed(1)},${marker.point.y.toFixed(1)}`;
-      const slot = seen.get(key) || 0;
-      seen.set(key, slot + 1);
-      const screen = worldToScreen(marker.point.x, marker.point.y);
-      const x = screen.x + (slot - 0) * 14;
-      const y = screen.y - 16;
-      const color = marker.severity === "blocker" ? "#9C341F" : marker.severity === "tip" ? "#2F5D45" : "#C4654A";
-      const radius = marker.active ? 9 : 7;
+    for (const group of buckets.values()) {
+      const lead = group.find((item) => item.marker.active) || group[0];
+      const screen = lead.screen;
+      const x = screen.x;
+      const y = screen.y - 22;
+      const color = group.some((item) => item.marker.severity === "blocker")
+        ? "#9C341F"
+        : group.every((item) => item.marker.severity === "tip")
+          ? "#2F5D45"
+          : "#C4654A";
+      const radius = lead.marker.active ? 10 : 8;
       ctx.beginPath();
       ctx.fillStyle = color;
       ctx.strokeStyle = "#F7F3EB";
@@ -1008,13 +1022,22 @@ export function createPlanView(canvas, initialHouse) {
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = "#F7F3EB";
-      ctx.fillText("!", x, y + 0.5);
+      ctx.fillText(group.length > 1 ? String(group.length) : "!", x, y + 0.5);
     }
     ctx.restore();
   }
 
   function drawOverlay() {
     if (!overlay) return;
+    if (overlay.moveLabel) {
+      const screen = worldToScreen(overlay.moveLabel.x, overlay.moveLabel.y);
+      ctx.save();
+      ctx.font = "700 13px Outfit, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#2A241B";
+      ctx.fillText(overlay.moveLabel.text, screen.x, screen.y - 16);
+      ctx.restore();
+    }
     const warnedWalls = overlay.warningWalls || [];
     const warnedOpenings = overlay.warningOpenings || [];
     ctx.save();

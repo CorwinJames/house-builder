@@ -1,5 +1,9 @@
 # Changelog
 
+## Game-feel panels
+
+Object cards now lead with a title and an up-to-code chip, then a few large stats, then each warning as its own card. Citations, assumptions, and line costs sit under Technical details. The cost window opens on the total, a phase toggle, and category jumps. The build bar uses icon tools, one-line hints, and an Advanced toggle for the proportion tools. Suggest placements previews a count per room. Electrical, plumbing, and site dim the other systems while you work in one of them.
+
 ## Stage 8 — land
 
 The Site layer is on. The sample is a labeled 5 acre rectangle, not a real Jefferson County parcel. The plan shows the lot, road and side setbacks, a buildable area, contour lines, a well, a septic tank, a drainfield, and a reserve area. A card on the plan gives the acreage, the soil line, the gravity check, and the pad cut and fill.
