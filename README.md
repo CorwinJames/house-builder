@@ -40,7 +40,7 @@ The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The pl
 - **Grid / Ratio** switches how a new wall's length snaps. Ratio uses the project ratio and a module length. While you drag, tick marks are labeled, for example **φ² · 8 ft**.
 - **Guides** draws a square-and-remainder on the footprint, and on a room you have selected.
 - Select a wall to set **this wall = ratio × another wall**, or to unlink it. If you change the reference, the linked wall follows. A loop is left alone and called out.
-- A room's panel shows its length-to-width ratio and the nearest named one, such as **1.618 · Golden · exact** or **1.59 · ~Golden · −1.7%**. **Make proportional** moves the far wall so the room matches the ratio you pick.
+- A room's panel shows its length-to-width ratio and the nearest named one, such as **1.618 · φ** or **1.59 · φ −1.7%**. On the plan that line uses a font that can draw φ, δ, √, and ρ, and it stays hidden until you zoom in. **Make proportional** moves the far wall so the room matches the ratio you pick.
 - **Snap footprint to φ** makes the stored width exactly φ times the depth. The walls you already drew do not jump.
 
 - **Plan** is the flat drawing. North is up. Drag to slide around. Scroll, or pinch on a phone, to zoom. Double-click the plan, or press **Fit**, to see the whole house again.

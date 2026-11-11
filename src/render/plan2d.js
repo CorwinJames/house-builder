@@ -2,6 +2,9 @@ import { ASSEMBLY_2D, FINISH_2D, INK, MUTED } from "../theme.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { constraintReadout } from "../build/constraints.js";
 import { pickReadableTicks, roomProportion } from "../build/ratios.js";
+
+const RATIO_FONT = '"Noto Sans Math", "Noto Sans", "Segoe UI Symbol", "DejaVu Sans", sans-serif';
+const RATIO_GLYPHS = "φδρ√·−+0123456789.% ";
 import {
   openingsFor,
   pointAlong,
@@ -30,6 +33,7 @@ export function createPlanView(canvas, initialHouse) {
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let cameraReady = false;
+  let ratioFontReady = false;
   const pointers = new Map();
   let drag = null;
   let pinch = null;
@@ -399,15 +403,24 @@ export function createPlanView(canvas, initialHouse) {
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
       ctx.fillStyle = MUTED;
       ctx.fillText(`${formatArea(polygonArea(room.polygon))} sq ft`, s.x, s.y + nameSize * 0.55);
-      if (boxW > 96 && boxH > 72) {
-        ctx.font = `600 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
-        ctx.fillStyle = "#2F5D45";
-        ctx.fillText(roomProportion(room, house.customRatios || []).phrase, s.x, s.y + nameSize * 1.55);
+      let proportionDrawn = false;
+      if (camera.pxPerFt >= 20 && boxW > 130 && boxH > 96) {
+        const line = roomProportion(room, house.customRatios || []).phrase;
+        const lineSize = Math.max(13, Math.min(16, nameSize - 2));
+        ctx.font = `400 ${lineSize}px ${RATIO_FONT}`;
+        ctx.letterSpacing = "0.06em";
+        const lineWidth = ctx.measureText(line).width;
+        if (line && lineWidth < boxW - 16) {
+          ctx.fillStyle = "#1d3d2e";
+          ctx.fillText(line, s.x, s.y + nameSize * 1.85);
+          proportionDrawn = true;
+        }
+        ctx.letterSpacing = "0px";
       }
       if (future) {
-        ctx.font = `500 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
+        ctx.font = `500 ${Math.max(11, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
         ctx.fillStyle = "#8A7360";
-        ctx.fillText("later", s.x, s.y + nameSize * 1.45);
+        ctx.fillText("later", s.x, s.y + nameSize * (proportionDrawn ? 3.05 : 1.7));
       }
     }
     ctx.restore();
@@ -452,6 +465,13 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function render() {
+    if (!ratioFontReady && document.fonts?.load) {
+      ratioFontReady = true;
+      Promise.all([
+        document.fonts.load(`400 16px "Noto Sans Math"`, RATIO_GLYPHS),
+        document.fonts.load(`500 16px "Noto Sans"`, RATIO_GLYPHS),
+      ]).then(() => render());
+    }
     const { w, h } = size();
     if (w < 2 || h < 2) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);

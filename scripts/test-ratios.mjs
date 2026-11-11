@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { evaluateExact, plasticConstant, ratioValue, findRatio, nearestRatio, ratioSeries, nearestMark, snapToRatioLength, pickReadableTicks } from "../src/build/ratios.js";
+import { evaluateExact, plasticConstant, ratioValue, findRatio, nearestRatio, proportionPhrase, ratioSeries, nearestMark, snapToRatioLength, pickReadableTicks } from "../src/build/ratios.js";
 import { solveConstraints, linkWall, FOOTPRINT_WIDTH, FOOTPRINT_DEPTH } from "../src/build/constraints.js";
 import { formatFeetFine } from "../src/lib/format.js";
 import { wallLength } from "../src/lib/geom.js";
@@ -45,6 +45,10 @@ check("nearest ratio names a golden rectangle and a near miss", () => {
   assert.equal(near.exact, false);
   assert.ok(near.deviation < 0);
   assert.ok(Math.abs(near.deviation * 100 + 1.7) < 0.15);
+  const line = proportionPhrase(near);
+  assert.equal(line.includes("\n"), false);
+  assert.match(line, /^1\.59  ·  φ  −/);
+  assert.equal(proportionPhrase(nearestRatio(Math.sqrt(5))), "2.236  ·  √5");
 });
 
 check("a wall becomes phi times its reference", () => {

@@ -80,7 +80,10 @@ app.innerHTML = `
           </div>
           <div id="build-hud" class="build-hud" hidden>
             <div id="tool-options" class="tool-options"></div>
-            <div id="tool-row" class="tool-row"></div>
+            <div class="tool-dock">
+              <button type="button" id="options-toggle" class="options-toggle" aria-expanded="true" aria-controls="tool-options">Options</button>
+              <div id="tool-row" class="tool-row"></div>
+            </div>
           </div>
         </section>
         <section class="viewport viewport-model" aria-label="3D view">

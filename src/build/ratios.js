@@ -137,13 +137,15 @@ export function nearestRatio(aspect, custom = []) {
   return { ...best, exact };
 }
 
+/** One line for a room: "1.098  ·  φ  +9.8%". Symbols stay spaced so they do not collide. */
 export function proportionPhrase(match) {
   if (!match?.ratio) return "";
   const shown = match.aspect.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-  if (match.exact) return `${shown} · ${match.ratio.name} · exact`;
+  const symbol = match.ratio.symbol || match.ratio.name;
+  if (match.exact) return `${shown}  ·  ${symbol}`;
   const percent = match.deviation * 100;
   const sign = percent > 0 ? "+" : "−";
-  return `${shown} · ~${match.ratio.name} · ${sign}${Math.abs(percent).toFixed(1)}%`;
+  return `${shown}  ·  ${symbol}  ${sign}${Math.abs(percent).toFixed(1)}%`;
 }
 
 function symbolPower(symbol, power) {

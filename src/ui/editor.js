@@ -73,6 +73,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let spaceHeld = false;
   let hoverPlace = null;
   let optionsKey = "";
+  let optionsOpen = true;
   const draftSize = {};
 
   const hud = document.querySelector("#build-hud");
@@ -118,6 +119,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     publish();
   });
   hud.addEventListener("click", onHudClick);
+  document.querySelector("#options-toggle").addEventListener("click", () => {
+    optionsOpen = !optionsOpen;
+    document.querySelector("#tool-options").hidden = !optionsOpen;
+    document.querySelector("#options-toggle").setAttribute("aria-expanded", String(optionsOpen));
+  });
   hud.addEventListener("change", onHudChange);
   hud.addEventListener("input", onHudInput);
   document.querySelector("#undo").addEventListener("click", undo);
@@ -595,6 +601,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function paintToolOptions() {
     const box = document.querySelector("#tool-options");
+    box.hidden = !optionsOpen;
+    document.querySelector("#options-toggle")?.setAttribute("aria-expanded", String(optionsOpen));
     if (tool === "door" || tool === "window") catalogItem();
     const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}`;
     if (key === optionsKey && box.childElementCount) {
@@ -605,20 +613,22 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (tool === "wall" || tool === "room") {
       const note = assemblyById[assemblyId]?.note || "";
       box.innerHTML = `
-        <div class="swatch-row">${assemblies.map((item) => `<button type="button" class="chip" data-assembly="${item.id}" aria-pressed="${item.id === assemblyId}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`).join("")}</div>
+        <div class="swatch-row">${assemblies.map((item) => `<button type="button" class="chip" data-assembly="${item.id}" aria-pressed="${item.id === assemblyId}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`).join("")}
+          <button type="button" class="info-btn" id="assembly-info" aria-expanded="false" aria-label="About this wall type">i</button>
+        </div>
         <div class="option-line">
           <div class="seg" id="snap-mode">
             <button type="button" data-snap="grid" aria-pressed="${snapMode === "grid"}">Grid</button>
             <button type="button" data-snap="ratio" aria-pressed="${snapMode === "ratio"}">Ratio</button>
           </div>
-          <label>Grid <select id="grid-size"><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
-          <label>Ratio <select id="project-ratio">${ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("")}</select></label>
+          <label>Size <select id="grid-size"><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
+          <label>Ratio <select id="project-ratio">${ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.symbol || ratio.name}</option>`).join("")}</select></label>
           <label>Module <input id="module-length" type="number" min="0.5" step="0.5" value="${house.proportion?.module || 8}" /> ft</label>
           <button type="button" id="guides-toggle" aria-pressed="${guidesOn}">Guides</button>
-          <button type="button" id="snap-footprint">Snap footprint to φ</button>
+          <button type="button" id="snap-footprint" title="Snap the footprint to φ">Snap φ</button>
         </div>
-        <p class="fine">${note}</p>
-        <p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+        <p id="assembly-note" class="info-note" hidden>${note}</p>
+        ${warnings[0]?.message ? `<p class="warn-line" data-warn>${warnings[0].message}</p>` : `<p class="warn-line" data-warn hidden></p>`}`;
       box.querySelector("#grid-size").value = String(grid);
       box.querySelector("#project-ratio").value = house.proportion?.ratioId || "golden";
       return;
@@ -638,19 +648,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       const draft = selectedOpening || { ...catalogItem(), ...(draftSize[kind] || {}) };
       const choices = catalogForTool(kind);
+      const hint = selectedOpening
+        ? `Selected ${kind}. Header ${selectedOpening.header?.label || "placeholder"}. ${selectedOpening.header?.note || ""}`
+        : "Drag along a wall. The opening snaps and stays off the corners.";
       box.innerHTML = `
-        <div class="swatch-row">${choices.map((item) => `<button type="button" class="chip" data-opening="${item.id}" aria-pressed="${item.id === (selectedOpening ? "" : catalogId)}">${item.name}</button>`).join("")}</div>
+        <div class="swatch-row">${choices.map((item) => `<button type="button" class="chip" data-opening="${item.id}" aria-pressed="${item.id === (selectedOpening ? "" : catalogId)}">${item.name}</button>`).join("")}
+          <button type="button" class="info-btn" id="assembly-info" aria-expanded="false" aria-label="About this opening">i</button>
+        </div>
         <div class="option-line">
           <label>Width <input id="open-width" type="number" min="1" max="16" step="0.5" value="${draft.width}" /> ft</label>
           <label>Height <input id="open-height" type="number" min="1" max="10" step="0.1" value="${draft.height}" /> ft</label>
           ${kind === "window" ? `<label>Sill <input id="open-sill" type="number" min="0" max="8" step="0.1" value="${draft.sill || 0}" /> ft</label>` : ""}
+          <span class="opening-preview" aria-hidden="true"><span style="width:${Math.min(80, draft.width * 8)}%"></span></span>
         </div>
-        <div class="opening-preview" aria-hidden="true"><span style="width:${Math.min(80, draft.width * 8)}%"></span></div>
-        <p class="fine">${selectedOpening ? `Selected ${kind}. Header ${selectedOpening.header?.label || "placeholder"}. ${selectedOpening.header?.note || ""}` : "Drag along a wall. The opening snaps and stays off the corners."}</p>
-        <p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+        <p id="assembly-note" class="info-note" hidden>${hint}</p>
+        ${warnings[0]?.message ? `<p class="warn-line" data-warn>${warnings[0].message}</p>` : `<p class="warn-line" data-warn hidden></p>`}`;
       return;
     }
-    box.innerHTML = `<p class="fine">Drag empty space to move the plan. Drag a wall handle to resize it.</p><p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+    box.innerHTML = `<p class="fine">Drag empty space to pan. Drag a wall handle to resize it.</p>`;
   }
 
   function onHudClick(event) {
@@ -671,6 +686,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       draftSize[item.type] = { width: item.width, height: item.height, sill: item.sill || 0 };
       optionsKey = "";
       publish();
+      return;
+    }
+    const info = event.target.closest("#assembly-info");
+    if (info) {
+      const note = document.querySelector("#assembly-note");
+      if (note) {
+        note.hidden = !note.hidden;
+        info.setAttribute("aria-expanded", String(!note.hidden));
+      }
       return;
     }
     const snap = event.target.closest("button[data-snap]");
