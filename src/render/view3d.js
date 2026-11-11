@@ -15,7 +15,8 @@ import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
  *
  * Electrical, plumbing, and site groups are created empty on purpose.
  */
-export function createView3d(canvas, house) {
+export function createView3d(canvas, initialHouse) {
+  let house = initialHouse;
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -85,21 +86,24 @@ export function createView3d(canvas, house) {
 
   const roofPivot = new THREE.Group();
   scene.add(roofPivot);
-  const phaseRoof = buildRoof(house, false);
-  const fullRoof = buildRoof(house, true);
+  let phaseRoof = buildRoof(house, false);
+  let fullRoof = buildRoof(house, true);
   roofPivot.add(phaseRoof);
   roofPivot.add(fullRoof);
 
-  const phaseSlab = buildSlab(house, false);
-  const fullSlab = buildSlab(house, true);
+  let phaseSlab = buildSlab(house, false);
+  let fullSlab = buildSlab(house, true);
   scene.add(phaseSlab);
   scene.add(fullSlab);
 
   const materials = createMaterials();
-  buildHouse(house, buckets, futureBuckets, materials);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8d5a32, roughness: 0.72 });
+  buildHouse(house, buckets, futureBuckets, materials, wood);
 
   let state = null;
   let onChange = () => {};
+  let onPick = null;
+  let selectedId = null;
   let appliedSavedCamera = false;
   let frameId = 0;
 
@@ -149,6 +153,75 @@ export function createView3d(canvas, house) {
     renderer.setSize(w, h, false);
   }
 
+  function disposeObject(object) {
+    object.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+    });
+  }
+
+  function emptyBucket(group) {
+    for (const child of [...group.children]) {
+      if (typeof child.name === "string" && child.name.endsWith("-future")) {
+        emptyBucket(child);
+        continue;
+      }
+      disposeObject(child);
+      group.remove(child);
+    }
+  }
+
+  function rebuild(nextHouse) {
+    house = nextHouse;
+    for (const id of LAYER_IDS) emptyBucket(buckets[id]);
+    disposeObject(phaseRoof);
+    disposeObject(fullRoof);
+    roofPivot.remove(phaseRoof);
+    roofPivot.remove(fullRoof);
+    phaseRoof = buildRoof(house, false);
+    fullRoof = buildRoof(house, true);
+    roofPivot.add(phaseRoof);
+    roofPivot.add(fullRoof);
+    disposeObject(phaseSlab);
+    disposeObject(fullSlab);
+    scene.remove(phaseSlab);
+    scene.remove(fullSlab);
+    phaseSlab = buildSlab(house, false);
+    fullSlab = buildSlab(house, true);
+    scene.add(phaseSlab);
+    scene.add(fullSlab);
+    buildHouse(house, buckets, futureBuckets, materials, wood);
+    if (state) applyVisibility(state);
+    paintSelection();
+  }
+
+  function paintSelection() {
+    scene.traverse((object) => {
+      if (!object.userData?.wallId || !object.material?.emissive) return;
+      const on = object.userData.wallId === selectedId;
+      object.material.emissive.set(on ? 0x1f6b45 : 0x000000);
+      object.material.emissiveIntensity = on ? 0.55 : 0;
+    });
+  }
+
+  const raycaster = new THREE.Raycaster();
+  let pointerDown = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    pointerDown = { x: event.clientX, y: event.clientY };
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!pointerDown || !onPick) return;
+    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+    pointerDown = null;
+    if (moved > 6) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+    const hits = raycaster.intersectObjects(scene.children, true);
+    const hit = hits.find((item) => item.object.userData?.wallId);
+    onPick(hit?.object.userData.wallId || null);
+  });
+
   function resetCamera() {
     camera.position.set(-24, 28, 46);
     controls.target.set(34, 6, -14);
@@ -169,6 +242,16 @@ export function createView3d(canvas, house) {
     resetCamera,
     setOnChange(fn) {
       onChange = fn;
+    },
+    setOnPick(fn) {
+      onPick = fn;
+    },
+    setHouse(next) {
+      rebuild(next);
+    },
+    setSelected(id) {
+      selectedId = id;
+      paintSelection();
     },
     dispose() {
       cancelAnimationFrame(frameId);
@@ -268,7 +351,7 @@ function createMaterials() {
   return { solid, ghost, finishes, finishGhost };
 }
 
-function buildHouse(house, buckets, futureBuckets, materials) {
+function buildHouse(house, buckets, futureBuckets, materials, wood) {
   for (const room of house.rooms) {
     const parent = room.phase === "future" ? futureBuckets.finishes : buckets.finishes;
     parent.add(roomFloor(room, materials));
@@ -278,13 +361,17 @@ function buildHouse(house, buckets, futureBuckets, materials) {
   for (const wall of house.walls) {
     const layer = wallLayerId(wall);
     const parent = wall.phase === "future" ? futureBuckets[layer] : buckets[layer];
-    addWallMeshes(wall, openingsFor(house, wall), parent, wall.phase === "future" ? materials.ghost : materials.solid);
+    const mats = wall.phase === "future" ? materials.ghost : materials.solid;
+    addWallMeshes(wall, openingsFor(house, wall), parent, mats);
+    const frameParent = wall.phase === "future" ? futureBuckets.framing : buckets.framing;
+    addOpeningFrames(wall, openingsFor(house, wall), frameParent, wood, wall.phase === "future");
   }
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
 }
 
 function roomFloor(room, materials) {
+  if (!room.polygon || room.polygon.length < 3) return new THREE.Group();
   const shape = new THREE.Shape();
   const [first, ...rest] = room.polygon;
   shape.moveTo(first.x, first.y);
@@ -332,12 +419,13 @@ function addWallMeshes(wall, openings, parent, mats) {
   function place(s0, s1, z0, z1, thickness, material) {
     const length = Math.max(0.02, s1 - s0);
     const height = Math.max(0.02, z1 - z0);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, thickness), material);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, thickness), material.clone());
     const s = (s0 + s1) / 2;
     mesh.position.set(wall.start.x + ux * s, (z0 + z1) / 2, -(wall.start.y + uy * s));
     mesh.rotation.y = angle;
     mesh.castShadow = material.transparent !== true;
     mesh.receiveShadow = true;
+    mesh.userData.wallId = wall.id;
     parent.add(mesh);
   }
 
@@ -354,6 +442,43 @@ function addWallMeshes(wall, openings, parent, mats) {
     } else if (piece.kind === "swing" || piece.kind === "sliding") {
       place(piece.s0 + 0.06, piece.s1 - 0.06, 0.04, piece.z1 - 0.04, piece.kind === "sliding" ? 0.08 : 0.14, piece.kind === "sliding" ? mats.glass : mats.door);
     }
+  }
+}
+
+function addOpeningFrames(wall, openings, parent, wood, future) {
+  const length = wallLength(wall) || 1;
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const angle = Math.atan2(dy, dx);
+  const ux = dx / length;
+  const uy = dy / length;
+  const material = wood.clone();
+  if (future) {
+    material.transparent = true;
+    material.opacity = 0.55;
+    material.depthWrite = false;
+  }
+  const stud = 0.125;
+  function member(s0, s1, z0, z1, thickness) {
+    const span = Math.max(0.04, s1 - s0);
+    const height = Math.max(0.04, z1 - z0);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(span, height, thickness), material);
+    const s = (s0 + s1) / 2;
+    mesh.position.set(wall.start.x + ux * s, (z0 + z1) / 2, -(wall.start.y + uy * s));
+    mesh.rotation.y = angle;
+    mesh.castShadow = !future;
+    mesh.userData.wallId = wall.id;
+    parent.add(mesh);
+  }
+  for (const opening of openings) {
+    const header = opening.header;
+    const headBottom = opening.sill + opening.height;
+    const headTop = Math.min(wall.height, headBottom + (header?.height || 0.5));
+    member(opening.offset - stud, opening.offset + opening.width + stud, headBottom, headTop, Math.min(wall.thickness, header?.depth || 0.25));
+    member(opening.offset - stud * 2.2, opening.offset - stud * 0.6, 0.05, wall.height, Math.min(wall.thickness * 0.85, 0.3));
+    member(opening.offset + opening.width + stud * 0.6, opening.offset + opening.width + stud * 2.2, 0.05, wall.height, Math.min(wall.thickness * 0.85, 0.3));
+    member(opening.offset, opening.offset + stud, 0.05, headBottom, Math.min(wall.thickness * 0.7, 0.25));
+    member(opening.offset + opening.width - stud, opening.offset + opening.width, 0.05, headBottom, Math.min(wall.thickness * 0.7, 0.25));
   }
 }
 

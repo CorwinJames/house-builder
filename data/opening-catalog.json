@@ -1,0 +1,10 @@
+{
+  "note": "Palette sizes for dragging a door or window onto a wall. Dimensions are nominal feet. Headers are filled in from data/headers.json.",
+  "items": [
+    { "id": "door-30", "type": "door", "style": "swing", "name": "Door 3'-0\"", "width": 3, "height": 6.667, "sill": 0 },
+    { "id": "door-28", "type": "door", "style": "swing", "name": "Door 2'-8\"", "width": 2.667, "height": 6.667, "sill": 0 },
+    { "id": "slider-60", "type": "door", "style": "sliding", "name": "Slider 6'-0\"", "width": 6, "height": 6.667, "sill": 0 },
+    { "id": "window-44", "type": "window", "style": null, "name": "Window 4' × 4'", "width": 4, "height": 4, "sill": 2.5 },
+    { "id": "window-33", "type": "window", "style": null, "name": "Window 3' × 3'", "width": 3, "height": 3, "sill": 3 }
+  ]
+}

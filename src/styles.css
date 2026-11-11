@@ -383,4 +383,86 @@ button:focus-visible {
   .brand h1 { font-size: 1.2rem; }
 }
 
+.build-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  width: 100%;
+  padding-top: 8px;
+}
+
+.tool-row, .palette-row, .build-extra, .swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tool, .chip, .build-extra button, .inspector button {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 999px;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-weight: 650;
+}
+
+.tool[aria-pressed="true"], .chip[aria-pressed="true"] {
+  background: var(--moss);
+  color: #f6f1e8;
+  border-color: var(--moss);
+}
+
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+
+.build-extra label, .inspector label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.build-extra select, .inspector select, .inspector input {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 6px 8px;
+}
+
+.assembly-note, .fine {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  flex-basis: 100%;
+}
+
+.warn-line {
+  margin: 0;
+  color: #9c341f;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.inspector {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  background: white;
+  border: 1px solid var(--line);
+}
+
+.inspector h2 { margin: 0; font-size: 1rem; }
+.inspector p { margin: 0; }
+
+@media (max-width: 860px) {
+  .build-bar { padding-top: 4px; }
+  .tool, .chip { padding: 8px 10px; }
+}
+
 [hidden] { display: none !important; }

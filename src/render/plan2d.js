@@ -12,13 +12,19 @@ import {
 import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
+import { assemblyById } from "../build/catalog.js";
 
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
+ * Build mode hands pointer events to a hook so drawing doesn't also pan.
  */
-export function createPlanView(canvas, house) {
+export function createPlanView(canvas, initialHouse) {
+  let house = initialHouse;
   const ctx = canvas.getContext("2d");
   let state = null;
+  let overlay = null;
+  let buildHooks = null;
+  let buildGesture = false;
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let cameraReady = false;
@@ -454,10 +460,171 @@ export function createPlanView(canvas, house) {
       if (!wallVisible(wall)) continue;
       for (const opening of openingsFor(house, wall)) drawOpening(wall, opening);
     }
+    if (state?.layers.framing) {
+      for (const wall of house.walls) {
+        if (isPhaseVisible(wall.phase, state)) drawStuds(wall);
+      }
+    }
+    drawOverlay();
     drawDimensions();
     drawLabels();
     drawCompass();
     drawWatermark();
+  }
+
+  function drawStuds(wall) {
+    const spec = assemblyById[wall.assemblyId]?.framing;
+    if (!spec) return;
+    const length = wallLength(wall);
+    if (length < 0.2) return;
+    const dx = (wall.end.x - wall.start.x) / length;
+    const dy = (wall.end.y - wall.start.y) / length;
+    const openings = openingsFor(house, wall);
+    ctx.save();
+    const stud = (s, color) => {
+      if (s < 0.04 || s > length - 0.04) return;
+      const center = pointAlong(wall, s);
+      const half = spec.studThickness / 2;
+      const quad = segmentQuad(
+        center.x - dx * half,
+        center.y - dy * half,
+        center.x + dx * half,
+        center.y + dy * half,
+        Math.min(wall.thickness * 0.78, spec.studDepth + 0.05),
+      );
+      trace(quad);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    ctx.globalAlpha = wall.phase === "future" ? 0.55 : 0.95;
+    for (let s = spec.spacing / 2; s < length; s += spec.spacing) {
+      const blocked = openings.some((opening) => s > opening.offset - 0.35 && s < opening.offset + opening.width + 0.35);
+      if (!blocked) stud(s, "#8D5A32");
+    }
+    for (const opening of openings) {
+      stud(opening.offset - spec.studThickness * 1.4, "#6B3E22");
+      stud(opening.offset + spec.studThickness * 0.7, "#6B3E22");
+      stud(opening.offset + opening.width - spec.studThickness * 0.7, "#6B3E22");
+      stud(opening.offset + opening.width + spec.studThickness * 1.4, "#6B3E22");
+      const a = pointAlong(wall, opening.offset);
+      const b = pointAlong(wall, opening.offset + opening.width);
+      trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness * 0.92));
+      ctx.fillStyle = "#3F2918";
+      ctx.fill();
+      const sa = worldToScreen(a.x, a.y);
+      const sb = worldToScreen(b.x, b.y);
+      if (Math.hypot(sb.x - sa.x, sb.y - sa.y) > 28) {
+        ctx.fillStyle = "#F7F3EB";
+        ctx.font = "700 10px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(opening.header?.label || "HDR", (sa.x + sb.x) / 2, (sa.y + sb.y) / 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawOverlay() {
+    if (!overlay) return;
+    const warnedWalls = overlay.warningWalls || [];
+    const warnedOpenings = overlay.warningOpenings || [];
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#C44536";
+    for (const id of warnedWalls) {
+      const wall = house.walls.find((item) => item.id === id);
+      if (!wall) continue;
+      trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness + 0.15));
+      ctx.stroke();
+    }
+    for (const id of warnedOpenings) {
+      const opening = house.openings.find((item) => item.id === id);
+      const wall = opening && house.walls.find((item) => item.id === opening.wallId);
+      if (!wall) continue;
+      const a = pointAlong(wall, opening.offset);
+      const b = pointAlong(wall, opening.offset + opening.width);
+      trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness + 0.35));
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (overlay.draft) {
+      const { start, end, color } = overlay.draft;
+      ctx.save();
+      ctx.strokeStyle = color || "#2F5D45";
+      ctx.lineWidth = 4;
+      ctx.setLineDash([7, 5]);
+      const a = worldToScreen(start.x, start.y);
+      const b = worldToScreen(end.x, end.y);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      if (overlay.draft.lengthLabel) {
+        ctx.setLineDash([]);
+        ctx.font = "700 14px Outfit, sans-serif";
+        ctx.fillStyle = "#2A241B";
+        ctx.textAlign = "center";
+        ctx.fillText(overlay.draft.lengthLabel, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10);
+      }
+      ctx.restore();
+    }
+    if (overlay.rect) {
+      const { x0, y0, x1, y1 } = overlay.rect;
+      const a = worldToScreen(x0, y0);
+      const b = worldToScreen(x1, y1);
+      ctx.save();
+      ctx.strokeStyle = "#2F5D45";
+      ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    }
+    if (overlay.selection?.type === "wall") {
+      const wall = house.walls.find((item) => item.id === overlay.selection.id);
+      if (wall) {
+        trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness + 0.2));
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        for (const point of [wall.start, wall.end]) {
+          const s = worldToScreen(point.x, point.y);
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+          ctx.fillStyle = "#F7F3EB";
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+    if (overlay.selection?.type === "room") {
+      const room = house.rooms.find((item) => item.id === overlay.selection.id);
+      if (room) {
+        trace(room.polygon);
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (overlay.ghostOpening) {
+      const ghost = overlay.ghostOpening;
+      const wall = house.walls.find((item) => item.id === ghost.wallId);
+      if (wall) {
+        const a = pointAlong(wall, ghost.offset);
+        const b = pointAlong(wall, ghost.offset + ghost.width);
+        trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness + 0.2));
+        ctx.save();
+        ctx.fillStyle = ghost.ok ? "rgba(47, 93, 69, 0.35)" : "rgba(196, 69, 54, 0.4)";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   function localPoint(event) {
@@ -465,19 +632,38 @@ export function createPlanView(canvas, house) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function worldFromEvent(event) {
+    const local = localPoint(event);
+    return screenToWorld(local.x, local.y);
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.size === 1) {
-      drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
-      pinch = null;
+    if (pointers.size > 1) {
+      if (buildGesture) buildHooks?.cancel?.();
+      buildGesture = false;
+      drag = null;
+      return;
     }
+    if (buildHooks?.down?.(event, worldFromEvent(event))) {
+      buildGesture = true;
+      drag = null;
+      pinch = null;
+      return;
+    }
+    drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
+    pinch = null;
   });
 
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const pts = [...pointers.values()];
+    if (pts.length === 1 && buildGesture) {
+      buildHooks?.move?.(event, worldFromEvent(event));
+      return;
+    }
     if (pts.length >= 2) {
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const midClient = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
@@ -502,6 +688,10 @@ export function createPlanView(canvas, house) {
   });
 
   function endPointer(event) {
+    if (buildGesture && pointers.size <= 1) {
+      buildHooks?.up?.(event, worldFromEvent(event));
+      buildGesture = false;
+    }
     pointers.delete(event.pointerId);
     if (pointers.size === 0) {
       drag = null;
@@ -564,6 +754,24 @@ export function createPlanView(canvas, house) {
     },
     setOnChange(fn) {
       onChange = fn;
+    },
+    setHouse(next) {
+      house = next;
+      render();
+    },
+    setOverlay(next) {
+      overlay = next;
+      render();
+    },
+    setBuildHooks(hooks) {
+      buildHooks = hooks;
+    },
+    getCamera() {
+      return { ...camera };
+    },
+    beginPan(event) {
+      buildGesture = false;
+      drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
     },
   };
 }
