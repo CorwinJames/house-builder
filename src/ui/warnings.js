@@ -30,6 +30,7 @@ export function attachWarnings({ getHouse, getPhase, plan, replaceHouse }) {
       id: entry.id,
       point: entry.point,
       severity: entry.severity,
+      title: entry.title,
       active: entry.id === openId,
     })));
   }, true);
@@ -74,6 +75,7 @@ export function attachWarnings({ getHouse, getPhase, plan, replaceHouse }) {
       id: finding.id,
       point: finding.point,
       severity: finding.severity,
+      title: finding.title,
       active: finding.id === openId,
     })));
     if (!dialog.open) return;

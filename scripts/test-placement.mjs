@@ -5,6 +5,7 @@ import { addRoomRectangle } from "../src/build/walls.js";
 import { syncRooms } from "../src/build/rooms.js";
 import { planToScene, sceneToPlan, pointInRing } from "../src/build/space.js";
 import { previewPlacement } from "../src/build/placement.js";
+import { planDimensions } from "../src/render/dimensions.js";
 import { suggestPanel, suggestPlacements } from "../src/electrical/design.js";
 import { suggestPlacements as suggestFixtures } from "../src/plumbing/design.js";
 
@@ -59,6 +60,43 @@ check("a click far from every wall does not place and says why", () => {
   assert.match(panel.reason, /wall/i);
   assert.equal(sink.ok, false);
   assert.match(sink.reason, /wall/i);
+  assert.ok(Math.hypot(panel.x - 80, panel.y - 80) < 0.1, "a rejected ghost stays at the click");
+});
+
+check("a click on a room corner snaps onto a wall", () => {
+  const house = squareHouse();
+  const corner = previewPlacement(house, { x: 0, y: 0 }, { system: "electrical", kind: "panel" });
+  const beside = previewPlacement(house, { x: -0.6, y: 0.4 }, { system: "electrical", kind: "panel" });
+  assert.equal(corner.ok, true, corner.reason);
+  assert.equal(beside.ok, true, beside.reason);
+  assert.ok(corner.wallId);
+  assert.ok(beside.wallId);
+});
+
+check("a drawn room gets one dimension per side, and the footprint only when it differs", () => {
+  const house = squareHouse();
+  const dims = planDimensions(house, true);
+  const horizontal = dims.filter((dim) => dim.y0 === dim.y1);
+  const vertical = dims.filter((dim) => dim.x0 === dim.x1);
+  assert.equal(horizontal.length, 2);
+  assert.equal(vertical.length, 2);
+  const widths = horizontal.map((dim) => Math.abs(dim.x1 - dim.x0));
+  assert.ok(widths.some((length) => Math.abs(length - 36) < 0.1));
+  assert.ok(widths.some((length) => length < 20));
+  const filled = blankPlan();
+  filled.rooms = [{
+    id: "room",
+    name: "Room",
+    outdoor: false,
+    phase: "phase1",
+    polygon: [
+      { x: 0, y: 0 },
+      { x: 36, y: 0 },
+      { x: 36, y: 24 },
+      { x: 0, y: 24 },
+    ],
+  }];
+  assert.equal(planDimensions(filled, true).length, 2);
 });
 
 check("a blank drawn room can suggest a panel, outlets, and a sink", () => {

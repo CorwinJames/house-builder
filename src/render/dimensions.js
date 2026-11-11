@@ -1,48 +1,64 @@
 /** Dimension strings shared by the plan and the 3D view. Distances are feet. */
 
+function boxOf(points) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const point of points) {
+    x0 = Math.min(x0, point.x);
+    y0 = Math.min(y0, point.y);
+    x1 = Math.max(x1, point.x);
+    y1 = Math.max(y1, point.y);
+  }
+  if (!Number.isFinite(x0) || x1 - x0 < 0.2 || y1 - y0 < 0.2) return null;
+  return { x0, y0, x1, y1 };
+}
+
+function sameBox(a, b) {
+  return Math.abs(a.x0 - b.x0) < 0.25
+    && Math.abs(a.y0 - b.y0) < 0.25
+    && Math.abs(a.x1 - b.x1) < 0.25
+    && Math.abs(a.y1 - b.y1) < 0.25;
+}
+
+function horizontal(id, box, dist, future) {
+  return { id, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y0, dist, future };
+}
+
+function vertical(id, box, dist, future) {
+  return { id, x0: box.x0, y0: box.y0, x1: box.x0, y1: box.y1, dist, future };
+}
+
+/**
+ * One width and one depth for the rooms on screen.
+ * The footprint is added only when it is a different rectangle.
+ */
 export function planDimensions(house, futureShown) {
-  const core = house.phases.phase1.bounds;
-  const dims = [
-    {
-      id: "p1-width",
-      x0: core.x0,
-      y0: core.y0,
-      x1: core.x1,
-      y1: core.y0,
-      dist: 3.6,
-      future: false,
-    },
-    {
-      id: "p1-depth",
-      x0: core.x0,
-      y0: core.y0,
-      x1: core.x0,
-      y1: core.y1,
-      dist: -3.6,
-      future: false,
-    },
-  ];
-  if (futureShown) {
-    dims.push(
-      {
-        id: "all-width",
-        x0: 0,
-        y0: 0,
-        x1: house.footprint.width,
-        y1: 0,
-        dist: 7.4,
-        future: true,
-      },
-      {
-        id: "all-depth",
-        x0: 0,
-        y0: 0,
-        x1: 0,
-        y1: house.footprint.depth,
-        dist: -7.4,
-        future: true,
-      },
-    );
+  const points = [];
+  for (const room of house.rooms || []) {
+    if (room.outdoor) continue;
+    if (!futureShown && room.phase === "future") continue;
+    for (const point of room.polygon || []) points.push(point);
+  }
+  if (!points.length) {
+    for (const wall of house.walls || []) {
+      if (!futureShown && wall.phase === "future") continue;
+      points.push(wall.start, wall.end);
+    }
+  }
+  const built = boxOf(points);
+  const foot = house.footprint?.width && house.footprint?.depth
+    ? { x0: 0, y0: 0, x1: house.footprint.width, y1: house.footprint.depth }
+    : null;
+  const dims = [];
+  if (built) {
+    dims.push(horizontal("room-width", built, 3.6, false));
+    dims.push(vertical("room-depth", built, -3.6, false));
+  }
+  if (futureShown && foot && (!built || !sameBox(built, foot))) {
+    dims.push(horizontal("all-width", foot, built ? 7.4 : 3.6, true));
+    dims.push(vertical("all-depth", foot, built ? -7.4 : -3.6, true));
   }
   return dims;
 }

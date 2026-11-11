@@ -69,21 +69,24 @@ function pointOnWall(wall, offset, inset, toward) {
 function rejected(point, near, label, reason) {
   return {
     ok: false,
-    x: near?.x ?? point.x,
-    y: near?.y ?? point.y,
-    wallId: near?.wall?.id || null,
-    offset: near?.offset ?? null,
+    x: point.x,
+    y: point.y,
+    wallId: null,
+    offset: null,
     distance: near?.distance ?? null,
     label,
     reason,
     placed: "",
-    side: near?.wall ? null : null,
+    side: null,
   };
 }
 
 /**
  * The ghost and the click both use this. A click places these x/y values
- * and no others. When ok is false, the ghost is red and the click changes nothing.
+ * and no others. A point on a wall, including a corner, snaps to that segment.
+ * Inside a room, the nearest wall is used even from the middle of the room.
+ * When the point is clearly off every wall, ok is false, the ghost stays at the
+ * pointer, and the click changes nothing.
  */
 export function previewPlacement(house, point, { system, kind, supply = "240" } = {}) {
   const walls = house.walls || [];

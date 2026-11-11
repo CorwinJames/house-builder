@@ -483,6 +483,7 @@ function egressDoor(house) {
     return [{
       id: "egress-door-missing",
       title: "No egress door",
+      fix: { id: "guide-door", label: "Add a door" },
       ...(room ? targetRoom(room) : { point: { x: 0, y: 0 }, phase: "phase1", target: { type: "house", id: "house" } }),
     }];
   }
@@ -697,10 +698,11 @@ function spacingRule(house) {
     if (!failed) return [];
     return [{
       id: `spacing-${room.id}`,
-      title: kitchen ? `${room.name} outlets are too far apart` : `${room.name} outlets are too far apart`,
+      title: `${room.name} outlets are too far apart`,
       why: kitchen
         ? `${NEC_RULES.kitchen.text} ${NEC_RULES.kitchen.note}`
         : NEC_RULES.spacing.text,
+      fix: { id: "guide-outlets", label: "Suggest outlets" },
       ...targetRoom(room),
     }];
   });
@@ -837,6 +839,7 @@ function wallInsulation(house) {
       target: { type: "wall", id: hemp[0].id },
       point: wallMid(hemp[0]),
       phase: hemp[0].phase || "phase1",
+      fix: { id: "show-wall", label: "Show this wall" },
       why: `The hemp layer in the assembly is ${inches} in. Hemp and Block publishes R-2 per inch for a conventional binder and hurd mix, so this model uses R-${r}. Table R402.1.3 asks for wood-frame walls of R-20+5 or R-13+10. That comparison is an assumption, not a U-factor calculation. Source: ${HEMP_URL}`,
     });
   }
@@ -849,6 +852,7 @@ function wallInsulation(house) {
       target: { type: "wall", id: rammed[0].id },
       point: wallMid(rammed[0]),
       phase: rammed[0].phase || "phase1",
+      fix: { id: "show-wall", label: "Show this wall" },
       why: "Table R402.1.3 sets the wood-frame wall target. This model has no published R-value for the rammed earth, so that wall is not compared to the table.",
     });
   }

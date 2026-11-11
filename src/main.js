@@ -31,7 +31,7 @@ app.innerHTML = `
         </svg>
         <h1>House Builder</h1>
       </div>
-      <p class="sample-chip">Sample layout · not a final design</p>
+      <p class="sample-chip" hidden>Sample layout · not a final design</p>
       <button type="button" id="cost-chip" class="cost-chip" title="Materials and labor">
         <span id="cost-figure">—</span>
         <span id="cost-note"></span>
@@ -112,7 +112,7 @@ app.innerHTML = `
       </aside>
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
-          <canvas id="plan-canvas"></canvas>
+          <div class="plan-frame"><canvas id="plan-canvas"></canvas></div>
           <div class="hud">
             <span>Plan · north up</span>
             <button type="button" id="fit-plan">Fit</button>
@@ -120,6 +120,7 @@ app.innerHTML = `
             <button type="button" id="redo" disabled>Redo</button>
           </div>
           <div id="build-hud" class="build-hud" hidden>
+            <div id="coach-dock" class="coach-dock"></div>
             <div id="build-tutorial" class="tool-hint" hidden></div>
             <div id="tool-options" class="tool-options" hidden></div>
             <div class="tool-dock">
@@ -140,7 +141,7 @@ app.innerHTML = `
     </div>
     <footer class="statusbar" id="status">
       <div class="coach">
-        <p id="coach-line">Build mode. Pick a tool.</p>
+        <div id="coach-line">Build mode. Pick a tool.</div>
         <details id="action-history">
           <summary>Recent</summary>
           <ol id="history-list"></ol>
@@ -284,6 +285,19 @@ function wide() {
   return wideQuery.matches;
 }
 
+function dockCoach() {
+  const coach = document.querySelector(".coach");
+  const dock = document.querySelector("#coach-dock");
+  const footer = document.querySelector("#status");
+  if (!coach || !dock || !footer) return;
+  const phonePlan = !wide() && effectiveView() !== "model";
+  if (phonePlan) {
+    if (coach.parentElement !== dock) dock.append(coach);
+  } else if (coach.parentElement !== footer) {
+    footer.insertBefore(coach, footer.firstChild);
+  }
+}
+
 function effectiveView() {
   if (!wide() && state.view === "split") return "plan";
   return state.view;
@@ -328,6 +342,9 @@ function syncControls() {
   document.querySelector("#stage").dataset.view = view;
   const meta = document.querySelector("#status-meta");
   if (meta) meta.textContent = statusText();
+  const sampleChip = document.querySelector(".sample-chip");
+  if (sampleChip && editor) sampleChip.hidden = !editor.house()?.sample;
+  dockCoach();
   document.querySelector("#hint").hidden = !!state.hintDismissed;
   const showPanel = panelOpen && !wide();
   document.querySelector("#layer-panel").classList.toggle("open", showPanel);

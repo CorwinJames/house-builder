@@ -60,13 +60,37 @@ function formatDelta(value) {
   return value < 0 ? `−${amount}` : `+${amount}`;
 }
 
+export function suggestionGroupLabel(items) {
+  const counts = new Map();
+  for (const item of items || []) {
+    const kind = item.kind || "item";
+    counts.set(kind, (counts.get(kind) || 0) + 1);
+  }
+  return [...counts.entries()].map(([kind, count]) => {
+    if (kind === "receptacle") return `${count} receptacle${count === 1 ? "" : "s"} (outlets)`;
+    if (kind === "gfci") return `${count} GFCI outlet${count === 1 ? "" : "s"}`;
+    const name = String(kind).replaceAll("-", " ");
+    return `${count} ${name}${count === 1 || name.endsWith("s") ? "" : "s"}`;
+  }).join(", ");
+}
+
 export function groupByRoom(items, rooms) {
   const map = new Map();
   for (const item of items || []) {
     const id = item.roomId || "other";
     const room = (rooms || []).find((entry) => entry.id === id);
-    if (!map.has(id)) map.set(id, { id, name: room?.name || "Outside a room", count: 0 });
-    map.get(id).count += 1;
+    if (!map.has(id)) map.set(id, { id, name: room?.name || "Outside a room", count: 0, items: [] });
+    const group = map.get(id);
+    group.count += 1;
+    group.items.push(item);
   }
-  return [...map.values()];
+  return [...map.values()].map((group) => ({ ...group, label: suggestionGroupLabel(group.items) }));
+}
+
+export function issueRows(issues) {
+  return (issues || []).map((item) => `
+    <div class="issue-row">
+      <span>${escapeHtml(item.title)}</span>
+      <button type="button" data-fix-finding="${escapeHtml(item.id)}">${escapeHtml(item.fix?.label || "Show me")}</button>
+    </div>`).join("");
 }

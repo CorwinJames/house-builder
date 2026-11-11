@@ -929,7 +929,7 @@ function addOpeningFrames(wall, openings, parent, wood, future, cap = Infinity) 
 }
 
 function addDimensions(house, futureShown, parent) {
-  const dims = planDimensions(house, futureShown).filter((dim) => dim.future === futureShown);
+  const dims = planDimensions(house, futureShown);
   for (const dim of dims) {
     const seg = offsetSegment(dim);
     const y = 0.25;

@@ -23,9 +23,10 @@ import {
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
+import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
 import { projectOntoWall, snapDrawingPoint, snapPointToGrid, snapToGrid } from "../build/snap.js";
-import { evaluateRules, warningTargets } from "../rules/index.js";
+import { applyFix, evaluateRules, warningTargets } from "../rules/index.js";
 import { isFutureShown } from "../render/visibility.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
@@ -43,7 +44,7 @@ import {
   buildPlumbing,
 } from "../plumbing/design.js";
 import { fieldFootprint, hitSite, placeSite, suggestSite } from "../site/design.js";
-import { budgetPhrase, gameHead, issueCards, quietDelete, statTiles, groupByRoom } from "./gamecard.js";
+import { budgetPhrase, gameHead, issueCards, issueRows, quietDelete, statTiles, groupByRoom } from "./gamecard.js";
 import { costReport } from "../cost/list.js";
 import { siteInspectorHtml, siteOptionsHtml } from "./sitePanel.js";
 import {
@@ -132,9 +133,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let suggestKind = null;
   let suggestNote = "";
   let panelGhost = null;
+  let suggestPreview = null;
   let lastPreview = null;
   const history = [];
   let coachKey = "";
+  let guideHideTimer = 0;
 
   const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
@@ -948,6 +951,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       } : null,
       placeGhost: hoverWorld && !gesture ? placeGhostAt(hoverWorld) : null,
       suggestMarks: panelGhost ? [panelGhost] : [],
+      suggestFocus: suggestPreview,
       siteGhosts,
       ghostOpening: (gesture?.kind === "opening" && gesture.place) || hoverPlace ? {
         wallId: (gesture?.place || hoverPlace).wall.id,
@@ -1036,34 +1040,62 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return "";
   }
 
-  function guideStep() {
-    if (house.sample || getViewState().guideSkipped || mode !== "build") return "";
-    const rooms = (house.rooms || []).filter((room) => (room.polygon || []).length >= 3 && !room.outdoor);
-    const door = (house.openings || []).some((item) => item.type === "door");
-    const panel = !!house.electrical?.panel;
-    const outlet = (house.electrical?.devices || []).some((item) => !item.ghost && ["receptacle", "gfci", "wr-receptacle"].includes(item.kind));
-    const sink = (house.plumbing?.fixtures || []).some((item) => !item.ghost && item.kind === "kitchen-sink");
-    if (!rooms.length) return "Step 1 of 5. Draw a room.";
-    if (!door) return "Step 2 of 5. Add a door.";
-    if (!panel) return "Step 3 of 5. Place the breaker panel.";
-    if (!outlet) return "Step 4 of 5. Add an outlet.";
-    if (!sink) return "Step 5 of 5. Add a kitchen sink.";
-    return "";
+  const GUIDE_STEPS = [
+    { id: "room", label: "Room", next: "Draw a room." },
+    { id: "door", label: "Door", next: "Add a door." },
+    { id: "panel", label: "Panel", next: "Place the breaker panel." },
+    { id: "outlet", label: "Outlet", next: "Add an outlet." },
+    { id: "sink", label: "Sink", next: "Add a kitchen sink." },
+  ];
+
+  function guideProgress() {
+    if (house.sample || getViewState().guideSkipped || mode !== "build") return null;
+    const done = {
+      room: (house.rooms || []).some((room) => (room.polygon || []).length >= 3 && !room.outdoor),
+      door: (house.openings || []).some((item) => item.type === "door"),
+      panel: !!house.electrical?.panel,
+      outlet: (house.electrical?.devices || []).some((item) => !item.ghost && ["receptacle", "gfci", "wr-receptacle"].includes(item.kind)),
+      sink: (house.plumbing?.fixtures || []).some((item) => !item.ghost && item.kind === "kitchen-sink"),
+    };
+    const steps = GUIDE_STEPS.map((step) => ({ ...step, done: !!done[step.id] }));
+    const next = steps.find((step) => !step.done) || null;
+    return { steps, next, complete: !next };
+  }
+
+  function scheduleGuideHide() {
+    if (guideHideTimer) return;
+    guideHideTimer = window.setTimeout(() => {
+      guideHideTimer = 0;
+      if (!guideProgress()?.complete) return;
+      patchViewState({ guideSkipped: true });
+      coachKey = "";
+      paintCoach();
+    }, 4200);
   }
 
   function paintCoach() {
     const line = document.querySelector("#coach-line");
     const list = document.querySelector("#history-list");
     if (!line) return;
-    const guide = guideStep();
+    const progress = guideProgress();
     const next = nextInstruction();
-    const key = `${guide}|${next}|${history.join("\n")}`;
+    const guideKey = !progress
+      ? ""
+      : progress.complete
+        ? "done"
+        : `${progress.steps.map((step) => (step.done ? "1" : "0")).join("")}:${progress.next.id}`;
+    const key = `${guideKey}|${next}|${history.join("\n")}`;
     if (key === coachKey) return;
     coachKey = key;
     line.replaceChildren();
-    if (guide) {
+    if (progress?.complete) {
       const strong = document.createElement("strong");
-      strong.textContent = guide;
+      strong.textContent = "All five steps are done.";
+      line.append(strong, " ");
+      scheduleGuideHide();
+    } else if (progress) {
+      const strong = document.createElement("strong");
+      strong.textContent = `Next: ${progress.next.next}`;
       const skip = document.createElement("button");
       skip.type = "button";
       skip.className = "coach-skip";
@@ -1073,7 +1105,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         coachKey = "";
         paintCoach();
       });
-      line.append(strong, " ", skip, " ");
+      const steps = document.createElement("ol");
+      steps.className = "guide-steps";
+      for (const step of progress.steps) {
+        const item = document.createElement("li");
+        item.className = step.done ? "is-done" : step.id === progress.next.id ? "is-next" : "";
+        item.textContent = step.label;
+        steps.append(item);
+      }
+      line.append(strong, " ", skip, " ", steps, " ");
     }
     line.append(document.createTextNode(next));
     if (!list) return;
@@ -1321,6 +1361,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function startSuggest(kind) {
     suggestKind = kind;
+    suggestPreview = null;
     optionsOpen = true;
     optionsKey = "";
     const note = suggestionNote(house);
@@ -1406,6 +1447,83 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     announce("Accepted the suggestions.");
   }
 
+  function nearRing(point, ring, limit) {
+    if (!point || !(ring || []).length) return false;
+    if (pointInRing(point, ring)) return true;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+      const a = ring[j];
+      const b = ring[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1;
+      const t = Math.min(1, Math.max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2));
+      if (Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t)) <= limit) return true;
+    }
+    return false;
+  }
+
+  function issuesForRoom(room) {
+    const ring = room.polygon || [];
+    const wallIds = new Set((house.walls || []).filter((wall) => {
+      const mid = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+      return nearRing(mid, ring, (wall.thickness || 1) + 0.8);
+    }).map((wall) => wall.id));
+    const rank = { blocker: 0, warning: 1, tip: 2 };
+    return warnings.filter((item) => {
+      if (item.target?.type === "room" && item.target.id === room.id) return true;
+      if (item.target?.type === "wall" && wallIds.has(item.target.id)) return true;
+      return !!(item.point && nearRing(item.point, ring, 1.5));
+    }).sort((a, b) => (rank[a.severity] ?? 1) - (rank[b.severity] ?? 1));
+  }
+
+  function runFindingFix(finding) {
+    if (!finding) return;
+    if (finding.fix?.id === "guide-door") {
+      tool = "door";
+      optionsOpen = true;
+      optionsKey = "";
+      announce("Door tool. Click a wall to add a door.", false);
+      publish();
+      return;
+    }
+    if (finding.fix?.id === "guide-outlets") {
+      startSuggest("electrical");
+      return;
+    }
+    if (finding.fix?.id === "show-wall" && finding.target?.type === "wall") {
+      selection = { type: "wall", id: finding.target.id };
+      announce(finding.title, false);
+      publish();
+      return;
+    }
+    const next = applyFix(house, finding);
+    if (!next) {
+      announce(finding.title, false);
+      return;
+    }
+    commit(next);
+    announce(finding.fix?.label || finding.title);
+    publish();
+  }
+
+  function bindFindingFixes(box) {
+    box.querySelectorAll("[data-fix-finding]").forEach((button) => {
+      button.addEventListener("click", () => {
+        runFindingFix(warnings.find((item) => item.id === button.dataset.fixFinding));
+      });
+    });
+  }
+
+  function setSuggestPreview(id) {
+    suggestPreview = id || null;
+    const overlay = makeOverlay();
+    plan.setOverlay(overlay);
+    model.setOverlay?.(overlay);
+    document.querySelectorAll("[data-preview-id]").forEach((row) => {
+      row.classList.toggle("is-preview", row.dataset.previewId === suggestPreview);
+    });
+  }
+
   function suggestHtml() {
     const items = suggestKind === "electrical"
       ? (house.electrical?.devices || []).filter((item) => item.ghost)
@@ -1414,16 +1532,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         : [];
     const groups = groupByRoom(items, house.rooms);
     const panelRow = panelGhost
-      ? `<div class="suggest-row"><span>Breaker panel</span><button type="button" class="hud-pill" data-accept-panel>Accept</button><button type="button" class="hud-pill" data-skip-panel>Skip</button></div>`
+      ? `<div class="suggest-row${suggestPreview === "panel" ? " is-preview" : ""}" data-preview-id="panel"><button type="button" class="suggest-label">Breaker panel</button><button type="button" class="hud-pill" data-accept-panel>Accept</button><button type="button" class="hud-pill" data-skip-panel>Skip</button></div>`
       : "";
     if (!groups.length && !panelRow) return `<p class="fine">${escapeAttr(suggestNote || "Nothing new to suggest.")}</p>`;
     return `<div class="suggest-list">
       <div class="suggest-head"><strong>Suggestions</strong><button type="button" class="hud-pill pill-primary" data-accept-all>Accept all</button></div>
       ${panelRow}
-      ${groups.map((group) => `
-      <div class="suggest-row"><span>${escapeAttr(group.name)} · ${group.count}</span>
+      ${groups.map((group) => {
+        const label = groups.length > 1 ? `${group.name} · ${group.label}` : group.label;
+        return `<div class="suggest-row${suggestPreview === group.id ? " is-preview" : ""}" data-preview-id="${escapeAttr(group.id)}"><button type="button" class="suggest-label">${escapeAttr(label)}</button>
         <button type="button" class="hud-pill" data-accept-room="${escapeAttr(group.id)}">Accept</button>
-        <button type="button" class="hud-pill" data-skip-room="${escapeAttr(group.id)}">Skip</button></div>`).join("")}
+        <button type="button" class="hud-pill" data-skip-room="${escapeAttr(group.id)}">Skip</button></div>`;
+      }).join("")}
       ${suggestNote ? `<p class="fine">${escapeAttr(suggestNote)}</p>` : ""}
     </div>`;
   }
@@ -1447,6 +1567,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         optionsKey = "";
         announce("Skipped the breaker panel.", false);
         publish();
+      });
+    });
+    box.querySelectorAll("[data-preview-id]").forEach((row) => {
+      const id = row.dataset.previewId;
+      row.addEventListener("pointerenter", () => setSuggestPreview(id));
+      row.addEventListener("pointerleave", (event) => {
+        if (row.contains(event.relatedTarget)) return;
+        if (suggestPreview === id) setSuggestPreview(null);
+      });
+      row.querySelector(".suggest-label")?.addEventListener("click", () => {
+        setSuggestPreview(suggestPreview === id ? null : id);
       });
     });
   }
@@ -1818,7 +1949,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const proportion = roomProportion(room, house.customRatios || []);
       const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}" ${proportion.match?.ratio?.id === ratio.id ? "selected" : ""}>${ratio.name}</option>`).join("");
       inspector.innerHTML = `
-        ${gameHead(room.name || "Room", warnings.filter((item) => item.target?.id === room.id))}
+        ${gameHead(room.name || "Room", issuesForRoom(room))}
+        ${issueRows(issuesForRoom(room))}
         <button type="button" id="suggest-room-power">Suggest outlets</button>
         <button type="button" id="suggest-room-water">Suggest a sink</button>
         ${suggestKind || suggestNote ? suggestHtml() : ""}
@@ -1849,6 +1981,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       inspector.querySelector("#suggest-room-power").addEventListener("click", () => startSuggest("electrical"));
       inspector.querySelector("#suggest-room-water").addEventListener("click", () => startSuggest("plumbing"));
       bindSuggest(inspector);
+      bindFindingFixes(inspector);
       inspector.querySelector("#edit-name").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         next.rooms.find((item) => item.id === room.id).name = event.target.value.trim() || "Room";
