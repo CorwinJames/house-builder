@@ -1,11 +1,13 @@
 import "./styles.css";
 import house from "../data/sample-house.json";
 import { LAYER_DEFS } from "./layers.js";
-import { formatArea, formatFeet } from "./lib/format.js";
+import { formatArea } from "./lib/format.js";
 import { loadViewState, saveViewState } from "./state/viewState.js";
 import { createPlanView } from "./render/plan2d.js";
 import { createView3d } from "./render/view3d.js";
-import { isFutureShown } from "./render/visibility.js";
+import { polygonArea } from "./lib/geom.js";
+import { footprintMatch } from "./build/constraints.js";
+import { attachEditor } from "./ui/editor.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -29,6 +31,10 @@ app.innerHTML = `
       </div>
       <p class="sample-chip">Sample layout · not a final design</p>
       <div class="controls">
+        <div class="seg" id="mode-seg" role="group" aria-label="View or build">
+          <button type="button" data-mode="view">View</button>
+          <button type="button" data-mode="build">Build</button>
+        </div>
         <div class="seg" id="phase-seg" role="group" aria-label="Which phase to show">
           <button type="button" data-phase="phase1">Phase 1</button>
           <button type="button" data-phase="full">Full house</button>
@@ -40,9 +46,11 @@ app.innerHTML = `
         </div>
         <button type="button" class="layers-btn" id="layers-btn" aria-expanded="false">Layers</button>
       </div>
+      <div id="build-bar" class="build-bar" hidden></div>
     </header>
     <div class="workspace">
       <aside class="layer-panel" id="layer-panel">
+        <div id="inspector" class="inspector" hidden></div>
         <div class="panel-head">
           <h2>Layers</h2>
           <button type="button" class="icon-btn" id="layers-close" aria-label="Close layers">Close</button>
@@ -71,6 +79,7 @@ app.innerHTML = `
     <footer class="statusbar" id="status"></footer>
   </div>
   <div class="scrim" id="scrim" hidden></div>
+  <div class="hint" id="build-tutorial" hidden></div>
   <div class="hint" id="hint" role="dialog" aria-labelledby="hint-title">
     <p id="hint-title">Drag the plan to move around. Scroll or pinch to zoom. In 3D, drag to look around the house. Solid rooms are Phase 1, the first part to build. Dashed rooms are later wings. This sample is a starting point, not the final house.</p>
     <button type="button" id="hint-ok">Got it</button>
@@ -93,6 +102,20 @@ const planCanvas = document.querySelector("#plan-canvas");
 const modelCanvas = document.querySelector("#model-canvas");
 const plan = createPlanView(planCanvas, house);
 const model = createView3d(modelCanvas, house);
+let editor;
+editor = attachEditor({
+  plan,
+  model,
+  sample: house,
+  getViewState: () => state,
+  patchViewState(partial) {
+    Object.assign(state, partial);
+    saveViewState(state);
+  },
+  onChange() {
+    if (editor) publish();
+  },
+});
 
 plan.setOnChange((planCamera) => {
   state.plan = planCamera;
@@ -119,16 +142,27 @@ function effectiveView() {
 }
 
 function statusText() {
-  const core = house.phases.phase1.bounds;
-  const gross = (core.x1 - core.x0) * (core.y1 - core.y0);
-  const footprint = house.footprint.width * house.footprint.depth;
+  const doc = editor.house();
+  let phase1 = 0;
+  let all = 0;
+  for (const room of doc.rooms) {
+    const area = polygonArea(room.polygon);
+    all += area;
+    if (room.phase === "phase1") phase1 += area;
+  }
   const stubs = LAYER_DEFS.filter((layer) => layer.stub && state.layers[layer.id]).map((layer) => layer.label);
   const stubNote = stubs.length ? ` · ${stubs.join(", ")}: nothing in this layer yet` : "";
   const futureNote = state.phase === "full" && !state.layers.future ? " · Future wings layer is off" : "";
-  if (!isFutureShown(state) && state.phase === "phase1") {
-    return `Phase 1 only · ${formatFeet(core.x1 - core.x0)} × ${formatFeet(core.y1 - core.y0)} gross (${formatArea(gross)} sq ft) · bedroom, kitchen, bathroom, living room${stubNote}`;
+  const phaseNote = state.phase === "phase1" ? "Phase 1 only" : "Full house";
+  const foot = footprintMatch(doc, doc.customRatios || []);
+  let footNote = "";
+  if (foot?.badge) {
+    const percent = foot.deviation * 100;
+    footNote = foot.exact
+      ? ` · Footprint ${foot.badge} exact`
+      : ` · Footprint ${foot.badge} ${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(2)}%`;
   }
-  return `Full sample · ${formatFeet(house.footprint.width)} × ${formatFeet(house.footprint.depth)} footprint (${formatArea(footprint)} sq ft) · Phase 1 core ${formatArea(gross)} sq ft gross${futureNote}${stubNote}`;
+  return `${phaseNote} · Phase 1 rooms ${formatArea(phase1)} sq ft · All rooms ${formatArea(all)} sq ft${footNote}${futureNote}${stubNote}`;
 }
 
 function syncControls() {

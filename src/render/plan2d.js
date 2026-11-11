@@ -1,5 +1,7 @@
 import { ASSEMBLY_2D, FINISH_2D, INK, MUTED } from "../theme.js";
-import { formatArea, formatFeet } from "../lib/format.js";
+import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
+import { constraintReadout } from "../build/constraints.js";
+import { roomProportion } from "../build/ratios.js";
 import {
   openingsFor,
   pointAlong,
@@ -12,13 +14,19 @@ import {
 import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
+import { assemblyById } from "../build/catalog.js";
 
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
+ * Build mode hands pointer events to a hook so drawing doesn't also pan.
  */
-export function createPlanView(canvas, house) {
+export function createPlanView(canvas, initialHouse) {
+  let house = initialHouse;
   const ctx = canvas.getContext("2d");
   let state = null;
+  let overlay = null;
+  let buildHooks = null;
+  let buildGesture = false;
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let cameraReady = false;
@@ -317,15 +325,22 @@ export function createPlanView(canvas, house) {
       const sb = worldToScreen(b.x, b.y);
       let ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
       if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
-      const label = formatFeet(seg.len);
+      const detail = formatFeetFine(seg.len);
+      const label = detail.construction;
+      const note = dim.id === "all-width" ? footprintCaption() : (detail.fudged ? `exact ${detail.exact}` : "");
       ctx.save();
       ctx.translate(mid.x, mid.y);
       ctx.rotate(ang);
-      const width = ctx.measureText(label).width + 10;
+      const width = Math.max(ctx.measureText(label).width, ctx.measureText(note).width) + 12;
       ctx.fillStyle = "rgba(243, 235, 221, 0.92)";
-      ctx.fillRect(-width / 2, -11, width, 16);
+      ctx.fillRect(-width / 2, note ? -18 : -11, width, note ? 28 : 16);
       ctx.fillStyle = INK;
-      ctx.fillText(label, 0, -3);
+      ctx.fillText(label, 0, note ? -8 : -3);
+      if (note) {
+        ctx.font = "600 10px Outfit, 'Segoe UI', sans-serif";
+        ctx.fillStyle = "#2F5D45";
+        ctx.fillText(note, 0, 6);
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -384,6 +399,11 @@ export function createPlanView(canvas, house) {
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
       ctx.fillStyle = MUTED;
       ctx.fillText(`${formatArea(polygonArea(room.polygon))} sq ft`, s.x, s.y + nameSize * 0.55);
+      if (boxW > 96 && boxH > 72) {
+        ctx.font = `600 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
+        ctx.fillStyle = "#2F5D45";
+        ctx.fillText(roomProportion(room, house.customRatios || []).phrase, s.x, s.y + nameSize * 1.55);
+      }
       if (future) {
         ctx.font = `500 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
         ctx.fillStyle = "#8A7360";
@@ -454,10 +474,265 @@ export function createPlanView(canvas, house) {
       if (!wallVisible(wall)) continue;
       for (const opening of openingsFor(house, wall)) drawOpening(wall, opening);
     }
+    if (state?.layers.framing) {
+      for (const wall of house.walls) {
+        if (isPhaseVisible(wall.phase, state)) drawStuds(wall);
+      }
+    }
+    drawOverlay();
     drawDimensions();
     drawLabels();
+    drawConstraintBadges();
+    drawGuides();
     drawCompass();
     drawWatermark();
+  }
+
+  function drawStuds(wall) {
+    const spec = assemblyById[wall.assemblyId]?.framing;
+    if (!spec) return;
+    const length = wallLength(wall);
+    if (length < 0.2) return;
+    const dx = (wall.end.x - wall.start.x) / length;
+    const dy = (wall.end.y - wall.start.y) / length;
+    const openings = openingsFor(house, wall);
+    ctx.save();
+    const stud = (s, color) => {
+      if (s < 0.04 || s > length - 0.04) return;
+      const center = pointAlong(wall, s);
+      const half = spec.studThickness / 2;
+      const quad = segmentQuad(
+        center.x - dx * half,
+        center.y - dy * half,
+        center.x + dx * half,
+        center.y + dy * half,
+        Math.min(wall.thickness * 0.78, spec.studDepth + 0.05),
+      );
+      trace(quad);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    ctx.globalAlpha = wall.phase === "future" ? 0.55 : 0.95;
+    for (let s = spec.spacing / 2; s < length; s += spec.spacing) {
+      const blocked = openings.some((opening) => s > opening.offset - 0.35 && s < opening.offset + opening.width + 0.35);
+      if (!blocked) stud(s, "#8D5A32");
+    }
+    for (const opening of openings) {
+      stud(opening.offset - spec.studThickness * 1.4, "#6B3E22");
+      stud(opening.offset + spec.studThickness * 0.7, "#6B3E22");
+      stud(opening.offset + opening.width - spec.studThickness * 0.7, "#6B3E22");
+      stud(opening.offset + opening.width + spec.studThickness * 1.4, "#6B3E22");
+      const a = pointAlong(wall, opening.offset);
+      const b = pointAlong(wall, opening.offset + opening.width);
+      trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness * 0.92));
+      ctx.fillStyle = "#3F2918";
+      ctx.fill();
+      const sa = worldToScreen(a.x, a.y);
+      const sb = worldToScreen(b.x, b.y);
+      if (!state?.layers.infill && Math.hypot(sb.x - sa.x, sb.y - sa.y) > 28) {
+        ctx.fillStyle = "#F7F3EB";
+        ctx.font = "700 10px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(opening.header?.label || "HDR", (sa.x + sb.x) / 2, (sa.y + sb.y) / 2);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawOverlay() {
+    if (!overlay) return;
+    const warnedWalls = overlay.warningWalls || [];
+    const warnedOpenings = overlay.warningOpenings || [];
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#C44536";
+    for (const id of warnedWalls) {
+      const wall = house.walls.find((item) => item.id === id);
+      if (!wall) continue;
+      trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness + 0.15));
+      ctx.stroke();
+    }
+    for (const id of warnedOpenings) {
+      const opening = house.openings.find((item) => item.id === id);
+      const wall = opening && house.walls.find((item) => item.id === opening.wallId);
+      if (!wall) continue;
+      const a = pointAlong(wall, opening.offset);
+      const b = pointAlong(wall, opening.offset + opening.width);
+      trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness + 0.35));
+      ctx.stroke();
+    }
+    ctx.restore();
+    if (overlay.draft) {
+      const { start, end, color } = overlay.draft;
+      ctx.save();
+      ctx.strokeStyle = color || "#2F5D45";
+      ctx.lineWidth = 4;
+      ctx.setLineDash([7, 5]);
+      const a = worldToScreen(start.x, start.y);
+      const b = worldToScreen(end.x, end.y);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      if (overlay.draft.lengthLabel) {
+        ctx.setLineDash([]);
+        ctx.font = "700 14px Outfit, sans-serif";
+        ctx.fillStyle = "#2A241B";
+        ctx.textAlign = "center";
+        ctx.fillText(overlay.draft.lengthLabel, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10);
+      }
+      ctx.restore();
+      for (const tick of overlay.draft.ticks || []) {
+        const p = worldToScreen(tick.x, tick.y);
+        ctx.save();
+        ctx.fillStyle = "#2F5D45";
+        ctx.strokeStyle = "#2F5D45";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = "600 11px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(tick.label, p.x, p.y - 10);
+        ctx.restore();
+      }
+    }
+    if (overlay.rect) {
+      const { x0, y0, x1, y1 } = overlay.rect;
+      const a = worldToScreen(x0, y0);
+      const b = worldToScreen(x1, y1);
+      ctx.save();
+      ctx.strokeStyle = "#2F5D45";
+      ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.restore();
+    }
+    if (overlay.selection?.type === "wall") {
+      const wall = house.walls.find((item) => item.id === overlay.selection.id);
+      if (wall) {
+        trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness + 0.2));
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        for (const point of [wall.start, wall.end]) {
+          const s = worldToScreen(point.x, point.y);
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+          ctx.fillStyle = "#F7F3EB";
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+    if (overlay.selection?.type === "room") {
+      const room = house.rooms.find((item) => item.id === overlay.selection.id);
+      if (room) {
+        trace(room.polygon);
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (overlay.ghostOpening) {
+      const ghost = overlay.ghostOpening;
+      const wall = house.walls.find((item) => item.id === ghost.wallId);
+      if (wall) {
+        const a = pointAlong(wall, ghost.offset);
+        const b = pointAlong(wall, ghost.offset + ghost.width);
+        trace(segmentQuad(a.x, a.y, b.x, b.y, wall.thickness + 0.2));
+        ctx.save();
+        ctx.fillStyle = ghost.ok ? "rgba(47, 93, 69, 0.35)" : "rgba(196, 69, 54, 0.4)";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  function footprintCaption() {
+    const constraint = (house.constraints || []).find((item) => String(item.targetId).startsWith("footprint:"));
+    const readout = constraint && constraintReadout(house, constraint, house.customRatios || []);
+    if (!readout) return "";
+    if (readout.exact) return `${readout.badge} · exact`;
+    const percent = readout.deviation * 100;
+    const sign = percent > 0 ? "+" : "−";
+    return `${readout.badge} · ${sign}${Math.abs(percent).toFixed(2)}%`;
+  }
+
+  function drawConstraintBadges() {
+    const caption = footprintCaption();
+    if (!caption) return;
+    const point = worldToScreen(house.footprint.width / 2, -10.5);
+    ctx.save();
+    ctx.font = "700 12px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const width = ctx.measureText(caption).width + 16;
+    ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+    ctx.fillRect(point.x - width / 2, point.y - 11, width, 22);
+    ctx.fillStyle = "#2F5D45";
+    ctx.fillText(caption, point.x, point.y);
+    ctx.restore();
+    for (const constraint of house.constraints || []) {
+      if (String(constraint.targetId).startsWith("footprint:")) continue;
+      const target = house.walls.find((wall) => wall.id === constraint.targetId);
+      const reference = house.walls.find((wall) => wall.id === constraint.referenceId);
+      const readout = constraintReadout(house, constraint, house.customRatios || []);
+      if (!target || !readout) continue;
+      const mid = worldToScreen((target.start.x + target.end.x) / 2, (target.start.y + target.end.y) / 2);
+      if (reference) {
+        const other = worldToScreen((reference.start.x + reference.end.x) / 2, (reference.start.y + reference.end.y) / 2);
+        ctx.save();
+        ctx.setLineDash([3, 4]);
+        ctx.strokeStyle = "rgba(47, 93, 69, 0.7)";
+        ctx.beginPath();
+        ctx.moveTo(mid.x, mid.y);
+        ctx.lineTo(other.x, other.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.font = "700 11px Outfit, sans-serif";
+      ctx.fillStyle = "#2F5D45";
+      ctx.textAlign = "left";
+      ctx.fillText(readout.badge, mid.x + 8, mid.y - 8);
+      ctx.restore();
+    }
+  }
+
+  function drawGuides() {
+    const guides = overlay?.guides || [];
+    if (!guides.length) return;
+    ctx.save();
+    ctx.strokeStyle = "#2F5D45";
+    ctx.fillStyle = "#2F5D45";
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 4]);
+    for (const guide of guides) {
+      const a = worldToScreen(guide.x0, guide.y0);
+      const b = worldToScreen(guide.x1, guide.y1);
+      const left = Math.min(a.x, b.x);
+      const top = Math.min(a.y, b.y);
+      const width = Math.abs(b.x - a.x);
+      const height = Math.abs(b.y - a.y);
+      ctx.strokeRect(left, top, width, height);
+      const short = Math.min(width, height);
+      if (width >= height) ctx.strokeRect(left, top, short, height);
+      else ctx.strokeRect(left, top, width, short);
+      ctx.setLineDash([]);
+      ctx.font = "600 12px Outfit, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(guide.label, left + 6, top + 16);
+      ctx.setLineDash([5, 4]);
+    }
+    ctx.restore();
   }
 
   function localPoint(event) {
@@ -465,19 +740,38 @@ export function createPlanView(canvas, house) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function worldFromEvent(event) {
+    const local = localPoint(event);
+    return screenToWorld(local.x, local.y);
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.size === 1) {
-      drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
-      pinch = null;
+    if (pointers.size > 1) {
+      if (buildGesture) buildHooks?.cancel?.();
+      buildGesture = false;
+      drag = null;
+      return;
     }
+    if (buildHooks?.down?.(event, worldFromEvent(event))) {
+      buildGesture = true;
+      drag = null;
+      pinch = null;
+      return;
+    }
+    drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
+    pinch = null;
   });
 
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const pts = [...pointers.values()];
+    if (pts.length === 1 && buildGesture) {
+      buildHooks?.move?.(event, worldFromEvent(event));
+      return;
+    }
     if (pts.length >= 2) {
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const midClient = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
@@ -502,6 +796,10 @@ export function createPlanView(canvas, house) {
   });
 
   function endPointer(event) {
+    if (buildGesture && pointers.size <= 1) {
+      buildHooks?.up?.(event, worldFromEvent(event));
+      buildGesture = false;
+    }
     pointers.delete(event.pointerId);
     if (pointers.size === 0) {
       drag = null;
@@ -564,6 +862,24 @@ export function createPlanView(canvas, house) {
     },
     setOnChange(fn) {
       onChange = fn;
+    },
+    setHouse(next) {
+      house = next;
+      render();
+    },
+    setOverlay(next) {
+      overlay = next;
+      render();
+    },
+    setBuildHooks(hooks) {
+      buildHooks = hooks;
+    },
+    getCamera() {
+      return { ...camera };
+    },
+    beginPan(event) {
+      buildGesture = false;
+      drag = { x: event.clientX, y: event.clientY, cx: camera.cx, cy: camera.cy };
     },
   };
 }

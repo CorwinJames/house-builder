@@ -3,6 +3,9 @@ import house from "../data/sample-house.json" with { type: "json" };
 import schema from "../schemas/house.schema.json" with { type: "json" };
 import { polygonArea, wallLength } from "../src/lib/geom.js";
 import { isFutureShown } from "../src/render/visibility.js";
+import { assemblyById } from "../src/build/catalog.js";
+import { ratioValue, findRatio } from "../src/build/ratios.js";
+import { desiredLength } from "../src/build/constraints.js";
 
 const errors = [];
 const fail = (message) => errors.push(message);
@@ -15,10 +18,19 @@ if (!validate(house)) {
   }
 }
 
+if (house.schemaVersion !== 2) fail("schemaVersion must be 2");
 if (house.sample !== true) fail("sample must be true");
 if (house.roof.placeholder !== true) fail("roof.placeholder must stay true until a real roof is designed");
 if (house.footprint.width !== 76 || house.footprint.depth !== 47) {
   fail("footprint must stay 76 ft east-west by 47 ft north-south");
+}
+const footprintConstraint = (house.constraints || []).find((item) => item.id === "footprint-golden");
+if (!footprintConstraint) fail("sample footprint needs the golden constraint");
+else {
+  const desired = desiredLength(house, footprintConstraint);
+  const phi = ratioValue(findRatio("golden"));
+  if (Math.abs(desired - 47 * phi) > 1e-9) fail("footprint golden constraint does not use phi");
+  if (footprintConstraint.operation !== "multiply") fail("footprint constraint should multiply");
 }
 
 const core = house.phases.phase1.bounds;
@@ -39,6 +51,21 @@ const wallById = new Map(house.walls.map((wall) => [wall.id, wall]));
 for (const wall of house.walls) {
   if (!levelIds.has(wall.levelId)) fail(`${wall.id} references missing level ${wall.levelId}`);
   if (wallLength(wall) < 0.5) fail(`${wall.id} is too short`);
+  const assembly = assemblyById[wall.assemblyId];
+  if (!assembly) fail(`${wall.id} has unknown assembly ${wall.assemblyId}`);
+  else if (Math.abs(wall.thickness - assembly.thickness) > 0.001) {
+    fail(`${wall.id} thickness ${wall.thickness} does not match assembly ${assembly.thickness}`);
+  }
+  if (assembly && !String(assembly.note || "").includes("placeholder: needs engineer/code verification")) {
+    fail(`${assembly.id} is missing the placeholder marker`);
+  }
+}
+
+for (const opening of house.openings) {
+  if (!opening.header?.placeholder) fail(`${opening.id} header must stay a placeholder`);
+  if (opening.header && !String(opening.header.note || "").includes("placeholder: needs engineer/code verification")) {
+    fail(`${opening.id} header note is missing the placeholder marker`);
+  }
 }
 
 const expectedAreas = {

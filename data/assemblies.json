@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "note": "placeholder: needs engineer/code verification. These assemblies are drawing defaults so thickness and framing fill in automatically. They are not a cited code assembly and they are not an engineered design.",
+  "assemblies": [
+    {
+      "id": "hempcrete-exterior",
+      "name": "Hempcrete exterior",
+      "short": "Hempcrete",
+      "renderAssembly": "hempcrete",
+      "role": "exterior",
+      "thickness": 1,
+      "defaultExterior": true,
+      "swatch": "#C6B489",
+      "layers": [
+        { "name": "lime plaster", "thickness": 0.125 },
+        { "name": "hempcrete", "thickness": 0.75 },
+        { "name": "lime plaster", "thickness": 0.125 }
+      ],
+      "framing": {
+        "stud": "2x6",
+        "studThickness": 0.125,
+        "studDepth": 0.458,
+        "spacing": 2,
+        "spacingNote": "24 inches on center",
+        "embedded": true
+      },
+      "source": null,
+      "note": "placeholder: needs engineer/code verification. 12 inch exterior wall with a 2x6 stud at 24 inches on center, embedded in the hempcrete. No code citation."
+    },
+    {
+      "id": "rammed-earth-exterior",
+      "name": "Rammed earth exterior",
+      "short": "Rammed earth",
+      "renderAssembly": "rammed-earth",
+      "role": "exterior",
+      "thickness": 1.5,
+      "suggestWhen": "east-west",
+      "swatch": "#A85B3C",
+      "layers": [
+        { "name": "rammed earth", "thickness": 1.5 }
+      ],
+      "framing": null,
+      "source": null,
+      "note": "placeholder: needs engineer/code verification. 18 inch solid rammed-earth wall, the sample's south walls. No studs. No code citation."
+    },
+    {
+      "id": "interior-partition",
+      "name": "Interior partition",
+      "short": "Partition",
+      "renderAssembly": "framed",
+      "role": "interior",
+      "thickness": 0.5,
+      "swatch": "#E4C09A",
+      "layers": [
+        { "name": "gypsum", "thickness": 0.042 },
+        { "name": "stud bay", "thickness": 0.416 },
+        { "name": "gypsum", "thickness": 0.042 }
+      ],
+      "framing": {
+        "stud": "2x4",
+        "studThickness": 0.125,
+        "studDepth": 0.292,
+        "spacing": 1.333,
+        "spacingNote": "16 inches on center",
+        "embedded": false
+      },
+      "source": null,
+      "note": "placeholder: needs engineer/code verification. About 6 inches overall, 2x4 studs at 16 inches on center. No code citation."
+    }
+  ]
+}

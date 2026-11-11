@@ -21,7 +21,11 @@
     "roof"
   ],
   "properties": {
-    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 2,
+      "description": "2 adds assemblyId on walls and a placeholder header on each opening. Thickness is copied from the assembly; the user does not type it."
+    },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
@@ -42,12 +46,10 @@
     },
     "walls": {
       "type": "array",
-      "minItems": 1,
       "items": { "$ref": "#/$defs/wall" }
     },
     "rooms": {
       "type": "array",
-      "minItems": 1,
       "items": { "$ref": "#/$defs/room" }
     },
     "openings": {
@@ -55,6 +57,16 @@
       "items": { "$ref": "#/$defs/opening" }
     },
     "roof": { "$ref": "#/$defs/roof" },
+    "constraints": {
+      "type": "array",
+      "description": "Length relationships. A target updates from its reference through the ratio. Stage 11 blueprint export must use these solved lengths, not a rounded substitute.",
+      "items": { "$ref": "#/$defs/constraint" }
+    },
+    "customRatios": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/customRatio" }
+    },
+    "proportion": { "$ref": "#/$defs/proportion" },
     "notes": {
       "type": "array",
       "items": { "type": "string" }
@@ -143,17 +155,21 @@
     "wall": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "levelId", "start", "end", "assembly", "thickness", "height", "phase", "role"],
+      "required": ["id", "levelId", "start", "end", "assembly", "assemblyId", "thickness", "height", "phase", "role"],
       "properties": {
         "id": { "type": "string" },
         "levelId": { "type": "string" },
         "start": { "$ref": "#/$defs/point2" },
         "end": { "$ref": "#/$defs/point2" },
         "assembly": { "enum": ["hempcrete", "rammed-earth", "framed"] },
+        "assemblyId": {
+          "type": "string",
+          "description": "Key into data/assemblies.json. Thickness and framing come from that record."
+        },
         "thickness": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Feet. The wall is centered on the start–end segment."
+          "description": "Feet, copied from the assembly. Centered on the start–end segment. Not typed by the user."
         },
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "phase": { "enum": ["phase1", "future"] },
@@ -185,7 +201,7 @@
     "opening": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "wallId", "type", "offset", "width", "height", "sill"],
+      "required": ["id", "wallId", "type", "offset", "width", "height", "sill", "header"],
       "properties": {
         "id": { "type": "string" },
         "wallId": { "type": "string" },
@@ -203,7 +219,53 @@
         "swingSide": {
           "enum": ["left", "right"],
           "description": "Which side of the start→end direction the swing opens toward. Left is counterclockwise."
-        }
+        },
+        "header": { "$ref": "#/$defs/header" }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "targetId", "referenceId", "ratioId", "operation"],
+      "properties": {
+        "id": { "type": "string" },
+        "targetId": { "type": "string", "description": "Wall id, or footprint:width, or footprint:depth." },
+        "referenceId": { "type": "string" },
+        "ratioId": { "type": "string" },
+        "operation": { "enum": ["multiply", "divide"] },
+        "customValue": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "customRatio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "value"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "value": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "proportion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratioId", "module"],
+      "properties": {
+        "ratioId": { "type": "string" },
+        "module": { "type": "number", "exclusiveMinimum": 0, "description": "Base module in feet for the ratio snap series." }
+      }
+    },
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Auto-sized from data/headers.json. Placeholder until Stage 7 and an engineer replace it.",
+      "required": ["placeholder", "label", "depth", "height", "note"],
+      "properties": {
+        "placeholder": { "const": true },
+        "label": { "type": "string" },
+        "depth": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "note": { "type": "string" }
       }
     },
     "roof": {

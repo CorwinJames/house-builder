@@ -1,0 +1,12 @@
+{
+  "placeholder": true,
+  "note": "placeholder: needs engineer/code verification. A drawing table only, keyed by clear span. Stage 7 code rules and an engineer replace it. These sizes are not a cited header schedule.",
+  "clearanceFromCorner": 0.5,
+  "clearanceNote": "placeholder: needs engineer/code verification. Openings stay 6 inches off a wall end so the corner studs have somewhere to sit. Not a code citation.",
+  "entries": [
+    { "maxSpan": 3.5, "label": "2x6", "depth": 0.125, "height": 0.458 },
+    { "maxSpan": 6, "label": "2-2x10", "depth": 0.25, "height": 0.771 },
+    { "maxSpan": 8.5, "label": "2-2x12", "depth": 0.25, "height": 0.938 },
+    { "maxSpan": 16, "label": "deep header", "depth": 0.25, "height": 1.167 }
+  ]
+}

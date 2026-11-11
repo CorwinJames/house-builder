@@ -66,19 +66,20 @@ export function createHipAndGableGeometry({ x0, y0, x1, y1, plate, pitch }) {
 
 export function roofFootprint(house, futureShown) {
   const overhang = futureShown ? house.roof.overhang : 1.5;
-  if (futureShown) {
-    return {
-      x0: -overhang,
-      y0: -overhang,
-      x1: house.footprint.width + overhang,
-      y1: house.footprint.depth + overhang,
-    };
+  const base = futureShown
+    ? { x0: 0, y0: 0, x1: house.footprint.width, y1: house.footprint.depth }
+    : { ...house.phases.phase1.bounds };
+  for (const wall of house.walls || []) {
+    if (!futureShown && wall.phase === "future") continue;
+    base.x0 = Math.min(base.x0, wall.start.x, wall.end.x);
+    base.y0 = Math.min(base.y0, wall.start.y, wall.end.y);
+    base.x1 = Math.max(base.x1, wall.start.x, wall.end.x);
+    base.y1 = Math.max(base.y1, wall.start.y, wall.end.y);
   }
-  const core = house.phases.phase1.bounds;
   return {
-    x0: core.x0 - overhang,
-    y0: core.y0 - overhang,
-    x1: core.x1 + overhang,
-    y1: core.y1 + overhang,
+    x0: base.x0 - overhang,
+    y0: base.y0 - overhang,
+    x1: base.x1 + overhang,
+    y1: base.y1 + overhang,
   };
 }
