@@ -57,12 +57,12 @@
       "category": "framing",
       "kind": "material",
       "unit": "piece",
-      "amount": 10.75,
+      "amount": 10.98,
       "sourceType": "published-price",
       "sourceName": "The Home Depot",
-      "url": "https://www.homedepot.com/b/Lumber-Composites-Dimensional-Lumber/2x6/N-5yc1vZc3tcZ1z0ywy6",
+      "url": "https://www.homedepot.com/p/2-in-x-6-in-x-10-ft-Premium-SPF-Dimensional-Lumber-161721/100096643",
       "dateChecked": "2026-11-11",
-      "note": "Shelf price for one 10 ft piece. Store price varies."
+      "note": "Product page price for one 10 ft piece. Store price varies."
     },
     {
       "id": "stud-2x4",
@@ -73,7 +73,7 @@
       "amount": 4.25,
       "sourceType": "published-price",
       "sourceName": "The Home Depot",
-      "url": "https://www.homedepot.com/b/Lumber-Composites-Dimensional-Lumber/8-ft/N-5yc1vZc3tcZ1z1rkql",
+      "url": "https://www.homedepot.com/p/2-in-x-4-in-x-96-in-2-Premium-Grade-KD-HT-Stud-77700340/313260277",
       "dateChecked": "2026-11-11",
       "note": "Shelf price for one 8 ft stud. Walls are 10 ft tall, so the takeoff buys enough pieces to cover the linear feet. Store price varies."
     },
@@ -195,11 +195,11 @@
       "unit": "hour",
       "amount": 87.71,
       "sourceType": "published-wage",
-      "sourceName": "Washington L&I prevailing wage, Jefferson County, general carpenter",
-      "url": "https://prevailingwagehub.com/washington/jefferson/carpenter/",
+      "sourceName": "Washington L&I prevailing wage lookup",
+      "url": "https://secure.lni.wa.gov/wagelookup/rates/journey-level-rates",
       "dateChecked": "2026-11-11",
       "effectiveDate": "2026-09-02",
-      "note": "Total package $87.71 ($66.98 wage + $20.73 fringe). The page says L&I published it August 3, 2026, effective September 2, 2026. This is a public-works prevailing wage, not a bid for this house."
+      "note": "Jefferson County, Carpenters, General Carpenter. Total $87.71 ($66.98 wage plus fringe). L&I lookup on 2026-11-11. Published 2026-08-03, effective 2026-09-02. A public-works rate, not a bid for this house."
     },
     {
       "id": "wage-laborer",
@@ -209,11 +209,11 @@
       "unit": "hour",
       "amount": 71.1,
       "sourceType": "published-wage",
-      "sourceName": "Washington L&I prevailing wage, Jefferson County, general laborer",
-      "url": "https://prevailingwagehub.com/washington/jefferson/laborer/",
+      "sourceName": "Washington L&I prevailing wage lookup",
+      "url": "https://secure.lni.wa.gov/wagelookup/rates/journey-level-rates",
       "dateChecked": "2026-11-11",
       "effectiveDate": "2026-09-02",
-      "note": "Total package $71.10 ($52.92 wage + $18.18 fringe). Effective September 2, 2026. A public-works rate, not a bid for this house."
+      "note": "Jefferson County, Laborers, General Laborer. Total $71.10 ($52.92 wage plus fringe). L&I lookup on 2026-11-11. Published 2026-08-03, effective 2026-09-02. A public-works rate, not a bid for this house."
     },
     {
       "id": "wage-painter",
@@ -223,11 +223,11 @@
       "unit": "hour",
       "amount": 58.84,
       "sourceType": "published-wage",
-      "sourceName": "Washington L&I prevailing wage, Jefferson County, painter",
-      "url": "https://prevailingwagehub.com/washington/jefferson/",
+      "sourceName": "Washington L&I prevailing wage lookup",
+      "url": "https://secure.lni.wa.gov/wagelookup/rates/journey-level-rates",
       "dateChecked": "2026-11-11",
       "effectiveDate": "2026-09-02",
-      "note": "Journey-level total $58.84 ($43.14 wage + $15.70 fringe) on the Jefferson County list. Effective September 2, 2026. Used only when finish work is hired out."
+      "note": "Jefferson County, Painters, Journey Level. Total $58.84 ($43.14 wage plus fringe). L&I lookup on 2026-11-11. Published 2026-08-03, effective 2026-09-02. Used only when finish work is hired out."
     },
     {
       "id": "wage-floor",
@@ -237,11 +237,11 @@
       "unit": "hour",
       "amount": 70.17,
       "sourceType": "published-wage",
-      "sourceName": "Washington L&I prevailing wage, Jefferson County, carpet and soft floor layer",
-      "url": "https://prevailingwagehub.com/washington/jefferson/",
+      "sourceName": "Washington L&I prevailing wage lookup",
+      "url": "https://secure.lni.wa.gov/wagelookup/rates/journey-level-rates",
       "dateChecked": "2026-11-11",
       "effectiveDate": "2026-09-02",
-      "note": "Journey-level total $70.17 ($56.75 wage + $13.42 fringe). Effective September 2, 2026. Used only when flooring is hired out."
+      "note": "Jefferson County, Soft Floor Layers, Journey Level. Total $70.17 ($56.75 wage plus fringe). L&I lookup on 2026-11-11. Published 2026-08-03, effective 2026-09-02. Used only when flooring is hired out."
     },
     {
       "id": "allowance-foundation",

@@ -349,6 +349,7 @@ button:focus-visible {
 
 .layer-panel {
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -356,6 +357,11 @@ button:focus-visible {
   border-right: 1px solid var(--line);
   background: rgba(247, 243, 235, 0.72);
   overflow: auto;
+}
+
+.layer-panel > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .panel-head {
@@ -810,10 +816,26 @@ button:focus-visible {
   border-radius: 14px;
   background: white;
   border: 1px solid var(--line);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.inspector h2, .inspector h3, .inspector p, .inspector label, .inspector a, .inspector li, .inspector button {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .inspector h2 { margin: 0; font-size: 1rem; }
 .inspector p { margin: 0; }
+.inspector label { display: grid; gap: 4px; }
+.inspector select, .inspector input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.cost-lines, .cost-lines li, .mini-cost { max-width: 100%; min-width: 0; }
 
 @media (max-width: 860px) {
   .build-bar { padding-top: 4px; }

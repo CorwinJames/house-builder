@@ -4,7 +4,7 @@
 
 The header shows a priced total for the phase you are looking at, and how many lines still need a price. The Costs button opens the materials list: quantity, unit price, line total, and a source link. James's paint, flooring, and tile labor stay at $0 until you turn on hired finish labor.
 
-Quantities come from the walls and rooms. Hempcrete bags use Hemp and Block's published yield (one binder bag and one hurd bag make up to 4.5 cubic feet). Labor hours use labeled assumptions times Jefferson County prevailing wages. Anything without a published price stays on the list as "price needed" and is not in the total. Foundation, slab, and roof are allowances and are not in the total. Electrical and plumbing are empty on purpose.
+Quantities come from the walls and rooms. Hempcrete bags use Hemp and Block's published yield (one binder bag and one hurd bag make up to 4.5 cubic feet). Labor hours use labeled assumptions times Jefferson County prevailing wages from L&I's own lookup (effective September 2, 2026). Anything without a published price stays on the list as "price needed" and is not in the total. Foundation, slab, and roof are allowances and are not in the total. Electrical and plumbing are empty on purpose.
 
 A stage 2 house file still opens. The app saves it as schema version 3 with an optional cost block. Export CSV or the materials JSON (`house-builder.materials`, version 1) from the cost panel or the File menu.
 
