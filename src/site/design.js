@@ -302,6 +302,31 @@ export function requiredFieldArea(house, site) {
   return designFlowGallons(house) / rate;
 }
 
+/** Width and depth of one drainfield, from the required area. The click is the center. */
+export function fieldFootprint(house) {
+  const area = Math.max(120, requiredFieldArea(house, house.site || {}));
+  const width = Math.sqrt(area * 2);
+  const depth = area / width;
+  return { width, depth };
+}
+
+/**
+ * Setback-minded starting spots south and east of the footprint.
+ * Accepting one moves the real well, tank, or field. Nothing here is a price.
+ */
+export function suggestSite(house) {
+  const width = house.footprint?.width || 36;
+  const depth = house.footprint?.depth || 24;
+  const field = fieldFootprint(house);
+  const fieldY = -18 - 14 - field.depth / 2;
+  return [
+    { kind: "well", label: "Well", x: width + 60, y: depth + 24 },
+    { kind: "tank", label: "Septic tank", x: width / 2, y: -18 },
+    { kind: "drainfield", label: "Drain field", x: width / 2 - field.width / 2 - 6, y: fieldY, width: field.width, depth: field.depth },
+    { kind: "reserve", label: "Reserve", x: width / 2 + field.width / 2 + 6, y: fieldY, width: field.width, depth: field.depth },
+  ];
+}
+
 export function rectArea(rect) {
   if (!rect) return 0;
   return Math.abs(rect.width * rect.depth);

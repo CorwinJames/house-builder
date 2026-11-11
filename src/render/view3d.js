@@ -13,7 +13,8 @@ import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
  * and height is Three.js +Y. The default camera sits south of the house
  * so the rammed-earth wall is in front.
  *
- * Electrical, plumbing, and site groups are created empty on purpose.
+ * Build mode can edit this view with the same plan gestures. Orbit mode
+ * looks around. Cutaway caps the walls so the rooms stay visible.
  */
 export function createView3d(canvas, initialHouse) {
   let house = initialHouse;
@@ -33,9 +34,9 @@ export function createView3d(canvas, initialHouse) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xd5e3ea);
-  scene.fog = new THREE.Fog(0xd5e3ea, 110, 240);
+  scene.fog = new THREE.Fog(0xd5e3ea, 180, 900);
 
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 2500);
   camera.position.set(-24, 28, 46);
 
   const controls = new OrbitControls(camera, canvas);
@@ -44,7 +45,7 @@ export function createView3d(canvas, initialHouse) {
   controls.dampingFactor = 0.08;
   controls.maxPolarAngle = Math.PI / 2 - 0.05;
   controls.minDistance = 12;
-  controls.maxDistance = 170;
+  controls.maxDistance = 1400;
   controls.update();
 
   scene.add(new THREE.AmbientLight(0xfff6ec, 0.38));
@@ -98,7 +99,17 @@ export function createView3d(canvas, initialHouse) {
 
   const materials = createMaterials();
   const wood = new THREE.MeshStandardMaterial({ color: 0x8d5a32, roughness: 0.72 });
-  buildHouse(house, buckets, futureBuckets, materials, wood);
+  let cutaway = false;
+  let editing = false;
+  let buildHooks = null;
+  let selection = null;
+  const ghostGroup = new THREE.Group();
+  ghostGroup.name = "ghosts";
+  scene.add(ghostGroup);
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  canvas.style.touchAction = "none";
+  buildHouse(house, buckets, futureBuckets, materials, wood, { cutaway });
+  fitGround(house, ground, scene, camera, controls);
 
   let state = null;
   let onChange = () => {};
@@ -107,9 +118,64 @@ export function createView3d(canvas, initialHouse) {
   let appliedSavedCamera = false;
   let frameId = 0;
 
+  const labelPoint = new THREE.Vector3();
+  function layoutSprites() {
+    const width = canvas.clientWidth || 1;
+    const height = canvas.clientHeight || 1;
+    const items = [];
+    scene.traverse((obj) => {
+      if (!obj.isSprite || !obj.userData.screenLabel) return;
+      let node = obj.parent;
+      let shown = true;
+      while (node) {
+        if (!node.visible) shown = false;
+        node = node.parent;
+      }
+      if (!shown) {
+        obj.visible = false;
+        return;
+      }
+      obj.getWorldPosition(labelPoint);
+      const dist = Math.max(6, camera.position.distanceTo(labelPoint));
+      const worldPerPx = (2 * Math.tan((camera.fov * Math.PI / 180) / 2) * dist) / height;
+      const spec = obj.userData.screenLabel;
+      const pxH = spec.px;
+      const pxW = pxH * spec.aspect;
+      obj.scale.set(pxW * worldPerPx, pxH * worldPerPx, 1);
+      labelPoint.project(camera);
+      const sx = (labelPoint.x * 0.5 + 0.5) * width;
+      const sy = (-labelPoint.y * 0.5 + 0.5) * height;
+      const onScreen = labelPoint.z < 1 && sx > -pxW && sx < width + pxW && sy > -pxH && sy < height + pxH;
+      if (!onScreen) {
+        obj.visible = false;
+        return;
+      }
+      items.push({ obj, sx, sy, pxW, pxH, priority: spec.priority, dist });
+    });
+    items.sort((a, b) => b.priority - a.priority || a.dist - b.dist);
+    const kept = [];
+    for (const item of items) {
+      const box = {
+        x: item.sx - item.pxW / 2,
+        y: item.sy - item.pxH / 2,
+        w: item.pxW,
+        h: item.pxH,
+      };
+      const hit = kept.some((other) => (
+        box.x < other.x + other.w + 6
+        && box.x + box.w + 6 > other.x
+        && box.y < other.y + other.h + 6
+        && box.y + box.h + 6 > other.y
+      ));
+      item.obj.visible = !hit;
+      if (!hit) kept.push(box);
+    }
+  }
+
   function tick() {
     frameId = requestAnimationFrame(tick);
     controls.update();
+    layoutSprites();
     renderer.render(scene, camera);
   }
   tick();
@@ -189,38 +255,137 @@ export function createView3d(canvas, initialHouse) {
     fullSlab = buildSlab(house, true);
     scene.add(phaseSlab);
     scene.add(fullSlab);
-    buildHouse(house, buckets, futureBuckets, materials, wood);
+    buildHouse(house, buckets, futureBuckets, materials, wood, { cutaway });
+    fitGround(house, ground, scene, camera, controls);
     if (state) applyVisibility(state);
+    applyRoof();
     paintSelection();
   }
 
   function paintSelection() {
     scene.traverse((object) => {
-      if (!object.userData?.wallId || !object.material?.emissive) return;
-      const on = object.userData.wallId === selectedId;
+      if (!object.material?.emissive) return;
+      const wallOn = object.userData?.wallId && object.userData.wallId === selectedId;
+      const pick = object.userData?.pick;
+      const pickOn = pick && selection && pick.type === selection.type && pick.id === selection.id;
+      if (!object.userData?.wallId && !pick) return;
+      const on = !!(wallOn || pickOn);
       object.material.emissive.set(on ? 0x1f6b45 : 0x000000);
       object.material.emissiveIntensity = on ? 0.55 : 0;
     });
   }
 
-  const raycaster = new THREE.Raycaster();
-  let pointerDown = null;
-  canvas.addEventListener("pointerdown", (event) => {
-    pointerDown = { x: event.clientX, y: event.clientY };
-  });
-  canvas.addEventListener("pointerup", (event) => {
-    if (!pointerDown || !onPick) return;
-    const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-    pointerDown = null;
-    if (moved > 6) return;
+  function applyRoof() {
+    roofPivot.visible = state?.roof !== false && !cutaway;
+  }
+
+  function planFromEvent(event) {
     const rect = canvas.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+    if (!rect.width || !rect.height) return null;
+    const ndc = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const groundHit = new THREE.Vector3();
+    const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
+    const ground = hitGround ? { x: groundHit.x, y: -groundHit.z } : null;
     const hits = raycaster.intersectObjects(scene.children, true);
-    const hit = hits.find((item) => item.object.userData?.wallId);
-    onPick(hit?.object.userData.wallId || null);
+    const meshHit = hits.find((item) => item.object.userData?.wallId || item.object.userData?.plan);
+    const surface = meshHit?.object.userData?.plan
+      || (meshHit ? { x: meshHit.point.x, y: -meshHit.point.z } : null);
+    return { ground, surface, pick: meshHit?.object.userData?.pick || null };
+  }
+
+  const raycaster = new THREE.Raycaster();
+  const activePointers = new Map();
+  let pointerDown = null;
+  let editingGesture = false;
+  let pinch = null;
+
+  canvas.addEventListener("pointerdown", (event) => {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    pointerDown = { x: event.clientX, y: event.clientY };
+    if (!editing) return;
+    if (activePointers.size > 1) {
+      buildHooks?.cancel?.();
+      editingGesture = false;
+      pinch = null;
+      return;
+    }
+    const hit = planFromEvent(event);
+    if (!hit?.ground && !hit?.surface) return;
+    editingGesture = !!buildHooks?.down?.(event, hit.ground, { surface: hit.surface, pick: hit.pick });
   });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!activePointers.has(event.pointerId) && editing) {
+      const hit = planFromEvent(event);
+      if (hit) buildHooks?.hover?.(event, hit.ground, { surface: hit.surface, pick: hit.pick });
+      return;
+    }
+    if (!activePointers.has(event.pointerId)) return;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (!editing) return;
+    if (activePointers.size >= 2) {
+      const pts = [...activePointers.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      camera.updateMatrixWorld();
+      if (!pinch) {
+        pinch = {
+          dist,
+          mid,
+          offset: camera.position.clone().sub(controls.target),
+          target: controls.target.clone(),
+        };
+      } else {
+        const scale = THREE.MathUtils.clamp(pinch.dist / dist, 0.25, 4);
+        const offset = pinch.offset.clone().multiplyScalar(scale);
+        const panX = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(-(mid.x - pinch.mid.x) * 0.05);
+        const panY = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1).multiplyScalar((mid.y - pinch.mid.y) * 0.05);
+        controls.target.copy(pinch.target).add(panX).add(panY);
+        const length = THREE.MathUtils.clamp(offset.length(), controls.minDistance, controls.maxDistance);
+        camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(length));
+      }
+      return;
+    }
+    if (!editingGesture) return;
+    const hit = planFromEvent(event);
+    if (hit) buildHooks?.move?.(event, hit.ground, { surface: hit.surface, pick: hit.pick });
+  });
+  function endEditPointer(event) {
+    const start = pointerDown;
+    activePointers.delete(event.pointerId);
+    if (activePointers.size < 2) pinch = null;
+    if (editing && editingGesture && activePointers.size === 0) {
+      const hit = planFromEvent(event);
+      buildHooks?.up?.(event, hit?.ground, { surface: hit?.surface, pick: hit?.pick });
+      editingGesture = false;
+      pointerDown = null;
+      return;
+    }
+    if (editing || !start || activePointers.size) return;
+    const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+    pointerDown = null;
+    if (moved > 6 || !onPick) return;
+    const hit = planFromEvent(event);
+    const wallId = hit?.pick?.type === "wall" ? hit.pick.id : null;
+    if (wallId) onPick(wallId);
+    else if (hit?.surface) {
+      const hits = raycaster.intersectObjects(scene.children, true);
+      const wall = hits.find((item) => item.object.userData?.wallId);
+      onPick(wall?.object.userData.wallId || null);
+    }
+  }
+  canvas.addEventListener("pointerup", endEditPointer);
+  canvas.addEventListener("pointercancel", endEditPointer);
+  canvas.addEventListener("wheel", (event) => {
+    if (!editing) return;
+    event.preventDefault();
+    const offset = camera.position.clone().sub(controls.target);
+    const next = THREE.MathUtils.clamp(offset.length() * Math.exp(event.deltaY * 0.0012), controls.minDistance, controls.maxDistance);
+    camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(next));
+  }, { passive: false });
 
   function resetCamera() {
     camera.position.set(-24, 28, 46);
@@ -236,8 +401,55 @@ export function createView3d(canvas, initialHouse) {
         if (next.camera) applySavedCamera(next.camera);
         appliedSavedCamera = true;
       }
-      roofPivot.visible = next?.roof !== false;
+      applyRoof();
       applyVisibility(next);
+    },
+    setEditing(on) {
+      editing = !!on;
+      controls.enabled = !editing;
+      canvas.style.cursor = editing ? "crosshair" : "grab";
+      if (!editing) {
+        editingGesture = false;
+        buildHooks?.cancel?.();
+      }
+    },
+    setCutaway(on) {
+      const next = !!on;
+      if (next === cutaway) return;
+      cutaway = next;
+      rebuild(house);
+    },
+    setBuildHooks(hooks) {
+      buildHooks = hooks;
+    },
+    setOverlay(overlay) {
+      syncGhost(ghostGroup, house, overlay);
+    },
+    setSelection(next) {
+      selection = next;
+      selectedId = next?.type === "wall" ? next.id : selectedId;
+      paintSelection();
+    },
+    frameParcel() {
+      const ring = house.site?.parcel?.ring;
+      if (!ring?.length) return;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const point of ring) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      }
+      const cx = (minX + maxX) / 2;
+      const cz = -((minY + maxY) / 2);
+      const radius = Math.max(40, Math.hypot(maxX - minX, maxY - minY) / 2);
+      controls.target.set(cx, 2, cz);
+      camera.position.set(cx, radius * 0.85, cz + radius * 0.15);
+      controls.update();
+      onChange(readCamera());
     },
     resize,
     resetCamera,
@@ -270,8 +482,42 @@ function failedView(message) {
     resize() {},
     resetCamera() {},
     setOnChange() {},
+    setOnPick() {},
+    setHouse() {},
+    setSelected() {},
+    setEditing() {},
+    setCutaway() {},
+    setBuildHooks() {},
+    setOverlay() {},
+    setSelection() {},
+    frameParcel() {},
     dispose() {},
   };
+}
+
+function fitGround(nextHouse, ground, scene, camera, controls) {
+  const ring = nextHouse.site?.parcel?.ring;
+  if (!ring?.length) return;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const point of ring) {
+    minX = Math.min(minX, point.x);
+    maxX = Math.max(maxX, point.x);
+    minY = Math.min(minY, point.y);
+    maxY = Math.max(maxY, point.y);
+  }
+  const radius = Math.hypot(maxX - minX, maxY - minY) / 2 + 30;
+  ground.geometry.dispose();
+  ground.geometry = new THREE.CircleGeometry(Math.max(180, radius), 64);
+  ground.position.set((minX + maxX) / 2, -0.04, -((minY + maxY) / 2));
+  const far = Math.max(900, radius * 2.4);
+  scene.fog.near = far * 0.28;
+  scene.fog.far = far;
+  camera.far = far * 2;
+  camera.updateProjectionMatrix();
+  controls.maxDistance = Math.max(170, radius * 1.6);
 }
 
 function rammedEarthTexture() {
@@ -352,7 +598,151 @@ function createMaterials() {
   return { solid, ghost, finishes, finishGhost };
 }
 
-function buildHouse(house, buckets, futureBuckets, materials, wood) {
+function marker(x, y, z, geometry, color, opacity = 1) {
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.62,
+      transparent: opacity < 1,
+      opacity,
+    }),
+  );
+  mesh.position.set(x, y, z);
+  mesh.castShadow = opacity === 1;
+  return mesh;
+}
+
+function tag(mesh, type, id, x, y) {
+  mesh.userData.pick = { type, id };
+  mesh.userData.plan = { x, y };
+  return mesh;
+}
+
+function addPlacedItems(house, buckets) {
+  for (const device of house.electrical?.devices || []) {
+    const mesh = marker(
+      device.x,
+      device.mount === "ceiling" ? 9.2 : (device.height || 1.5),
+      -device.y,
+      new THREE.SphereGeometry(0.45, 16, 12),
+      device.volts === 240 ? 0xc4654a : 0x2f5d45,
+      device.ghost ? 0.45 : 1,
+    );
+    buckets.electrical.add(tag(mesh, "device", device.id, device.x, device.y));
+  }
+  if (house.electrical?.panel) {
+    const panel = house.electrical.panel;
+    const mesh = marker(panel.x, panel.height || 5, -panel.y, new THREE.BoxGeometry(0.7, 1.4, 0.25), 0x243024);
+    buckets.electrical.add(tag(mesh, "panel", "panel", panel.x, panel.y));
+  }
+  for (const fixture of house.plumbing?.fixtures || []) {
+    const mesh = marker(
+      fixture.x,
+      0.7,
+      -fixture.y,
+      new THREE.BoxGeometry(1.5, 1.2, 1.3),
+      0x1f6f8b,
+      fixture.ghost ? 0.45 : 1,
+    );
+    buckets.plumbing.add(tag(mesh, "fixture", fixture.id, fixture.x, fixture.y));
+  }
+  if (house.plumbing?.entry) {
+    const entry = house.plumbing.entry;
+    const mesh = marker(entry.x, 0.4, -entry.y, new THREE.CylinderGeometry(0.28, 0.28, 0.8, 12), 0x1f6f8b);
+    buckets.plumbing.add(tag(mesh, "entry", "entry", entry.x, entry.y));
+  }
+  const well = house.site?.well;
+  if (well) {
+    const mesh = marker(well.x, 0.8, -well.y, new THREE.CylinderGeometry(0.7, 0.7, 1.6, 16), 0x1f6f8b);
+    const label = makeSprite("Well", false, { priority: 3, px: 32 });
+    label.position.set(well.x, 3.2, -well.y);
+    buckets.site.add(label);
+    buckets.site.add(tag(mesh, "well", well.id || "well", well.x, well.y));
+  }
+  const tank = house.site?.septic?.tank;
+  if (tank) {
+    const mesh = marker(tank.x, 1.1, -tank.y, new THREE.BoxGeometry(5, 2.2, 8), 0x2f5d45);
+    const label = makeSprite("Tank", false, { priority: 3, px: 32 });
+    label.position.set(tank.x, 3.4, -tank.y);
+    buckets.site.add(label);
+    buckets.site.add(tag(mesh, "septic", "tank", tank.x, tank.y));
+  }
+  for (const [type, rect] of [["drainfield", house.site?.septic?.drainfield], ["reserve", house.site?.septic?.reserve]]) {
+    if (!rect) continue;
+    const mesh = marker(
+      rect.x + rect.width / 2,
+      0.08,
+      -(rect.y + rect.depth / 2),
+      new THREE.BoxGeometry(rect.width, 0.16, rect.depth),
+      type === "reserve" ? 0x8a9a72 : 0x5a7a46,
+      0.8,
+    );
+    buckets.site.add(tag(mesh, type, type, rect.x + rect.width / 2, rect.y + rect.depth / 2));
+  }
+}
+
+function clearGroup(group) {
+  for (const child of [...group.children]) {
+    child.geometry?.dispose();
+    if (child.material?.map) child.material.map.dispose();
+    child.material?.dispose?.();
+    group.remove(child);
+  }
+}
+
+function syncGhost(group, house, overlay) {
+  clearGroup(group);
+  if (!overlay) return;
+  if (overlay.draft?.start && overlay.draft?.end) {
+    const a = overlay.draft.start;
+    const b = overlay.draft.end;
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length > 0.2) {
+      const mesh = marker((a.x + b.x) / 2, 5, -((a.y + b.y) / 2), new THREE.BoxGeometry(length, 10, 0.4), 0x2f5d45, 0.45);
+      mesh.rotation.y = Math.atan2(b.y - a.y, b.x - a.x);
+      group.add(mesh);
+    }
+  }
+  if (overlay.rect) {
+    const { x0, y0, x1, y1 } = overlay.rect;
+    const mesh = marker((x0 + x1) / 2, 0.1, -((y0 + y1) / 2), new THREE.BoxGeometry(Math.abs(x1 - x0), 0.12, Math.abs(y1 - y0)), 0x2f5d45, 0.28);
+    group.add(mesh);
+  }
+  if (overlay.ghostOpening) {
+    const wall = house.walls.find((item) => item.id === overlay.ghostOpening.wallId);
+    if (wall) {
+      const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) || 1;
+      const ux = (wall.end.x - wall.start.x) / len;
+      const uy = (wall.end.y - wall.start.y) / len;
+      const mid = overlay.ghostOpening.offset + overlay.ghostOpening.width / 2;
+      const mesh = marker(
+        wall.start.x + ux * mid,
+        4,
+        -(wall.start.y + uy * mid),
+        new THREE.BoxGeometry(overlay.ghostOpening.width, 6.5, wall.thickness + 0.2),
+        overlay.ghostOpening.ok ? 0x2f5d45 : 0xc44536,
+        0.45,
+      );
+      mesh.rotation.y = Math.atan2(uy, ux);
+      group.add(mesh);
+    }
+  }
+  const ghosts = [overlay.placeGhost, ...(overlay.siteGhosts || [])].filter(Boolean);
+  for (const ghost of ghosts) {
+    if (ghost.width && ghost.depth) {
+      group.add(marker(ghost.x, 0.2, -ghost.y, new THREE.BoxGeometry(ghost.width, 0.2, ghost.depth), 0x1f6f8b, 0.35));
+    } else {
+      group.add(marker(ghost.x, 1, -ghost.y, new THREE.SphereGeometry(1.1, 16, 12), 0x1f6f8b, 0.55));
+    }
+    const label = makeSprite(ghost.label || "Place", false, { priority: 4, px: 32 });
+    label.position.set(ghost.x, 3.6, -ghost.y);
+    group.add(label);
+  }
+}
+
+function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}) {
+  const cap = options.cutaway ? 4 : Infinity;
   for (const room of house.rooms) {
     const parent = room.phase === "future" ? futureBuckets.finishes : buckets.finishes;
     parent.add(roomFloor(room, materials));
@@ -363,12 +753,13 @@ function buildHouse(house, buckets, futureBuckets, materials, wood) {
     const layer = wallLayerId(wall);
     const parent = wall.phase === "future" ? futureBuckets[layer] : buckets[layer];
     const mats = wall.phase === "future" ? materials.ghost : materials.solid;
-    addWallMeshes(wall, openingsFor(house, wall), parent, mats);
+    addWallMeshes(wall, openingsFor(house, wall), parent, mats, cap);
     const frameParent = wall.phase === "future" ? futureBuckets.framing : buckets.framing;
-    addOpeningFrames(wall, openingsFor(house, wall), frameParent, wood, wall.phase === "future");
+    addOpeningFrames(wall, openingsFor(house, wall), frameParent, wood, wall.phase === "future", cap);
   }
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
+  addPlacedItems(house, buckets);
 }
 
 function roomFloor(room, materials) {
@@ -388,7 +779,10 @@ function roomFloor(room, materials) {
 
 function roomLabel(room) {
   const at = room.labelAt || centroid(room.polygon);
-  const sprite = makeSprite(room.name, room.phase === "future");
+  const sprite = makeSprite(room.name, room.phase === "future", {
+    priority: room.phase === "future" ? 1 : 3,
+    px: 34,
+  });
   sprite.position.set(at.x, 8.4, -at.y);
   return sprite;
 }
@@ -409,7 +803,7 @@ function centroid(polygon) {
   return { x: cx / (3 * areaTwice), y: cy / (3 * areaTwice) };
 }
 
-function addWallMeshes(wall, openings, parent, mats) {
+function addWallMeshes(wall, openings, parent, mats, cap = Infinity) {
   const dx = wall.end.x - wall.start.x;
   const dy = wall.end.y - wall.start.y;
   const len = wallLength(wall) || 1;
@@ -418,11 +812,13 @@ function addWallMeshes(wall, openings, parent, mats) {
   const uy = dy / len;
 
   function place(s0, s1, z0, z1, thickness, material) {
+    const top = Math.min(z1, cap);
+    if (top - z0 < 0.05) return;
     const length = Math.max(0.02, s1 - s0);
-    const height = Math.max(0.02, z1 - z0);
+    const height = Math.max(0.02, top - z0);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, height, thickness), material.clone());
     const s = (s0 + s1) / 2;
-    mesh.position.set(wall.start.x + ux * s, (z0 + z1) / 2, -(wall.start.y + uy * s));
+    mesh.position.set(wall.start.x + ux * s, (z0 + top) / 2, -(wall.start.y + uy * s));
     mesh.rotation.y = angle;
     mesh.castShadow = material.transparent !== true;
     mesh.receiveShadow = true;
@@ -446,7 +842,7 @@ function addWallMeshes(wall, openings, parent, mats) {
   }
 }
 
-function addOpeningFrames(wall, openings, parent, wood, future) {
+function addOpeningFrames(wall, openings, parent, wood, future, cap = Infinity) {
   const length = wallLength(wall) || 1;
   const dx = wall.end.x - wall.start.x;
   const dy = wall.end.y - wall.start.y;
@@ -461,11 +857,13 @@ function addOpeningFrames(wall, openings, parent, wood, future) {
   }
   const stud = 0.125;
   function member(s0, s1, z0, z1, thickness) {
+    const top = Math.min(z1, cap);
+    if (top - z0 < 0.04) return;
     const span = Math.max(0.04, s1 - s0);
-    const height = Math.max(0.04, z1 - z0);
+    const height = Math.max(0.04, top - z0);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(span, height, thickness), material);
     const s = (s0 + s1) / 2;
-    mesh.position.set(wall.start.x + ux * s, (z0 + z1) / 2, -(wall.start.y + uy * s));
+    mesh.position.set(wall.start.x + ux * s, (z0 + top) / 2, -(wall.start.y + uy * s));
     mesh.rotation.y = angle;
     mesh.castShadow = !future;
     mesh.userData.wallId = wall.id;
@@ -493,7 +891,7 @@ function addDimensions(house, futureShown, parent) {
       new THREE.Vector3(seg.x1, y, -seg.y1),
     ]);
     parent.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x2a241b })));
-    const label = makeSprite(formatFeet(seg.len), false, 6);
+    const label = makeSprite(formatFeet(seg.len), false, { priority: 0, px: 26 });
     label.position.set((seg.x0 + seg.x1) / 2, 1.4, -((seg.y0 + seg.y1) / 2));
     parent.add(label);
   }
@@ -533,7 +931,7 @@ function buildRoof(house, futureShown) {
   mesh.receiveShadow = true;
   const group = new THREE.Group();
   group.add(mesh);
-  const label = makeSprite("Placeholder roof", false, 14);
+  const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
   const midX = (footprint.x0 + footprint.x1) / 2;
   const midY = (footprint.y0 + footprint.y1) / 2;
   const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
@@ -542,30 +940,37 @@ function buildRoof(house, futureShown) {
   return group;
 }
 
-function makeSprite(text, muted, scaleWidth) {
+function makeSprite(text, muted = false, options = {}) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
   const g = canvas.getContext("2d");
-  g.clearRect(0, 0, 512, 128);
-  roundRect(g, 12, 28, 488, 72, 28);
-  g.fillStyle = muted ? "rgba(247, 243, 235, 0.78)" : "rgba(247, 243, 235, 0.92)";
+  const fontPx = 64;
+  const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
+  g.font = `600 ${fontPx}px Georgia, serif`;
+  const textW = Math.ceil(g.measureText(shown).width);
+  canvas.width = Math.max(160, textW + 72);
+  canvas.height = 96;
+  g.font = `600 ${fontPx}px Georgia, serif`;
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  roundRect(g, 4, 4, canvas.width - 8, canvas.height - 8, 28);
+  g.fillStyle = muted ? "rgba(247, 243, 235, 0.78)" : "rgba(247, 243, 235, 0.94)";
   g.fill();
   g.lineWidth = 4;
   g.strokeStyle = muted ? "#6F6458" : "#2A241B";
   g.stroke();
   g.fillStyle = muted ? "#6F6458" : "#2A241B";
-  g.font = "600 40px Georgia, serif";
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(text, 256, 66);
+  g.fillText(shown, canvas.width / 2, canvas.height / 2);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }),
   );
-  const width = scaleWidth ?? Math.min(8.5, Math.max(5.2, text.length * 0.42));
-  sprite.scale.set(width, width * 0.25, 1);
+  const spec = typeof options === "number"
+    ? { priority: options >= 10 ? 1 : 0, px: 28 }
+    : { priority: options.priority ?? 2, px: options.px ?? 32 };
+  sprite.userData.screenLabel = { ...spec, aspect: canvas.width / canvas.height };
+  sprite.scale.set(6, 1.5, 1);
   return sprite;
 }
 

@@ -1,10 +1,10 @@
-import { SEPTIC_KINDS, WELL_KINDS, buildSite } from "../site/design.js";
+import { SEPTIC_KINDS, WELL_KINDS, buildSite, siteBom } from "../site/design.js";
 import { fallCard, gameHead, quietDelete, statTiles, techBlock } from "./gamecard.js";
 
 export const SITE_KINDS = [
   { id: "well", label: "Well" },
-  { id: "tank", label: "Tank" },
-  { id: "drainfield", label: "Field" },
+  { id: "tank", label: "Septic tank" },
+  { id: "drainfield", label: "Drain field" },
   { id: "reserve", label: "Reserve" },
 ];
 
@@ -39,9 +39,26 @@ export function siteCardHtml(house) {
     </details>`;
 }
 
-export function siteOptionsHtml(kind) {
+export function siteOptionsHtml(kind, ghosts = []) {
+  const chosen = SITE_KINDS.find((item) => item.id === kind);
+  const preview = ghosts.length
+    ? `<div class="suggest-list">
+        <div class="suggest-head"><strong>Preview</strong><button type="button" class="hud-pill pill-primary" id="accept-all-site">Accept all</button></div>
+        ${ghosts.map((ghost) => `<div class="suggest-row"><span>${escapeHtml(ghost.label)}</span>
+          <button type="button" class="hud-pill" data-accept-site="${ghost.kind}">Accept</button>
+          <button type="button" class="hud-pill" data-skip-site="${ghost.kind}">Skip</button></div>`).join("")}
+      </div>`
+    : "";
   return `<div class="seg" id="site-kind">${SITE_KINDS.map((item) => `<button type="button" data-site="${item.id}" aria-pressed="${item.id === kind}">${item.label}</button>`).join("")}</div>
-    <p class="fine">Click the lot to place it. Driveway and power are dashed placeholders.</p>`;
+    <p class="fine">Placing ${escapeHtml(chosen?.label || "a site item")}. A ghost follows the pointer. Click the lot to place it.</p>
+    <button type="button" class="hud-pill" id="suggest-site">Suggest placements</button>
+    ${preview}`;
+}
+
+function priceLine(house, ids) {
+  const row = siteBom(house).find((item) => ids.includes(item.id));
+  const detail = row?.basis || "No published price was found.";
+  return `<p class="cost-line"><strong>Price needed</strong> · ${escapeHtml(detail)} This stays out of the total.</p>`;
 }
 
 export function siteInspectorHtml(house, selection) {
@@ -60,6 +77,7 @@ export function siteInspectorHtml(house, selection) {
         { icon: "$", value: "Needed", label: "Price" },
       ])}
       <label>Kind <select id="well-kind">${WELL_KINDS.map((item) => `<option value="${item.id}" ${item.id === well.kind ? "selected" : ""}>${item.label}</option>`).join("")}</select></label>
+      ${priceLine(house, ["well-drilled", "well-shared"])}
       ${techBlock(`<p>100 ft from a drainfield. ${well.kind === "public" ? "100" : "50"} ft from the tank. 5 ft from the house. WAC 173-160-171 and Table IV. No published drilling price was found.</p>`)}
       ${quietDelete("Delete well")}`;
   }
@@ -75,9 +93,13 @@ export function siteInspectorHtml(house, selection) {
     const fall = gravity.pumped
       ? fallCard("Pump system", "Gravity fall is not the limit for this kind.", true)
       : fallCard(headline, `Needs ${round(gravity.needInches)} in · ground falls ${round(gravity.groundInches)} in`, gravity.ok);
+    const action = !gravity.pumped && !gravity.ok && gravity.reason !== "missing"
+      ? `<p class="action-line">Move the tank closer to the house so the ground can fall ${round(gravity.needInches)} in, or switch Kind to Pressure or Mound.</p>`
+      : "";
     return `
       ${gameHead("Septic", issues)}
       ${fall}
+      ${action}
       ${statTiles([
         { icon: "↓", value: `${round(gravity.stubInches)} in`, label: "Stub drop" },
         { icon: "↔", value: `${round(gravity.runFt)} ft`, label: "To tank" },
@@ -85,6 +107,7 @@ export function siteInspectorHtml(house, selection) {
         { icon: "R", value: `${Math.round(view.reserveSqFt)} sf`, label: "Reserve" },
       ])}
       <label>Kind <select id="septic-kind">${SEPTIC_KINDS.map((item) => `<option value="${item.id}" ${item.id === septic?.kind ? "selected" : ""}>${item.label}</option>`).join("")}</select></label>
+      ${priceLine(house, ["septic-tank", "drainfield"])}
       ${techBlock(`<p>${view.bedrooms} bedrooms · ${view.flow} gal/day. Primary ${Math.round(view.primarySqFt)} sq ft. Reserve ${Math.round(view.reserveSqFt)} sq ft. Rate ${septic?.loadingRate || 0.2} gal/sq ft/day · confirm Table VIII. Price needed.</p>`)}
       ${quietDelete("Delete septic")}`;
   }
