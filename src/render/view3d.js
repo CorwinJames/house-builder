@@ -118,9 +118,64 @@ export function createView3d(canvas, initialHouse) {
   let appliedSavedCamera = false;
   let frameId = 0;
 
+  const labelPoint = new THREE.Vector3();
+  function layoutSprites() {
+    const width = canvas.clientWidth || 1;
+    const height = canvas.clientHeight || 1;
+    const items = [];
+    scene.traverse((obj) => {
+      if (!obj.isSprite || !obj.userData.screenLabel) return;
+      let node = obj.parent;
+      let shown = true;
+      while (node) {
+        if (!node.visible) shown = false;
+        node = node.parent;
+      }
+      if (!shown) {
+        obj.visible = false;
+        return;
+      }
+      obj.getWorldPosition(labelPoint);
+      const dist = Math.max(6, camera.position.distanceTo(labelPoint));
+      const worldPerPx = (2 * Math.tan((camera.fov * Math.PI / 180) / 2) * dist) / height;
+      const spec = obj.userData.screenLabel;
+      const pxH = spec.px;
+      const pxW = pxH * spec.aspect;
+      obj.scale.set(pxW * worldPerPx, pxH * worldPerPx, 1);
+      labelPoint.project(camera);
+      const sx = (labelPoint.x * 0.5 + 0.5) * width;
+      const sy = (-labelPoint.y * 0.5 + 0.5) * height;
+      const onScreen = labelPoint.z < 1 && sx > -pxW && sx < width + pxW && sy > -pxH && sy < height + pxH;
+      if (!onScreen) {
+        obj.visible = false;
+        return;
+      }
+      items.push({ obj, sx, sy, pxW, pxH, priority: spec.priority, dist });
+    });
+    items.sort((a, b) => b.priority - a.priority || a.dist - b.dist);
+    const kept = [];
+    for (const item of items) {
+      const box = {
+        x: item.sx - item.pxW / 2,
+        y: item.sy - item.pxH / 2,
+        w: item.pxW,
+        h: item.pxH,
+      };
+      const hit = kept.some((other) => (
+        box.x < other.x + other.w + 6
+        && box.x + box.w + 6 > other.x
+        && box.y < other.y + other.h + 6
+        && box.y + box.h + 6 > other.y
+      ));
+      item.obj.visible = !hit;
+      if (!hit) kept.push(box);
+    }
+  }
+
   function tick() {
     frameId = requestAnimationFrame(tick);
     controls.update();
+    layoutSprites();
     renderer.render(scene, camera);
   }
   tick();
@@ -600,7 +655,7 @@ function addPlacedItems(house, buckets) {
   const well = house.site?.well;
   if (well) {
     const mesh = marker(well.x, 0.8, -well.y, new THREE.CylinderGeometry(0.7, 0.7, 1.6, 16), 0x1f6f8b);
-    const label = makeSprite("Well");
+    const label = makeSprite("Well", false, { priority: 3, px: 32 });
     label.position.set(well.x, 3.2, -well.y);
     buckets.site.add(label);
     buckets.site.add(tag(mesh, "well", well.id || "well", well.x, well.y));
@@ -608,7 +663,7 @@ function addPlacedItems(house, buckets) {
   const tank = house.site?.septic?.tank;
   if (tank) {
     const mesh = marker(tank.x, 1.1, -tank.y, new THREE.BoxGeometry(5, 2.2, 8), 0x2f5d45);
-    const label = makeSprite("Tank");
+    const label = makeSprite("Tank", false, { priority: 3, px: 32 });
     label.position.set(tank.x, 3.4, -tank.y);
     buckets.site.add(label);
     buckets.site.add(tag(mesh, "septic", "tank", tank.x, tank.y));
@@ -680,7 +735,7 @@ function syncGhost(group, house, overlay) {
     } else {
       group.add(marker(ghost.x, 1, -ghost.y, new THREE.SphereGeometry(1.1, 16, 12), 0x1f6f8b, 0.55));
     }
-    const label = makeSprite(ghost.label || "Place");
+    const label = makeSprite(ghost.label || "Place", false, { priority: 4, px: 32 });
     label.position.set(ghost.x, 3.6, -ghost.y);
     group.add(label);
   }
@@ -724,7 +779,10 @@ function roomFloor(room, materials) {
 
 function roomLabel(room) {
   const at = room.labelAt || centroid(room.polygon);
-  const sprite = makeSprite(room.name, room.phase === "future");
+  const sprite = makeSprite(room.name, room.phase === "future", {
+    priority: room.phase === "future" ? 1 : 3,
+    px: 34,
+  });
   sprite.position.set(at.x, 8.4, -at.y);
   return sprite;
 }
@@ -833,7 +891,7 @@ function addDimensions(house, futureShown, parent) {
       new THREE.Vector3(seg.x1, y, -seg.y1),
     ]);
     parent.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x2a241b })));
-    const label = makeSprite(formatFeet(seg.len), false, 6);
+    const label = makeSprite(formatFeet(seg.len), false, { priority: 0, px: 26 });
     label.position.set((seg.x0 + seg.x1) / 2, 1.4, -((seg.y0 + seg.y1) / 2));
     parent.add(label);
   }
@@ -873,7 +931,7 @@ function buildRoof(house, futureShown) {
   mesh.receiveShadow = true;
   const group = new THREE.Group();
   group.add(mesh);
-  const label = makeSprite("Placeholder roof", false, 14);
+  const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
   const midX = (footprint.x0 + footprint.x1) / 2;
   const midY = (footprint.y0 + footprint.y1) / 2;
   const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
@@ -882,30 +940,37 @@ function buildRoof(house, futureShown) {
   return group;
 }
 
-function makeSprite(text, muted, scaleWidth) {
+function makeSprite(text, muted = false, options = {}) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
   const g = canvas.getContext("2d");
-  g.clearRect(0, 0, 512, 128);
-  roundRect(g, 12, 28, 488, 72, 28);
-  g.fillStyle = muted ? "rgba(247, 243, 235, 0.78)" : "rgba(247, 243, 235, 0.92)";
+  const fontPx = 64;
+  const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
+  g.font = `600 ${fontPx}px Georgia, serif`;
+  const textW = Math.ceil(g.measureText(shown).width);
+  canvas.width = Math.max(160, textW + 72);
+  canvas.height = 96;
+  g.font = `600 ${fontPx}px Georgia, serif`;
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  roundRect(g, 4, 4, canvas.width - 8, canvas.height - 8, 28);
+  g.fillStyle = muted ? "rgba(247, 243, 235, 0.78)" : "rgba(247, 243, 235, 0.94)";
   g.fill();
   g.lineWidth = 4;
   g.strokeStyle = muted ? "#6F6458" : "#2A241B";
   g.stroke();
   g.fillStyle = muted ? "#6F6458" : "#2A241B";
-  g.font = "600 40px Georgia, serif";
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(text, 256, 66);
+  g.fillText(shown, canvas.width / 2, canvas.height / 2);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }),
   );
-  const width = scaleWidth ?? Math.min(8.5, Math.max(5.2, text.length * 0.42));
-  sprite.scale.set(width, width * 0.25, 1);
+  const spec = typeof options === "number"
+    ? { priority: options >= 10 ? 1 : 0, px: 28 }
+    : { priority: options.priority ?? 2, px: options.px ?? 32 };
+  sprite.userData.screenLabel = { ...spec, aspect: canvas.width / canvas.height };
+  sprite.scale.set(6, 1.5, 1);
   return sprite;
 }
 

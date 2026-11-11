@@ -99,6 +99,8 @@ button:focus-visible {
   color: #fff8f4;
 }
 
+.app-menu { display: contents; }
+
 .file-menu { position: relative; }
 .file-menu summary {
   list-style: none;
@@ -821,10 +823,12 @@ button:focus-visible {
 .layers-btn, .sheet-bar { display: none; }
 .sheet-bar { justify-content: flex-end; }
 
+.action-line { margin: 8px 0 0; font-weight: 700; }
+
 @media (max-width: 860px) {
-  .topbar { flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
-  .sample-chip { order: 3; }
-  .controls { width: 100%; margin-left: 0; }
+  .topbar { flex-wrap: nowrap; padding: 10px 12px; gap: 8px; position: relative; }
+  .sample-chip { display: none; }
+  .controls { width: auto; margin-left: 0; }
   .wide-only { display: none; }
   .layers-btn { display: inline-flex; }
   .sheet-bar { display: flex; }
@@ -1089,19 +1093,47 @@ button:focus-visible {
   .menu-btn { display: inline-flex; align-items: center; min-height: 44px; }
   .phone-only { display: inline-flex; }
   .topbar { flex-wrap: nowrap; align-items: center; min-height: 56px; }
-  .sample-chip, .mode-switch, .controls { display: none; }
-  .topbar.menu-open { flex-wrap: wrap; }
-  .topbar.menu-open .sample-chip,
+  .app-menu { display: none; }
+  .topbar.menu-open { flex-wrap: nowrap; }
+  .topbar.menu-open .app-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 8px;
+    right: 8px;
+    z-index: 30;
+    width: auto;
+    margin: 0;
+    padding: 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
   .topbar.menu-open .mode-switch,
-  .topbar.menu-open .controls { display: flex; width: 100%; }
+  .topbar.menu-open .controls {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    margin: 0;
+    gap: 8px;
+  }
   .brand h1 { font-size: 1rem; }
   .build-bar { padding-top: 4px; }
   .tool, .chip, .inspector button:not(.btn-quiet), .cat-tile, .method-choice, .toolbar-btn, .viewport-model .hud button { min-height: 44px; }
   .viewport-model .hud {
+    left: 8px;
     right: 8px;
-    max-width: calc(100% - 16px);
-    overflow-x: auto;
-    flex-wrap: nowrap;
+    max-width: none;
+    overflow: visible;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px;
+    background: rgba(247, 243, 235, 0.94);
+    border-radius: 16px;
   }
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .build-hud { align-items: stretch; left: 6px; right: 6px; bottom: 6px; }

@@ -83,7 +83,7 @@ const TOOL_HINTS = {
   window: "Pick a size, then drag along a wall.",
   electrical: "Click a wall to place a device. Other systems fade.",
   plumbing: "Click a wall to place a fixture. Other systems fade.",
-  site: "Pick Well, Septic tank, Drain field, or Reserve. A ghost follows the pointer. Click the lot to place it.",
+  site: "",
   erase: "Click the thing you want gone.",
 };
 

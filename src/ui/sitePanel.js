@@ -93,9 +93,13 @@ export function siteInspectorHtml(house, selection) {
     const fall = gravity.pumped
       ? fallCard("Pump system", "Gravity fall is not the limit for this kind.", true)
       : fallCard(headline, `Needs ${round(gravity.needInches)} in · ground falls ${round(gravity.groundInches)} in`, gravity.ok);
+    const action = !gravity.pumped && !gravity.ok && gravity.reason !== "missing"
+      ? `<p class="action-line">Move the tank closer to the house so the ground can fall ${round(gravity.needInches)} in, or switch Kind to Pressure or Mound.</p>`
+      : "";
     return `
       ${gameHead("Septic", issues)}
       ${fall}
+      ${action}
       ${statTiles([
         { icon: "↓", value: `${round(gravity.stubInches)} in`, label: "Stub drop" },
         { icon: "↔", value: `${round(gravity.runFt)} ft`, label: "To tank" },

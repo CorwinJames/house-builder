@@ -39,7 +39,8 @@ app.innerHTML = `
       <button type="button" id="warn-chip" class="warn-chip" title="Code checks">
         <span id="warn-count">0</span>
       </button>
-      <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false">Menu</button>
+      <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="app-menu">Menu</button>
+      <div class="app-menu" id="app-menu">
       <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
         <button type="button" data-mode="view">View</button>
         <button type="button" data-mode="build">Build</button>
@@ -81,6 +82,7 @@ app.innerHTML = `
         <div id="account" class="account"></div>
         <input id="import-file" type="file" accept="application/json,.json" hidden />
         <input id="import-site-file" type="file" accept="application/json,.json" hidden />
+      </div>
       </div>
     </header>
     <div class="workspace">
@@ -389,9 +391,18 @@ layerList.addEventListener("click", (event) => {
 document.addEventListener("house-selection", () => {
   syncControls();
 });
+function closePhoneMenu() {
+  if (!window.matchMedia("(max-width: 860px)").matches) return;
+  document.querySelector(".topbar").classList.remove("menu-open");
+  document.querySelector("#menu-btn").setAttribute("aria-expanded", "false");
+}
 document.querySelector("#menu-btn").addEventListener("click", () => {
   const open = document.querySelector(".topbar").classList.toggle("menu-open");
   document.querySelector("#menu-btn").setAttribute("aria-expanded", String(open));
+});
+document.querySelector("#app-menu").addEventListener("click", (event) => {
+  if (event.target.closest("summary")) return;
+  if (event.target.closest("button")) closePhoneMenu();
 });
 document.querySelector("#details-open").addEventListener("click", () => {
   panelOpen = true;
