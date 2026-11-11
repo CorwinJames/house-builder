@@ -582,7 +582,7 @@ export function fixtureWarnings(house, fixture, design = buildPlumbing(house)) {
   return warnings;
 }
 
-function sideClearance(house, fixture) {
+export function sideClearance(house, fixture) {
   const back = (house.walls || []).find((item) => item.id === fixture.wallId);
   let best = null;
   for (const wall of house.walls || []) {

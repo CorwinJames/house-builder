@@ -81,6 +81,16 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Optional. Fixtures, water entry, septic stub, and supply method. Older files omit it."
+    },
+    "energy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional targets for insulation the plan does not draw. Not a price.",
+      "properties": {
+        "ceilingR": { "type": "number" },
+        "floorR": { "type": "number" },
+        "note": { "type": "string" }
+      }
     }
   },
   "$defs": {

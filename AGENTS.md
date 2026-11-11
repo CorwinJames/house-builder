@@ -8,7 +8,7 @@ This applies to every assistant that touches the repo: Grok Build, Claude, Curso
 
 A personal, static house planner for James Corwin and his wife Sophie. They are designing one hempcrete house in Jefferson County, Washington. It is not a general CAD product. Features get added as they experiment.
 
-The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Stage 4 prices the list from cited sources. Stage 5 places electrical devices and routes circuits. Stage 6 places fixtures and routes supply and drain piping. Assembly thicknesses are still placeholders with no invented code citations.
+The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Stage 4 prices the list from cited sources. Stage 5 places electrical devices and routes circuits. Stage 6 places fixtures and routes supply and drain piping. Stage 7 checks the drawing against cited code rules. Assembly thicknesses are still placeholders with no invented code citations.
 
 There is no server. The site is a static build deployed to GitHub Pages.
 
@@ -49,7 +49,7 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/drive/client.js` talks to Drive API v3 with `fetch`. `scripts/test-drive.mjs` mocks `fetch`, so CI does not need Google credentials.
 - `src/ui/account.js` is the header account control and the Drive actions in the File menu. A signed-in open file autosaves about 10 seconds after the last edit.
 - `src/build/` is snapping, wall joins, room detection, and opening placement. No DOM.
-- `src/rules/` is the warning list. Geometry checks live there now. Stage 7 adds code rules through `registerRule`.
+- `src/rules/` is the warning list. Geometry checks and the code rules both come out of `evaluateRules`. The header badge, the list, and the plan markers read that one list.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.
 - `data/assemblies.json` defines wall types. `data/headers.json` is the placeholder header table. `data/opening-catalog.json` is the door and window palette.
 - `schemas/house.schema.json` is the contract for the house file. Schema versions 2, 3, and 4 still open. The app writes version 5, which adds an optional `plumbing` block. Version 4 added optional electrical devices. Version 3 added an optional `cost` block. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
@@ -117,7 +117,7 @@ The workflow token cannot turn Pages on. A person with admin on the repo has to 
 - The JSON model is the source of truth. If a dimension is on screen, it comes from the model.
 - Keep the sample flag and the on-screen "not a final design" label until James and Sophie decide a layout is theirs.
 - **Every cost or code number must cite a source with a URL and the date it was checked. Never invent prices.** Do not add a dollar amount, a wage, a permit fee, or a code limit that you cannot point at. The model checker rejects keys that look like prices. Assembly thicknesses and header sizes are placeholders, marked in the data files, until that citation exists.
-- Code citations, when stage 7 starts, should name the rule and the adoption: 2021 IRC (WAC 51-51), 2021 WSEC-R (WAC 51-11R), 2023 NEC via L&I (WAC 296-46B), 2021 UPC (WAC 51-56). Quote the section. Do not paraphrase a number from memory.
+- A code citation names the rule and the adoption: 2021 IRC (WAC 51-51), 2021 WSEC-R (WAC 51-11R), 2023 NEC via L&I (WAC 296-46B), 2021 UPC (WAC 51-56). Quote the section. If the section number was not confirmed in the text, set `confirmSection` instead of guessing. Do not invent a price.
 - Prefer a small module over a new framework. Other assistants will edit this repo.
 - Do not add accounts, a database, or a server for a feature that can stay static.
 - Wall and room geometry belong in `data/`, not in the renderers.
@@ -136,14 +136,14 @@ The workflow token cannot turn Pages on. A person with admin on the repo has to 
 1. Add the kind to `DEVICE_DEFAULTS` or `APPLIANCES` in `src/electrical/design.js`, and to `PLACE_OPTIONS` so Build mode can place it. An appliance sets volts and amps. `gaugeForAmps` then picks the wire.
 2. If it needs its own circuit, teach `buildElectrical` where that kind belongs. Dedicated 240V loads are already one circuit each. Kitchen, bathroom, and laundry receptacles are grouped before the general circuits.
 3. Add a price id in `electricalBom` and a matching record in `data/prices.json`. If you cannot find a published price, set `amount` to `null` and `sourceName` to `Price needed`. Do not invent a dollar amount.
-4. A code rule needs the NEC section, the WAC 296-46B adoption URL, and a short note when the section number or the application is an assumption. Put the citation on the rule object. Do not paraphrase a number you have not checked. `deviceWarnings` is the small inline warning for a rule this stage already implements, such as a plain receptacle in a bathroom.
+4. A code rule belongs in `src/rules/code.js`, not a second warning list. Give it an id, a short title, a one-sentence why, a citation, and a severity of blocker, warning, or tip. Add a test in `scripts/test-rules.mjs`. `deviceWarnings` remains for the older inline check. The plan and the header read `evaluateRules`.
 
 ## How to add a plumbing fixture or rule
 
 1. Add the kind to `FIXTURES` and `PLACE_OPTIONS` in `src/plumbing/design.js`. Set the private DFU and minimum trap from UPC Table 702.1, and the supply fixture units from Table 610.3. If a cell is not confirmed, say so on the rule instead of inventing a number.
 2. `buildPlumbing` routes supply from the water entry (hot from the water heater) and drains to a wet-wall stack, then to the septic stub. A new fixture is picked up if it is in `FIXTURES`.
 3. Add a price id in `plumbingBom` and a matching record in `data/prices.json`. If you cannot find a published price, set `amount` to `null` and `sourceName` to `Price needed`.
-4. A plumbing rule needs the UPC section and the WAC 51-56 adoption URL. `fixtureWarnings` is the inline warning for a rule this stage implements, such as a trap arm that is too long.
+4. A plumbing rule belongs in `src/rules/code.js` with the UPC section and the WAC 51-56 adoption URL. Mark `confirmSection` when the section number was not confirmed. `fixtureWarnings` remains for the older inline check.
 
 ## Sample house, short version
 
