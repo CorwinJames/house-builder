@@ -25,13 +25,21 @@ export function withHeader(opening) {
 /** Fill assembly ids and headers on a house that was saved before Stage 2. */
 export function decorateHouse(house) {
   const next = cloneHouse(house);
-  next.schemaVersion = Math.max(4, next.schemaVersion || 2);
+  next.schemaVersion = Math.max(5, next.schemaVersion || 2);
   next.electrical = {
     ...(next.electrical || {}),
     panel: next.electrical?.panel ?? null,
     devices: Array.isArray(next.electrical?.devices) ? next.electrical.devices : [],
     wallMethods: next.electrical?.wallMethods || {},
     devicesPerCircuit: next.electrical?.devicesPerCircuit || 8,
+  };
+  next.plumbing = {
+    ...(next.plumbing || {}),
+    fixtures: Array.isArray(next.plumbing?.fixtures) ? next.plumbing.fixtures : [],
+    entry: next.plumbing?.entry ?? null,
+    septic: next.plumbing?.septic ?? null,
+    supplyMethod: next.plumbing?.supplyMethod || "manifold",
+    inchesPerFoot: next.plumbing?.inchesPerFoot ?? null,
   };
   next.cost = {
     diyFinish: next.cost?.diyFinish !== false,

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "id": "sample-house",
   "name": "Sample house",
   "description": "Sophie's one-story sample: about 3,600 sq ft, 76 ft east-west by 47 ft north-south (a golden-ratio footprint). Rammed earth on the south, hempcrete on the north, east, and west. Living, kitchen, and office face south. Bedrooms sit on the east. Baths, laundry, and the garage sit on the north. A shaded patio is on the west. Phase 1 is a four-room core inside that footprint. Later rooms are future wings.",
@@ -1987,10 +1987,155 @@
         "roomRole": "kitchen",
         "phase": "phase1",
         "ghost": false
+      },
+      {
+        "id": "electric-wh",
+        "kind": "water-heater",
+        "name": "Water heater",
+        "volts": 240,
+        "amps": 30,
+        "supply": "240",
+        "mount": "wall",
+        "height": 4,
+        "x": 38,
+        "y": 19.5,
+        "wallId": "wall-p1-h",
+        "offset": 15,
+        "roomId": "bedroom",
+        "roomRole": "general",
+        "phase": "phase1",
+        "ghost": false
+      },
+      {
+        "id": "well-pump-link",
+        "kind": "well-pump",
+        "name": "Well pump",
+        "volts": 240,
+        "amps": 20,
+        "supply": "240",
+        "mount": "wall",
+        "height": 4,
+        "x": 42,
+        "y": 19.5,
+        "wallId": "wall-p1-h",
+        "offset": 19,
+        "roomId": "bedroom",
+        "roomRole": "general",
+        "phase": "phase1",
+        "ghost": false
       }
     ],
     "wallMethods": {},
     "devicesPerCircuit": 8,
     "note": "Starter layout for the phase 1 core. Suggested receptacles were accepted, then a panel, range, dryer, lights, a bath fan, a switch, and two smoke alarms were added. Later wings are left empty."
+  },
+  "plumbing": {
+    "supplyMethod": "manifold",
+    "fixtures": [
+      {
+        "id": "kitchen-sink-kitchen",
+        "kind": "kitchen-sink",
+        "name": "Kitchen sink",
+        "x": 40.95,
+        "y": 3.1,
+        "wallId": "wall-p1-lk",
+        "offset": 1.6,
+        "inset": 0.2,
+        "roomId": "kitchen",
+        "roomRole": "kitchen",
+        "phase": "phase1",
+        "chase": false,
+        "ghost": false
+      },
+      {
+        "id": "dishwasher-kitchen",
+        "kind": "dishwasher",
+        "name": "Dishwasher",
+        "x": 40.95,
+        "y": 5.300000000000001,
+        "wallId": "wall-p1-lk",
+        "offset": 3.8000000000000003,
+        "inset": 0.2,
+        "roomId": "kitchen",
+        "roomRole": "kitchen",
+        "phase": "phase1",
+        "chase": false,
+        "ghost": false
+      },
+      {
+        "id": "toilet-bathroom",
+        "kind": "toilet",
+        "name": "Toilet",
+        "x": 30.75,
+        "y": 21.35,
+        "wallId": "wall-p1-bath",
+        "offset": 1.6,
+        "inset": 1,
+        "roomId": "bathroom",
+        "roomRole": "bath",
+        "phase": "phase1",
+        "chase": false,
+        "ghost": false
+      },
+      {
+        "id": "lavatory-bathroom",
+        "kind": "lavatory",
+        "name": "Bathroom lavatory",
+        "x": 31.55,
+        "y": 23.55,
+        "wallId": "wall-p1-bath",
+        "offset": 3.8000000000000003,
+        "inset": 0.2,
+        "roomId": "bathroom",
+        "roomRole": "bath",
+        "phase": "phase1",
+        "chase": false,
+        "ghost": false
+      },
+      {
+        "id": "shower-bathroom",
+        "kind": "shower",
+        "name": "Shower",
+        "x": 30.25,
+        "y": 25.75,
+        "wallId": "wall-p1-bath",
+        "offset": 6,
+        "inset": 1.5,
+        "roomId": "bathroom",
+        "roomRole": "bath",
+        "phase": "phase1",
+        "chase": false,
+        "ghost": false
+      },
+      {
+        "id": "wh-core",
+        "kind": "water-heater",
+        "name": "Water heater",
+        "x": 36,
+        "y": 20.25,
+        "wallId": "wall-p1-h",
+        "offset": 13,
+        "inset": 0.5,
+        "roomId": "bedroom",
+        "roomRole": "general",
+        "phase": "phase1",
+        "heaterType": "electric-tank",
+        "chase": false,
+        "ghost": false
+      }
+    ],
+    "entry": {
+      "id": "water-entry",
+      "wallId": "wall-n-p1",
+      "offset": 18,
+      "x": 40,
+      "y": 31.5,
+      "phase": "phase1"
+    },
+    "septic": {
+      "x": 32,
+      "y": 0
+    },
+    "note": "Phase 1 starter. Bathroom fixtures share the bath's east partition. The kitchen sink is on the nearest interior wall, because the kitchen and bath do not share a wall. The building drain ties those wet walls to a septic stub at the south edge."
   }
 }

@@ -2,8 +2,8 @@
  * Layer registry shared by the plan and the 3D view.
  *
  * To add a layer, see "How to add a new layer" in AGENTS.md.
- * Plumbing and site still have toggles and empty draw groups.
- * Electrical draws on the plan when its layer is on.
+ * Site still has a toggle and an empty draw group.
+ * Electrical draws circuits. Plumbing draws supply and drains.
  */
 export const LAYER_DEFS = [
   { id: "framing", label: "Framing", stub: false },
@@ -13,7 +13,7 @@ export const LAYER_DEFS = [
   { id: "dimensions", label: "Dimensions", stub: false },
   { id: "labels", label: "Labels", stub: false },
   { id: "electrical", label: "Electrical", stub: false },
-  { id: "plumbing", label: "Plumbing", stub: true },
+  { id: "plumbing", label: "Plumbing", stub: false },
   { id: "site", label: "Site", stub: true },
 ];
 

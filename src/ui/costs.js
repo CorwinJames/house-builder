@@ -1,5 +1,6 @@
 import { costReport, effectiveRecord, formatMoney, materialsCsv, materialsDocument } from "../cost/list.js";
 import { BRANCH_DROP_PERCENT, RULES, buildElectrical, deviceShare, wallMethod } from "../electrical/design.js";
+import { buildPlumbing, fixtureShare, linkedElectrical, linkedWell } from "../plumbing/design.js";
 
 const GROUPS = [
   ["hempcrete", "Hempcrete"],
@@ -8,6 +9,7 @@ const GROUPS = [
   ["openings", "Doors and windows"],
   ["finishes", "Finishes"],
   ["electrical", "Electrical"],
+  ["plumbing", "Plumbing"],
   ["labor", "Labor"],
   ["allowances", "Allowances, not in the total"],
 ];
@@ -73,8 +75,9 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
     dialog.querySelector("#cost-summary").innerHTML = `
       <p><strong>${phase === "phase1" ? "Phase 1" : "Full house"} ${formatMoney(report.pricedTotal)}</strong></p>
       <p class="fine">Phase 1 ${formatMoney(report.phase1Total)} · Full house ${formatMoney(report.fullTotal)} · ${report.unpricedCount} price needed</p>
-      <p class="fine">Foundation, slab, and roof are listed and left out of the total. Plumbing is a later stage. Electrical lines with no published price stay out of the total.</p>`;
+      <p class="fine">Foundation, slab, and roof are listed and left out of the total. Lines with no published price stay out of the total.</p>`;
     dialog.querySelector("#cost-load").innerHTML = loadHtml(house, phase);
+    dialog.querySelector("#cost-plumbing").innerHTML = plumbingHtml(house, phase);
     dialog.querySelector("#cost-focus").innerHTML = focused
       ? `<h3>This ${selection.type}</h3>${linesHtml(focused.lines)}<p class="fine">${formatMoney(focused.pricedTotal)} priced on this ${selection.type}. ${focused.unpricedCount} still need a price.</p>`
       : "";
@@ -134,6 +137,69 @@ function methodDiff(base, alt) {
   const unpriced = alt.unpricedCount - base.unpricedCount;
   const extra = unpriced > 0 ? " · more price-needed lines" : unpriced < 0 ? " · fewer price-needed lines" : "";
   return `${money}${extra}`;
+}
+
+function pricedShare(house, fixtureId) {
+  return summarizeRows(priceTakeoffRows(house, fixtureShare(house, fixtureId)));
+}
+
+export function fixtureCostHtml(house, fixture) {
+  const own = pricedShare(house, fixture.id);
+  const methods = ["manifold", "trunk"].map((id) => {
+    const next = JSON.parse(JSON.stringify(house));
+    next.plumbing.supplyMethod = id;
+    return { id, label: id === "manifold" ? "PEX home-run manifold" : "Trunk and branch", report: pricedShare(next, fixture.id) };
+  });
+  const currentMethod = house.plumbing?.supplyMethod || "manifold";
+  const current = methods.find((item) => item.id === currentMethod)?.report;
+  const heaters = fixture.kind === "water-heater" ? ["electric-tank", "heat-pump"].map((id) => {
+    const next = JSON.parse(JSON.stringify(house));
+    const target = next.plumbing.fixtures.find((item) => item.id === fixture.id);
+    if (target) target.heaterType = id;
+    return { id, label: id === "electric-tank" ? "Electric tank" : "Heat-pump water heater", report: pricedShare(next, fixture.id) };
+  }) : [];
+  const design = buildPlumbing(house);
+  const hot = design.supply.filter((item) => item.fixtureId === fixture.id && item.service === "hot");
+  const gallons = hot.reduce((sum, item) => sum + item.gallons, 0);
+  const wait = gallons > 0 ? roundSeconds(gallons / 2 * 60) : 0;
+  const link = linkedElectrical(house, fixture);
+  const well = fixture.kind === "water-heater" ? null : linkedWell(house);
+  return `
+    <h3>How this can be piped</h3>
+    <div class="method-list">${methods.map((item) => `
+      <button type="button" class="method-choice" data-supply="${item.id}" aria-pressed="${item.id === currentMethod}">
+        <span>${item.label}</span>
+        <span class="fine">${item.id === currentMethod ? "This house now" : escapeHtml(`For this fixture, ${methodDiff(current, item.report)}`)}</span>
+      </button>`).join("")}</div>
+    ${heaters.length ? `<div class="method-list">${heaters.map((item) => `
+      <button type="button" class="method-choice" data-heater="${item.id}" aria-pressed="${fixture.heaterType === item.id}">
+        <span>${item.label}</span>
+        <span class="fine">${fixture.heaterType === item.id ? "This heater now" : escapeHtml(`For this fixture, ${methodDiff(heaters.find((row) => row.id === fixture.heaterType)?.report || item.report, item.report)}`)}</span>
+      </button>`).join("")}</div>
+      <p class="fine">${link ? `Tied to the stage 5 ${link.kind} circuit.` : "No matching 240V circuit yet. Place a water heater or heat pump in Electrical."}</p>` : ""}
+    ${fixture.kind !== "water-heater" && house.plumbing?.entry ? `<p class="fine">${well ? "The water entry is tied to the stage 5 well-pump circuit." : "The well pump's 240V circuit is not placed yet. Add a well pump in Electrical. The pressure tank stays a hook until stage 8."}</p>` : ""}
+    ${gallons ? `<p>Hot water in this run: ${gallons} gal. At an assumed 2 gpm that is about ${wait} seconds. The flow rate is an assumption.</p>` : ""}
+    ${design.building.length ? `<p class="fine">Building drain ${design.building.size} in., ${design.building.length} ft, slope ${design.building.slope.inchesPerFoot} in./ft, invert drop ${design.building.slope.inches} in. (${design.building.slope.feet} ft) at the septic stub.</p>` : ""}
+    <h3>This fixture</h3>
+    ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this fixture · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this fixture.</p>`}`;
+}
+
+function roundSeconds(value) {
+  return Math.round(value);
+}
+
+function plumbingHtml(house, phase) {
+  const design = buildPlumbing(house, { phase });
+  if (!design.fixtures.length && !design.entry) {
+    return `<section><h3>Plumbing</h3><p class="fine">Place a fixture to see the drain size, the slope, and the septic stub.</p></section>`;
+  }
+  const arms = design.dwv.map((leg) => `<li>${escapeHtml(leg.kind)} · ${leg.dfu} DFU · ${leg.size} in. drain · trap arm ${leg.trapArm} ft</li>`).join("");
+  return `<section>
+    <h3>Drains and the septic stub</h3>
+    <p><strong>${design.dfu} DFU</strong> · building drain ${design.building.size || "—"} in. · ${design.building.length} ft · slope ${design.building.slope.inchesPerFoot} in. per ft · invert drop ${design.building.slope.inches} in. at the exit.</p>
+    <p class="fine">Supply fixture units ${design.wsfu.total} (cold ${design.wsfu.cold}, hot ${design.wsfu.hot}). Home-run branches are assumed 1/2 in. PEX until UPC Table 610.4 is confirmed for the water pressure. ${design.vent.size ? `Vent ${design.vent.size} in.` : "No vent yet."} ${design.cleanouts} cleanouts.</p>
+    ${arms ? `<ul class="cost-lines">${arms}</ul>` : ""}
+  </section>`;
 }
 
 export function deviceCostHtml(house, device) {
