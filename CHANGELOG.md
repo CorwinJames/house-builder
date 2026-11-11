@@ -1,5 +1,15 @@
 # Changelog
 
+## Stage 6 — plumbing
+
+Build mode has a Plumbing tool. Click to place a kitchen sink, dishwasher, toilet, lavatory, shower, tub, clothes washer, laundry sink, hose bibb, water heater, or the water entry. Suggest placements draws ghost fixtures for a bathroom or a kitchen on an interior wet wall.
+
+Cold and hot supply and the drains draw on the plan. Lengths stay hidden until you point at a run or select a fixture. Drains are sized from UPC drainage fixture units. The building drain shows its slope and the invert drop at a septic stub. A trap arm that is too long, a toilet that is too close to a side wall, a shallow slope, or a pipe in hempcrete or rammed earth shows a short warning with the citation.
+
+Pipe, fittings, traps, the toilet, and plumber hours join the materials list. Published prices are used where a product page was found. The rest say "price needed." The plumber rate is the Jefferson County journey-level rate from L&I. Hours per fixture and per foot are assumptions you can edit.
+
+The sample's phase 1 core has a starter layout. The water heater and the well entry look for the stage 5 circuits. A fixture that sits on the stack still counts a vertical drop, so its drain length is not zero. Older house files still open. The app saves them as schema version 5.
+
 ## Stage 5 — electrical
 
 Build mode has an Electrical tool. Click to place a receptacle, a GFCI, a weather-resistant outlet, a 240V appliance, a switch, a light, a fan, a smoke alarm, or the main panel. The device snaps to a wall at a standard height, which you can edit. Suggest placements draws ghost outlets from the spacing rules, and you can accept or dismiss them.

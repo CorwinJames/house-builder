@@ -108,7 +108,5 @@
       "note": "Assumption: 15 square feet an hour. No tile-setter wage was checked, so hired-out labor stays price needed. James's labor is $0."
     }
   ],
-  "hooks": [
-    { "id": "plumbing", "name": "Plumbing", "note": "Stage 6 adds pipe, fixtures, and labor to this list." }
-  ]
+  "hooks": []
 }

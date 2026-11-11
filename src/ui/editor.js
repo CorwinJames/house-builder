@@ -30,7 +30,17 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
 import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
 import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
-import { deviceCostHtml, selectionCostHtml } from "./costs.js";
+import { deviceCostHtml, fixtureCostHtml, selectionCostHtml } from "./costs.js";
+import {
+  PLACE_OPTIONS as FIXTURE_OPTIONS,
+  entryFromClick,
+  fixtureFromClick,
+  fixtureSpec,
+  fixtureWarnings,
+  hitPlumbing,
+  laborAssumption as plumbingLabor,
+  suggestPlacements as suggestFixtures,
+} from "../plumbing/design.js";
 import {
   APPLIANCES,
   PLACE_OPTIONS,
@@ -57,6 +67,7 @@ const TOOLS = [
   { id: "door", label: "Door" },
   { id: "window", label: "Window" },
   { id: "electrical", label: "Electrical" },
+  { id: "plumbing", label: "Plumbing" },
   { id: "erase", label: "Delete" },
 ];
 
@@ -95,6 +106,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   const draftSize = {};
   let deviceKind = "receptacle";
   let pumpSupply = "240";
+  let fixtureKind = "kitchen-sink";
 
   const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
@@ -306,6 +318,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
     }
     const electricalHit = hitElectrical(house, world, Math.max(1.1, reach));
+    const plumbingHit = hitPlumbing(house, world, Math.max(1.1, reach));
+    if (tool === "plumbing" && plumbingHit) return plumbingHit;
+    if (tool === "electrical" && electricalHit) return electricalHit;
+    if (plumbingHit && electricalHit) {
+      return (plumbingHit.distance ?? 0) <= (electricalHit.distance ?? 0) ? plumbingHit : electricalHit;
+    }
+    if (plumbingHit) return plumbingHit;
     if (electricalHit) return electricalHit;
     let bestWall = null;
     for (const wall of house.walls) {
@@ -357,7 +376,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "erase") {
       const hit = hitTest(world);
-      if (hit?.type === "device" || hit?.type === "panel") eraseSelection(hit);
+      if (hit?.type === "device" || hit?.type === "panel" || hit?.type === "fixture" || hit?.type === "entry") eraseSelection(hit);
       else if (hit?.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
       else if (hit?.type === "opening") commit(deleteOpening(house, hit.id));
       else if (hit?.type === "room") {
@@ -385,6 +404,19 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         const device = deviceFromClick(next, world, deviceKind, { supply: pumpSupply });
         next.electrical.devices.push(device);
         selection = { type: "device", id: device.id };
+      }
+      commit(next);
+      return true;
+    }
+    if (tool === "plumbing") {
+      const next = cloneHouse(house);
+      if (fixtureKind === "entry") {
+        next.plumbing.entry = entryFromClick(next, world);
+        selection = { type: "entry", id: "entry" };
+      } else {
+        const fixture = fixtureFromClick(next, world, fixtureKind);
+        next.plumbing.fixtures.push(fixture);
+        selection = { type: "fixture", id: fixture.id };
       }
       commit(next);
       return true;
@@ -574,6 +606,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const next = cloneHouse(house);
       next.electrical.panel = null;
       commit(next);
+    } else if (hit.type === "fixture") {
+      const next = cloneHouse(house);
+      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => item.id !== hit.id);
+      commit(next);
+    } else if (hit.type === "entry") {
+      const next = cloneHouse(house);
+      next.plumbing.entry = null;
+      commit(next);
     } else if (hit.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
     else if (hit.type === "opening") commit(deleteOpening(house, hit.id));
     else if (hit.type === "room") {
@@ -653,8 +693,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     document.querySelector("#options-toggle")?.setAttribute("aria-expanded", String(optionsOpen));
     if (tool === "door" || tool === "window") catalogItem();
     const rates = laborAssumption(house);
+    const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}`;
+    const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -662,6 +704,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     optionsKey = key;
     if (tool === "electrical") {
       paintElectricalOptions(box, rates);
+      return;
+    }
+    if (tool === "plumbing") {
+      paintPlumbingOptions(box, pipeRates);
       return;
     }
     if (tool === "wall" || tool === "room") {
@@ -840,6 +886,69 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     document.dispatchEvent(new CustomEvent("house-selection", { detail: { showing } }));
   }
 
+  function paintPlumbingOptions(box, rates) {
+    const groups = [...new Set(FIXTURE_OPTIONS.map((item) => item.group))];
+    const options = groups.map((group) => `<optgroup label="${group}">${FIXTURE_OPTIONS.filter((item) => item.group === group).map((item) => `<option value="${item.id}" ${item.id === fixtureKind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
+    const ghosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
+    const spec = fixtureKind === "entry" ? null : fixtureSpec(fixtureKind);
+    box.innerHTML = `
+      <div class="option-line">
+        <label>Place <select id="fixture-kind">${options}</select></label>
+        <button type="button" id="suggest-fixtures">Suggest placements</button>
+        ${ghosts ? `<button type="button" id="accept-fixtures">Accept ${ghosts}</button><button type="button" id="dismiss-fixtures">Dismiss</button>` : ""}
+      </div>
+      <p class="fine">${escapeAttr(spec?.name || "Click the water entry, where the main shutoff goes. The well itself is later.")} Pipe stays out of hempcrete and rammed earth. An exterior wall can take a furred chase. A plumber and the inspector need to confirm that.</p>
+      <div class="option-line">
+        <label>Hours per fixture <input id="plumb-fixture" type="number" min="0" step="0.25" value="${rates.perFixture}" /></label>
+        <label>Hours per foot <input id="plumb-foot" type="number" min="0" step="0.005" value="${rates.perFoot}" /></label>
+      </div>
+      <p class="fine">Those hours are assumptions, not a bid. The wage is the Jefferson County plumber rate.</p>`;
+    box.querySelector("#fixture-kind").addEventListener("change", (event) => {
+      fixtureKind = event.target.value;
+      publish();
+    });
+    box.querySelector("#suggest-fixtures").addEventListener("click", () => {
+      const next = cloneHouse(house);
+      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost);
+      next.plumbing.fixtures.push(...suggestFixtures(next));
+      commit(next);
+      publish();
+    });
+    box.querySelector("#accept-fixtures")?.addEventListener("click", () => acceptFixtures());
+    box.querySelector("#dismiss-fixtures")?.addEventListener("click", () => dismissFixtures());
+    const saveLabor = () => {
+      const next = cloneHouse(house);
+      next.plumbing.labor = {
+        perFixture: Number(box.querySelector("#plumb-fixture").value),
+        perFoot: Number(box.querySelector("#plumb-foot").value),
+      };
+      commit(next);
+      publish();
+    };
+    box.querySelector("#plumb-fixture").addEventListener("change", saveLabor);
+    box.querySelector("#plumb-foot").addEventListener("change", saveLabor);
+  }
+
+  function acceptFixtures(onlyId = null) {
+    const next = cloneHouse(house);
+    next.plumbing.fixtures = next.plumbing.fixtures.map((item) => {
+      if (!item.ghost) return item;
+      if (onlyId && item.id !== onlyId) return item;
+      return { ...item, ghost: false };
+    });
+    if (onlyId) selection = { type: "fixture", id: onlyId };
+    commit(next);
+    publish();
+  }
+
+  function dismissFixtures(onlyId = null) {
+    const next = cloneHouse(house);
+    next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost || (onlyId && item.id !== onlyId));
+    if (onlyId && selection?.id === onlyId) selection = null;
+    commit(next);
+    publish();
+  }
+
   function paintElectricalOptions(box, rates) {
     const groups = [...new Set(PLACE_OPTIONS.map((item) => item.group))];
     const options = groups.map((group) => `<optgroup label="${group}">${PLACE_OPTIONS.filter((item) => item.group === group).map((item) => `<option value="${item.id}" ${item.id === deviceKind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
@@ -1013,6 +1122,87 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     });
   }
 
+  function paintFixtureInspector() {
+    if (selection.type === "entry") {
+      const entry = house.plumbing?.entry;
+      if (!entry) {
+        inspector.hidden = true;
+        inspector.innerHTML = "";
+        return;
+      }
+      const well = (house.electrical?.devices || []).find((item) => !item.ghost && item.kind === "well-pump");
+      inspector.innerHTML = `
+        <h2>Water entry</h2>
+        <p>Main shutoff. ${well ? "Tied to the stage 5 well-pump circuit." : "No well-pump circuit yet. Place one in Electrical. The pressure tank is a hook until the well is sited."}</p>
+        <p class="fine">The well and the septic tank are later. This point is where the water comes into the house.</p>
+        <button type="button" id="suggest-fixtures">Suggest placements</button>
+        <button type="button" id="edit-delete">Delete entry</button>`;
+      inspector.querySelector("#suggest-fixtures").addEventListener("click", () => {
+        const next = cloneHouse(house);
+        next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost);
+        next.plumbing.fixtures.push(...suggestFixtures(next));
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+      return;
+    }
+    const fixture = (house.plumbing?.fixtures || []).find((item) => item.id === selection.id);
+    if (!fixture) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const spec = fixtureSpec(fixture.kind);
+    const warningsForFixture = fixtureWarnings(house, fixture);
+    const wall = house.walls.find((item) => item.id === fixture.wallId);
+    const mass = wall && (wall.assemblyId || "").match(/hemp|rammed/);
+    inspector.innerHTML = `
+      <h2>${escapeAttr(fixture.ghost ? `Suggested ${spec.name}` : spec.name)}</h2>
+      ${fixture.ghost ? `<p>Ghost placement. Accept it or dismiss it.</p>
+        <button type="button" id="accept-one">Accept</button>
+        <button type="button" id="dismiss-one">Dismiss</button>` : ""}
+      ${warningsForFixture.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}.</p>`).join("")}
+      ${mass ? `<button type="button" id="toggle-chase">${fixture.chase ? "Chase added" : "Add a furred chase"}</button>` : ""}
+      ${fixture.ghost ? "" : fixtureCostHtml(house, fixture)}
+      <button type="button" id="suggest-fixtures">Suggest placements</button>
+      <button type="button" id="edit-delete">Delete fixture</button>`;
+    inspector.querySelector("#accept-one")?.addEventListener("click", () => acceptFixtures(fixture.id));
+    inspector.querySelector("#dismiss-one")?.addEventListener("click", () => dismissFixtures(fixture.id));
+    inspector.querySelector("#toggle-chase")?.addEventListener("click", () => {
+      const next = cloneHouse(house);
+      const target = next.plumbing.fixtures.find((item) => item.id === fixture.id);
+      target.chase = !target.chase;
+      commit(next);
+      publish();
+    });
+    inspector.querySelectorAll("[data-supply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const next = cloneHouse(house);
+        next.plumbing.supplyMethod = button.dataset.supply;
+        commit(next);
+        publish();
+      });
+    });
+    inspector.querySelectorAll("[data-heater]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const next = cloneHouse(house);
+        const target = next.plumbing.fixtures.find((item) => item.id === fixture.id);
+        target.heaterType = button.dataset.heater;
+        commit(next);
+        publish();
+      });
+    });
+    inspector.querySelector("#suggest-fixtures").addEventListener("click", () => {
+      const next = cloneHouse(house);
+      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost);
+      next.plumbing.fixtures.push(...suggestFixtures(next));
+      commit(next);
+      publish();
+    });
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+  }
+
   function paintInspector() {
     if (mode !== "build" || !selection) {
       inspector.hidden = true;
@@ -1130,6 +1320,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         commit(next);
         publish();
       });
+    } else if (selection.type === "fixture" || selection.type === "entry") {
+      paintFixtureInspector();
+      syncSelectionLayout();
+      return;
     } else if (selection.type === "device" || selection.type === "panel") {
       paintDeviceInspector();
       syncSelectionLayout();

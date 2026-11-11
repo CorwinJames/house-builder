@@ -18,7 +18,12 @@ if (!validate(house)) {
   }
 }
 
-if (house.schemaVersion !== 4) fail("sample schemaVersion must be 4");
+if (house.schemaVersion !== 5) fail("sample schemaVersion must be 5");
+if (!(house.plumbing?.fixtures || []).some((item) => item.phase === "phase1" && !item.ghost)) {
+  fail("sample needs a phase 1 plumbing layout");
+}
+if (!house.plumbing?.entry) fail("sample needs a water entry");
+if (!house.plumbing?.septic) fail("sample needs a septic stub");
 if (!house.electrical?.panel) fail("sample needs a main panel");
 if (!(house.electrical.devices || []).some((item) => item.phase === "phase1" && !item.ghost)) {
   fail("sample needs a phase 1 electrical layout");

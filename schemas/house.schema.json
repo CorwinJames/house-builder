@@ -24,7 +24,7 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 2,
-      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. Older files still open."
+      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. 5 adds optional plumbing fixtures. Older files still open."
     },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -76,6 +76,11 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Optional. Devices, the panel, and per-wall wiring method. Schema 2 and 3 files omit it."
+    },
+    "plumbing": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional. Fixtures, water entry, septic stub, and supply method. Older files omit it."
     }
   },
   "$defs": {

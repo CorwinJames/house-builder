@@ -42,6 +42,7 @@ function laborName(id) {
   if (id === "flooring-labor") return "Flooring labor";
   if (id === "tile-labor") return "Tile labor";
   if (id === "electrical-labor") return "Electrical labor";
+  if (id === "plumbing-labor") return "Plumbing labor";
   return id;
 }
 

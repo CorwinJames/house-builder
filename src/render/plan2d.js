@@ -19,6 +19,7 @@ import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
+import { buildPlumbing } from "../plumbing/design.js";
 
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
@@ -39,6 +40,7 @@ export function createPlanView(canvas, initialHouse) {
   let drag = null;
   let pinch = null;
   let hoverCircuitId = null;
+  let hoverPipeId = null;
 
   function size() {
     return { w: canvas.clientWidth, h: canvas.clientHeight };
@@ -502,6 +504,7 @@ export function createPlanView(canvas, initialHouse) {
       }
     }
     drawElectrical();
+    drawPlumbing();
     drawOverlay();
     drawDimensions();
     drawLabels();
@@ -563,6 +566,79 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  function drawPlumbing() {
+    if (!state?.layers.plumbing || !house.plumbing) return;
+    const design = buildPlumbing(house, { phase: electricalPhase() });
+    const selectedId = overlay?.selection?.type === "fixture" ? overlay.selection.id : null;
+    const active = hoverPipeId || (selectedId ? `fixture:${selectedId}` : null);
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    const drawRun = (points, color, dashed, id, label) => {
+      if (!points || points.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = active && (active === id || active === `fixture:${id.split(":")[1]}`) ? 4 : 2;
+      ctx.setLineDash(dashed ? [6, 4] : []);
+      points.forEach((point, index) => {
+        const screen = worldToScreen(point.x, point.y);
+        if (index === 0) ctx.moveTo(screen.x, screen.y);
+        else ctx.lineTo(screen.x, screen.y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const show = active === id || (selectedId && id.endsWith(selectedId));
+      if (show && label) {
+        const mid = points[Math.floor(points.length / 2)];
+        const screen = worldToScreen(mid.x, mid.y);
+        ctx.font = "700 11px Outfit, sans-serif";
+        const width = ctx.measureText(label).width + 8;
+        ctx.fillStyle = "rgba(247, 243, 235, 0.92)";
+        ctx.fillRect(screen.x + 8, screen.y - 18, width, 16);
+        ctx.fillStyle = color;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, screen.x + 12, screen.y - 10);
+      }
+    };
+    for (const runItem of design.supply) {
+      const color = runItem.service === "hot" ? "#C23B22" : "#1F6F8B";
+      const wait = runItem.service === "hot" && runItem.gallons ? ` · ${runItem.gallons} gal` : "";
+      drawRun(runItem.points, color, false, `${runItem.service}:${runItem.fixtureId}`, `${runItem.size} in ${runItem.service} · ${runItem.length} ft${wait}`);
+    }
+    for (const leg of design.dwv) {
+      drawRun(leg.points, "#6B4A2A", true, `drain:${leg.fixtureId}`, `${leg.size} in drain · ${leg.length} ft`);
+    }
+    if (design.building?.length) {
+      drawRun(design.building.points, "#3F2918", true, "building", `${design.building.size} in building drain · ${design.building.slope.inchesPerFoot} in/ft · drop ${design.building.slope.inches} in`);
+    }
+    const mark = (x, y, letter, id) => {
+      const screen = worldToScreen(x, y);
+      const on = active === id || (selectedId && id.endsWith(selectedId));
+      ctx.beginPath();
+      ctx.fillStyle = "#F7F3EB";
+      ctx.strokeStyle = "#3F2918";
+      ctx.lineWidth = on ? 3 : 1.5;
+      ctx.arc(screen.x, screen.y, on ? 9 : 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#1d1a16";
+      ctx.font = "700 8px Outfit, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(letter, screen.x, screen.y);
+    };
+    const letters = { toilet: "T", lavatory: "L", "kitchen-sink": "S", dishwasher: "D", shower: "H", tub: "B", washer: "W", "laundry-sink": "Y", "hose-bibb": "HB", "water-heater": "WH" };
+    for (const fixture of design.fixtures) mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+    for (const fixture of house.plumbing.fixtures || []) {
+      if (!fixture.ghost || !isPhaseVisible(fixture.phase, state)) continue;
+      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+    }
+    if (design.entry) mark(design.entry.x, design.entry.y, "E", "entry");
+    if (design.septic) mark(design.septic.x, design.septic.y, "ST", "septic");
+    ctx.restore();
+  }
+
   function electricalPhase() {
     if (!state) return "full";
     if (state.phase === "phase1" || !state.layers.future) return "phase1";
@@ -614,7 +690,7 @@ export function createPlanView(canvas, initialHouse) {
         if (!best || distance < best.distance) best = { circuit, distance };
       }
     }
-    return best?.circuit || null;
+    return best;
   }
 
   function distanceToSegment(point, a, b) {
@@ -1016,19 +1092,60 @@ export function createPlanView(canvas, initialHouse) {
     pinch = null;
   });
 
+  function pipeFromPoint(design, point) {
+    let best = null;
+    const consider = (id, points) => {
+      for (let i = 1; i < points.length; i += 1) {
+        const distance = distanceToSegment(point, points[i - 1], points[i]);
+        if (distance > 1.4) continue;
+        if (!best || distance < best.distance) best = { id, distance };
+      }
+    };
+    for (const runItem of design.supply) consider(`${runItem.service}:${runItem.fixtureId}`, runItem.points);
+    for (const leg of design.dwv) consider(`drain:${leg.fixtureId}`, leg.points);
+    if (design.building?.points) consider("building", design.building.points);
+    for (const fixture of design.fixtures) {
+      const distance = Math.hypot(fixture.x - point.x, fixture.y - point.y);
+      if (distance <= 1.4 && (!best || distance < best.distance)) best = { id: `fixture:${fixture.id}`, distance };
+    }
+    return best;
+  }
+
   canvas.addEventListener("pointerleave", () => {
-    if (!hoverCircuitId) return;
+    if (!hoverCircuitId && !hoverPipeId) return;
     hoverCircuitId = null;
+    hoverPipeId = null;
     render();
   });
 
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) {
-      if (!state?.layers.electrical || !house.electrical) return;
-      const design = buildElectrical(house, { phase: electricalPhase() });
-      const next = circuitFromPoint(design, worldFromEvent(event))?.id || null;
-      if (next !== hoverCircuitId) {
-        hoverCircuitId = next;
+      const world = worldFromEvent(event);
+      let nextCircuit = null;
+      let circuitDistance = Infinity;
+      if (state?.layers.electrical && house.electrical) {
+        const design = buildElectrical(house, { phase: electricalPhase() });
+        const hit = circuitFromPoint(design, world);
+        if (hit) {
+          nextCircuit = hit.circuit.id;
+          circuitDistance = hit.distance;
+        }
+      }
+      let nextPipe = null;
+      let pipeDistance = Infinity;
+      if (state?.layers.plumbing && house.plumbing) {
+        const design = buildPlumbing(house, { phase: electricalPhase() });
+        const hit = pipeFromPoint(design, world);
+        if (hit) {
+          nextPipe = hit.id;
+          pipeDistance = hit.distance;
+        }
+      }
+      if (circuitDistance <= pipeDistance) nextPipe = null;
+      else nextCircuit = null;
+      if (nextCircuit !== hoverCircuitId || nextPipe !== hoverPipeId) {
+        hoverCircuitId = nextCircuit;
+        hoverPipeId = nextPipe;
         render();
       }
       return;

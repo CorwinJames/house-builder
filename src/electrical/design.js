@@ -682,10 +682,14 @@ export function electricalBom(house, phase = "full") {
     rows.push({ id: "device-plate", category: "electrical", quantity: design.devices.length, unit: "each", kind: "material", basis: "One cover plate per device. Assumption." });
   }
   if (design.circuits.length) {
-    const poles = { 1: 0, 2: 0 };
-    for (const circuit of design.circuits) poles[circuit.breakerPoles] += 1;
-    if (poles[1]) rows.push({ id: "breaker-1", category: "electrical", quantity: poles[1], unit: "each", kind: "material", basis: "One single-pole breaker per 120V circuit. AFCI or GFCI type follows the circuit." });
-    if (poles[2]) rows.push({ id: "breaker-2", category: "electrical", quantity: poles[2], unit: "each", kind: "material", basis: "One two-pole breaker per 240V circuit." });
+    const breakers = {};
+    for (const circuit of design.circuits) {
+      const id = breakerId(circuit);
+      breakers[id] = (breakers[id] || 0) + 1;
+    }
+    for (const [id, quantity] of Object.entries(breakers)) {
+      rows.push({ id, category: "electrical", quantity, unit: "each", kind: "material", basis: "One breaker per circuit. 120V circuits that need both AFCI and GFCI use a dual-function breaker. 240V uses a two-pole breaker of the circuit amps." });
+    }
   }
   if (design.panel) {
     const service = design.load.service;
@@ -706,7 +710,10 @@ export function electricalBom(house, phase = "full") {
   if (nmFeet > 0) {
     rows.push({ id: "nm-staple", category: "electrical", quantity: Math.ceil(nmFeet / 4.5), unit: "each", kind: "material", basis: "NEC 334.30 secures NM within 12 in. of a box and every 4.5 ft. One staple per 4.5 ft of NM is the count used here. Confirm the spacing." });
   }
-  if (design.panel) rows.push({ id: "ground-rod", category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "One ground rod. NEC 250.53 may require a second rod if the resistance is over 25 ohms. Verify." });
+  if (design.panel) {
+    rows.push({ id: "ground-rod", category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "One 8 ft ground rod. NEC 250.53 may require a second rod if the resistance is over 25 ohms. Verify." });
+    rows.push({ id: "ground-clamp", category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "Clamp for the ground rod." });
+  }
   rows.push({ id: "electrical-permit", category: "electrical", quantity: design.panel || design.devices.length ? 1 : 0, unit: "each", kind: "material", allowance: false, basis: "Washington L&I electrical permit. The fee is stage 9; this line is the hook." });
   const rates = laborAssumption(house);
   const laborHours = round2(design.devices.length * rates.perDevice + (design.panel ? rates.panel : 0) + nmFeet * rates.perFoot);
@@ -805,6 +812,18 @@ export function deviceShare(house, deviceId) {
     rows.push({ id: "electrical-labor", category: "labor", quantity: hours, unit: "hour", kind: "labor", wageId: "wage-electrician", basis: `This device's share: ${rates.perDevice} hour plus ${rates.perFoot} hour per foot of its cable. Assumption.` });
   }
   return rows;
+}
+
+function breakerId(circuit) {
+  if (circuit.breakerPoles === 2) {
+    if (circuit.amps <= 20) return "breaker-20-2";
+    if (circuit.amps <= 30) return "breaker-30-2";
+    if (circuit.amps <= 40) return "breaker-40-2";
+    return "breaker-50-2";
+  }
+  if (circuit.afci && circuit.gfci) return circuit.amps <= 15 ? "breaker-15-df" : "breaker-20-df";
+  if (circuit.afci) return circuit.amps <= 15 ? "breaker-15-afci" : "breaker-20-df";
+  return circuit.amps <= 15 ? "breaker-15" : "breaker-20";
 }
 
 function round2(value) {
