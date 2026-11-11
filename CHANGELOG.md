@@ -2,7 +2,7 @@
 
 ## Stage 3 — Google sign-in and Drive saves
 
-Sign in with Google from the static site and keep a house in a Drive folder named House Builder. The OAuth client ID is a placeholder in `config/google.json` until it is created in Google Cloud. There is no client secret and no server.
+Sign in with Google from the static site and keep a house in a Drive folder named House Builder. The public client ID is in `config/google.json`. There is no client secret and no server. The Google app is in Testing: only invited testers can sign in, and consent may need re-approval about every 7 days. An `access_denied` sign-in says that.
 
 - The browser uses Google Identity Services' token client. The only scope is `drive.file`, so the app sees files it created or that someone opened with it.
 - File menu: Save to Drive, Save as, Open from Drive, and Share with an email. Export, Import, and Reset stay for this device.

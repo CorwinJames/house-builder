@@ -10,7 +10,7 @@ import {
   shareDesign,
   updateDesign,
 } from "../src/drive/client.js";
-import { isGoogleConfigured } from "../src/auth/config.js";
+import { googleClientId, isGoogleConfigured } from "../src/auth/config.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -48,6 +48,8 @@ await check("placeholder client id is not configured", () => {
   assert.equal(isGoogleConfigured("YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com"), false);
   assert.equal(isGoogleConfigured(""), false);
   assert.equal(isGoogleConfigured("123-abc.apps.googleusercontent.com"), true);
+  assert.equal(isGoogleConfigured(googleClientId), true);
+  assert.equal(googleClientId.includes("YOUR_GOOGLE_OAUTH_CLIENT_ID"), false);
 });
 
 await check("design file names stay inside one safe file name", () => {

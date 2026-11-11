@@ -22,16 +22,14 @@ Open the URL Vite prints, usually http://localhost:5173/.
 
 The page can save a house to the signed-in person's Google Drive. There is still no server. The browser asks Google for an access token and calls the Drive API itself.
 
-The client ID lives in [`config/google.json`](config/google.json). Until that placeholder is replaced, the header button says **Google sign-in not configured yet** and Drive save stays off. Export and Import JSON keep working. Do not put a client secret in the repo. This flow does not use one.
+The public client ID lives in [`config/google.json`](config/google.json). There is no client secret. The Google Cloud project is `house-builder-514402`, and the app is in **Testing**. Only invited testers can sign in. While it stays in Testing, Google may ask for consent again about every 7 days, and the token can need that same re-approval.
 
-In Google Cloud, create an OAuth client ID of type **Web application**. Under Authorized JavaScript origins, add exactly:
+Authorized JavaScript origins already set on that client:
 
 - `https://corwinjames.github.io`
 - `http://localhost:5173`
 
-The token client does not redirect the page, so Authorized redirect URIs can stay empty. If the form will not save without one, use `https://corwinjames.github.io` and do not point it at a secret backend.
-
-Paste the client ID into `config/google.json` as `clientId`. The origin is the site's scheme, host, and port only. The `/house-builder/` path is not part of it.
+The token client does not redirect the page, so Authorized redirect URIs stay empty. The origin is the site's scheme, host, and port only. The `/house-builder/` path is not part of it. If the client ID is ever replaced with the placeholder, the header button says **Google sign-in not configured yet** instead of starting a sign-in.
 
 Sign in from the header. **File** then has Save to Drive, Save as, Open from Drive, and Share with. Designs land in a Drive folder named **House Builder**, as `<name>.house.json`. This browser still keeps a local copy. With a Drive file open, edits also save to Drive about 10 seconds after you stop. The header shows Saved, Saving, or Offline in small type.
 
@@ -39,7 +37,7 @@ Share with types an email and gives that person edit access on the current file.
 
 ## For Sophie
 
-The chip at the top says **Sample layout**. Edits save on this device without another notice. After Google sign-in is configured, **File → Save to Drive** also keeps a copy in your Drive. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
+The chip at the top says **Sample layout**. Edits save on this device without another notice. **Sign in with Google**, then **File → Save to Drive**, also keeps a copy in your Drive. Only an invited tester account can sign in while the Google app is in Testing. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
 
 **View** is for looking. **Build** is for changing the house. The first time you open Build, a short hint walks through the tools.
 

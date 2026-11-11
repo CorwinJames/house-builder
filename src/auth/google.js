@@ -56,8 +56,11 @@ export function createGoogleAuth({ clientId, scope = DRIVE_SCOPE } = {}) {
   async function ensureToken({ interactive } = {}) {
     const response = await request(interactive ? "select_account" : "");
     if (!response.access_token) {
-      const error = new Error(response.error || "Google sign-in failed");
-      error.code = interactive ? "denied" : "reconnect";
+      const reason = typeof response.error === "string"
+        ? response.error
+        : (response.error?.type || response.error?.message || "Google sign-in failed");
+      const error = new Error(reason);
+      error.code = reason === "access_denied" ? "access_denied" : (interactive ? "denied" : "reconnect");
       throw error;
     }
     accessToken = response.access_token;

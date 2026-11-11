@@ -1,4 +1,4 @@
 {
-  "clientId": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
-  "note": "Placeholder. Replace clientId with the Web application OAuth client ID from Google Cloud. Do not put a client secret in this file or anywhere else in the repo."
+  "clientId": "1082289467857-81fjjvncsstuvfd900erkm49dm8psrf0.apps.googleusercontent.com",
+  "note": "Public OAuth client ID for the house-builder-514402 Web client. Do not put a client secret in this file or anywhere else in the repo."
 }

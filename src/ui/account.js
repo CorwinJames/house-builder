@@ -112,7 +112,11 @@ export function attachAccount({ editor }) {
       if (linked) await openFileId(linked, { fromLink: true });
       return true;
     } catch (error) {
-      if (interactive) message("Google sign-in", error.message || "Google sign-in failed.");
+      if (interactive && (error.code === "access_denied" || String(error.message || "").includes("access_denied"))) {
+        message("Google sign-in", "Only invited testers can sign in while this app is in Testing. An account that is not on the tester list is turned away.");
+      } else if (interactive && /popup_closed|popup_failed/.test(String(error.message || ""))) {
+        message("Google sign-in", "The Google window closed before sign-in finished.");
+      } else if (interactive) message("Google sign-in", error.message || "Google sign-in failed.");
       else setStatus("reconnect", "Reconnect Google");
       return false;
     }
