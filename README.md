@@ -18,9 +18,28 @@ Open the URL Vite prints, usually http://localhost:5173/.
 
 `npm run build` writes the static site into `dist/`. `npm run preview` serves that folder.
 
+## Google sign-in and Drive
+
+The page can save a house to the signed-in person's Google Drive. There is still no server. The browser asks Google for an access token and calls the Drive API itself.
+
+The client ID lives in [`config/google.json`](config/google.json). Until that placeholder is replaced, the header button says **Google sign-in not configured yet** and Drive save stays off. Export and Import JSON keep working. Do not put a client secret in the repo. This flow does not use one.
+
+In Google Cloud, create an OAuth client ID of type **Web application**. Under Authorized JavaScript origins, add exactly:
+
+- `https://corwinjames.github.io`
+- `http://localhost:5173`
+
+The token client does not redirect the page, so Authorized redirect URIs can stay empty. If the form will not save without one, use `https://corwinjames.github.io` and do not point it at a secret backend.
+
+Paste the client ID into `config/google.json` as `clientId`. The origin is the site's scheme, host, and port only. The `/house-builder/` path is not part of it.
+
+Sign in from the header. **File** then has Save to Drive, Save as, Open from Drive, and Share with. Designs land in a Drive folder named **House Builder**, as `<name>.house.json`. This browser still keeps a local copy. With a Drive file open, edits also save to Drive about 10 seconds after you stop. The header shows Saved, Saving, or Offline in small type.
+
+Share with types an email and gives that person edit access on the current file. A link looks like `https://corwinjames.github.io/house-builder/?file=<driveFileId>`. `drive.file` can open that file for the person who created it. It cannot see a file created under someone else's sign-in, even after it is shared, until that person opens it through Google Picker (which needs a separate API key) or you hand them the JSON with Export and Import.
+
 ## For Sophie
 
-The chip at the top says **Sample layout**. Edits save on this device without another notice. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
+The chip at the top says **Sample layout**. Edits save on this device without another notice. After Google sign-in is configured, **File → Save to Drive** also keeps a copy in your Drive. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
 
 **View** is for looking. **Build** is for changing the house. The first time you open Build, a short hint walks through the tools.
 
@@ -29,7 +48,7 @@ The chip at the top says **Sample layout**. Edits save on this device without an
 - **Door** and **Window** each show only their own sizes. Set width and height, and the sill for a window, then drag along a wall. It will not sit on a corner or on top of another opening. A selected opening keeps those fields in the panel. The header above it is a placeholder, not a final size.
 - **Select.** Click a wall, a room, or an opening. Drag the round handles on a wall to stretch it. Connected walls follow. Drag the middle of a wall to move it. Drag empty space to slide the plan. You can also hold Space, or use the middle or right mouse button. Two fingers pinch to zoom.
 - **Delete.** Click the thing you want gone. You can also select it and press Delete.
-- **Undo** and **Redo** sit on the plan. Ctrl or Cmd Z undoes. Shift Z redoes. **File** holds Export, Import, and Reset. Reset asks before it puts the sample back.
+- **Undo** and **Redo** sit on the plan. Ctrl or Cmd Z undoes. Shift Z redoes. **File** holds Drive save and open, plus Export, Import, and Reset. Reset asks before it puts the sample back.
 
 The plan and the 3D view update together. Click a wall in 3D to select it. Drawing happens on the plan.
 
@@ -48,7 +67,7 @@ The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The pl
 - **Split** shows both on a laptop. On a phone, use **Plan** and **3D** one at a time.
 - **Phase 1** hides the later wings. **Full house** shows them when the Future wings layer is on.
 - **Layers** turn pieces on and off: framing, hempcrete and rammed earth, floor finishes, later wings, dimensions, and room labels. Electrical, plumbing, and site are listed for later. They have nothing to show yet.
-- The app remembers your pan, zoom, camera, layers, and phase on this browser. There is no account yet.
+- The app remembers your pan, zoom, camera, layers, and phase on this browser. Google sign-in is optional and only stores the house file you save to Drive.
 
 South walls are rammed earth (the banded reddish walls). The other outside walls are hempcrete. Inside walls are wood framing.
 

@@ -51,7 +51,7 @@ const TUTORIAL = [
   "Select a wall and drag the round handles, or drag empty space to slide the plan. Undo is on the plan, or Ctrl Z.",
 ];
 
-export function attachEditor({ plan, model, sample, getViewState, patchViewState, onChange }) {
+export function attachEditor({ plan, model, sample, getViewState, patchViewState, onChange, onDocument }) {
   const saved = readSaved();
   let house = saved.doc;
   let fromSave = saved.fromSave;
@@ -141,6 +141,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     selection = null;
     warnings = [];
     publish();
+    onDocument?.("reset");
   });
   tutorial.addEventListener("click", (event) => {
     const button = event.target.closest("button");
@@ -500,6 +501,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       // Ignore a full browser store. Export still works.
     }
     pushViews();
+    onDocument?.("edit");
   }
 
   function undo() {
@@ -511,6 +513,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
+    onDocument?.("edit");
   }
 
   function redo() {
@@ -522,6 +525,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
+    onDocument?.("edit");
   }
 
   function eraseSelection() {
@@ -920,6 +924,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         refreshWarnings();
         pushViews();
         publish();
+        onDocument?.("import");
       } catch {
         warnings = [{ id: "import", severity: "warn", message: "That file isn't JSON this app can read.", target: null }];
         publish();
@@ -958,10 +963,44 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return { phase1, all };
   }
 
+  function loadHouse(doc) {
+    let decorated;
+    try {
+      decorated = decorateHouse(doc);
+    } catch {
+      return false;
+    }
+    if (!validate(decorated)) return false;
+    past.push(house);
+    if (past.length > 60) past.shift();
+    future.length = 0;
+    house = decorated;
+    selection = null;
+    fromSave = true;
+    try {
+      localStorage.setItem(DOC_KEY, JSON.stringify(house));
+    } catch {
+      // The Drive copy is still the one that was just read.
+    }
+    refreshWarnings();
+    pushViews();
+    return true;
+  }
+
+  function setDesignName(name) {
+    const trimmed = String(name || "").trim();
+    if (!trimmed || trimmed === house.name) return;
+    const next = cloneHouse(house);
+    next.name = trimmed;
+    commit(next);
+  }
+
   return {
     house: () => house,
     areas,
     mode: () => mode,
+    loadHouse,
+    setDesignName,
   };
 }
 
