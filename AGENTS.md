@@ -12,6 +12,8 @@ The long-term feeling is a simple building game: drag walls and rooms, and the a
 
 There is no server. The site is a static build deployed to GitHub Pages.
 
+**Never invent a price.** A cost line needs a published price, a published wage, a bid, or a user entry. If you cannot find one, leave the amount empty, mark the line "price needed", and keep it out of the total. Every price record in `data/prices.json` needs a source name, a URL when it has a dollar amount, the date it was checked, a unit, and whether it is labor or material. To add or refresh a price, edit that file and re-read the page. Do not copy a number from memory. Production rates in `data/cost-assumptions.json` that are not from a published source must say they are assumptions. A bid or user entry on the house `cost.overrides` replaces the published amount.
+
 ## Stage roadmap
 
 | Stage | What | Status |
@@ -19,7 +21,7 @@ There is no server. The site is a static build deployed to GitHub Pages.
 | 1 | Project, sample house, 2D plan, 3D model, layers, phase toggle | **Done** |
 | 2 | Drag-to-build walls and rooms, with wall assemblies filled in | **Done** |
 | 3 | Google sign-in and Drive saves | **Done** |
-| 4 | Live cost and a shoppable materials list | Not started |
+| 4 | Live cost and a shoppable materials list | **Done** |
 | 5 | Electrical placement and routing | Not started |
 | 6 | Plumbing | Not started |
 | 7 | Code-rule warnings | Not started |
@@ -50,7 +52,8 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/rules/` is the warning list. Geometry checks live there now. Stage 7 adds code rules through `registerRule`.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.
 - `data/assemblies.json` defines wall types. `data/headers.json` is the placeholder header table. `data/opening-catalog.json` is the door and window palette.
-- `schemas/house.schema.json` is the contract for the house file. Schema version is 2.
+- `schemas/house.schema.json` is the contract for the house file. Schema version 2 still opens. The app writes version 3, which adds an optional `cost` block. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
+- `src/cost/` turns geometry into quantities and applies `data/prices.json`. `src/ui/costs.js` is the header total and the materials panel. Electrical and plumbing categories are empty hooks for stages 5 and 6.
 - `scripts/check-model.mjs` checks the sample against the schema. `scripts/test-geometry.mjs` checks snapping, joins, rooms, and openings.
 
 The phase toggle and the Future wings layer both gate later rooms. Phase 1 only hides future geometry even if the layer is on. Full house hides it when the layer is off. See `src/render/visibility.js`.

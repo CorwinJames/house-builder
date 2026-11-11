@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/check-model.mjs && node scripts/test-geometry.mjs && node scripts/test-ratios.mjs && node scripts/test-drive.mjs"
+    "test": "node scripts/check-model.mjs && node scripts/test-geometry.mjs && node scripts/test-ratios.mjs && node scripts/test-drive.mjs && node scripts/test-cost.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

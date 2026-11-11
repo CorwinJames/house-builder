@@ -10,6 +10,6 @@ export default defineConfig({
   },
   build: {
     // three.js is one chunk on purpose. The warning is not a regression.
-    chunkSizeWarningLimit: 800,
+    chunkSizeWarningLimit: 900,
   },
 });

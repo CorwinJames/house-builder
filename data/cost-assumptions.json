@@ -1,0 +1,115 @@
+{
+  "note": "Rates marked assumption are not published production rates. Edit them. A bid or user entry on the house replaces a published price.",
+  "hempcreteBatch": {
+    "yieldCuFt": 4.5,
+    "binderBags": 1,
+    "hurdBags": 1,
+    "waterGallonsLow": 8,
+    "waterGallonsHigh": 10,
+    "waterGallonsUsed": 8,
+    "sourceName": "Hemp and Block",
+    "url": "https://hempandblock.com/product/hempcrete-binder/",
+    "dateChecked": "2026-11-11",
+    "note": "One 50 lb binder bag and 33 lb of hurd yield up to 4.5 cubic feet. Water is the supplier's 8–10 gallon range; the list uses 8."
+  },
+  "limeDensityLbPerCuFt": {
+    "value": 44,
+    "bagLb": 50,
+    "sourceName": "Hemp and Block",
+    "url": "https://hempandblock.com/product/american-hydraulic-lime/",
+    "dateChecked": "2026-11-11",
+    "note": "Published bulk dry density, 44 lb per cubic foot."
+  },
+  "waste": [
+    {
+      "id": "hempcrete",
+      "factor": 0.1,
+      "sourceType": "assumption",
+      "sourceName": "Bulk Hemp Warehouse calculator",
+      "url": "https://bulkhempwarehouse.com/hempcrete-calculator/",
+      "dateChecked": "2026-11-11",
+      "note": "That calculator recommends a 10% waste buffer. It is a supplier suggestion, not a code factor."
+    },
+    {
+      "id": "lumber",
+      "factor": 0.1,
+      "sourceType": "assumption",
+      "sourceName": "Assumption",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "Assumption: 10% extra lumber for cuts. Edit this."
+    },
+    {
+      "id": "plaster",
+      "factor": 0.1,
+      "sourceType": "assumption",
+      "sourceName": "Assumption",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "Assumption: 10% extra lime. Edit this."
+    }
+  ],
+  "production": [
+    {
+      "id": "hempcrete-place",
+      "appliesTo": "hempcrete",
+      "wageId": "wage-laborer",
+      "unit": "cubic foot",
+      "perHour": 6,
+      "sourceType": "assumption",
+      "note": "Assumption: one laborer places 6 cubic feet an hour. Not a published production rate. Edit it."
+    },
+    {
+      "id": "rammed-place",
+      "appliesTo": "rammed-earth",
+      "wageId": "wage-laborer",
+      "unit": "cubic foot",
+      "perHour": 4,
+      "sourceType": "assumption",
+      "note": "Assumption: one laborer rams 4 cubic feet an hour. Edit it."
+    },
+    {
+      "id": "frame",
+      "appliesTo": "framing",
+      "wageId": "wage-carpenter",
+      "unit": "linear foot",
+      "perHour": 8,
+      "sourceType": "assumption",
+      "note": "Assumption: one carpenter frames 8 linear feet of studs and plates an hour. Edit it."
+    },
+    {
+      "id": "paint",
+      "appliesTo": "paint",
+      "wageId": "wage-painter",
+      "diy": true,
+      "unit": "square foot",
+      "perHour": 150,
+      "sourceType": "assumption",
+      "note": "Assumption: 150 square feet an hour if this is hired out. James's own labor is $0 until the hire-out toggle is on."
+    },
+    {
+      "id": "flooring",
+      "appliesTo": "flooring",
+      "wageId": "wage-floor",
+      "diy": true,
+      "unit": "square foot",
+      "perHour": 40,
+      "sourceType": "assumption",
+      "note": "Assumption: 40 square feet an hour if hired out. James's labor is $0 until the hire-out toggle is on."
+    },
+    {
+      "id": "tile",
+      "appliesTo": "tile",
+      "wageId": "",
+      "diy": true,
+      "unit": "square foot",
+      "perHour": 15,
+      "sourceType": "assumption",
+      "note": "Assumption: 15 square feet an hour. No tile-setter wage was checked, so hired-out labor stays price needed. James's labor is $0."
+    }
+  ],
+  "hooks": [
+    { "id": "electrical", "name": "Electrical", "note": "Stage 5 adds wire, devices, and labor to this list." },
+    { "id": "plumbing", "name": "Plumbing", "note": "Stage 6 adds pipe, fixtures, and labor to this list." }
+  ]
+}
