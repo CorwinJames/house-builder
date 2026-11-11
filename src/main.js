@@ -8,6 +8,7 @@ import { createView3d } from "./render/view3d.js";
 import { polygonArea } from "./lib/geom.js";
 import { footprintMatch } from "./build/constraints.js";
 import { attachEditor } from "./ui/editor.js";
+import { attachAccount } from "./ui/account.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -45,11 +46,19 @@ app.innerHTML = `
         <details class="file-menu" id="file-menu">
           <summary>File</summary>
           <div class="file-menu-panel">
+            <p class="menu-label">Drive</p>
+            <button type="button" id="drive-save">Save to Drive</button>
+            <button type="button" id="drive-save-as">Save as…</button>
+            <button type="button" id="drive-open">Open from Drive</button>
+            <button type="button" id="drive-share">Share with…</button>
+            <p class="menu-label">This device</p>
             <button type="button" id="export-json">Export JSON</button>
             <button type="button" id="import-json">Import JSON</button>
             <button type="button" id="reset-sample">Reset to sample</button>
           </div>
         </details>
+        <button type="button" id="save-status" class="save-status" hidden></button>
+        <div id="account" class="account"></div>
         <input id="import-file" type="file" accept="application/json,.json" hidden />
       </div>
     </header>
@@ -97,6 +106,7 @@ app.innerHTML = `
   </div>
   <div class="scrim" id="scrim" hidden></div>
   <div class="hint" id="build-tutorial" hidden></div>
+  <dialog id="drive-dialog" class="drive-dialog"></dialog>
   <div class="hint" id="hint" role="dialog" aria-labelledby="hint-title">
     <p id="hint-title">Drag the plan to move around. Scroll or pinch to zoom. In 3D, drag to look around the house. Solid rooms are Phase 1, the first part to build. Dashed rooms are later wings. This sample is a starting point, not the final house.</p>
     <button type="button" id="hint-ok">Got it</button>
@@ -121,6 +131,7 @@ planCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
 const plan = createPlanView(planCanvas, house);
 const model = createView3d(modelCanvas, house);
 let editor;
+let onDocument = () => {};
 editor = attachEditor({
   plan,
   model,
@@ -133,7 +144,11 @@ editor = attachEditor({
   onChange() {
     if (editor) publish();
   },
+  onDocument(source) {
+    onDocument(source);
+  },
 });
+onDocument = attachAccount({ editor }).onDocument;
 
 plan.setOnChange((planCamera) => {
   state.plan = planCamera;

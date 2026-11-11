@@ -1,5 +1,15 @@
 # Changelog
 
+## Stage 3 — Google sign-in and Drive saves
+
+Sign in with Google from the static site and keep a house in a Drive folder named House Builder. The public client ID is in `config/google.json`. There is no client secret and no server. The Google app is in Testing: only invited testers can sign in, and consent may need re-approval about every 7 days. An `access_denied` sign-in says that.
+
+- The browser uses Google Identity Services' token client. The only scope is `drive.file`, so the app sees files it created or that someone opened with it.
+- File menu: Save to Drive, Save as, Open from Drive, and Share with an email. Export, Import, and Reset stay for this device.
+- Files are `<design name>.house.json`. Drive stores `appProperties` `app=house-builder` and the schema version.
+- This browser still autosaves locally. When a Drive file is open, the app also saves about 10 seconds after the last edit. The header shows Saved, Saving, or Offline. A newer Drive copy is not overwritten without asking. An expired token is requested again quietly; if that fails, the header says Reconnect Google.
+- `?file=<driveFileId>` opens that file after sign-in when `drive.file` allows it.
+
 ## Stage 2.1 — build UI cleanup
 
 The header is thin. View and Build are their own switch. Phase, plan/3D, layers, and File (export, import, reset) stay with the view. Build tools sit on the plan, with a short options strip just above them that can collapse. The wall-type note is behind an info icon. Wall types show only for Wall and Room. Door and Window show only their own sizes, with width, height, sill, and a live preview. Undo and redo are small plan buttons, plus Ctrl/Cmd+Z and Shift+Z. Drag empty space, Space, or the middle or right button to pan. Ratio tick labels are a few pills that do not overlap. Room proportion lines are a single spaced line (φ, δ, √, ρ) and hide until the plan is zoomed in.

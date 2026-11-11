@@ -18,7 +18,7 @@ There is no server. The site is a static build deployed to GitHub Pages.
 | --- | --- | --- |
 | 1 | Project, sample house, 2D plan, 3D model, layers, phase toggle | **Done** |
 | 2 | Drag-to-build walls and rooms, with wall assemblies filled in | **Done** |
-| 3 | Google sign-in and Drive saves | Not started |
+| 3 | Google sign-in and Drive saves | **Done** |
 | 4 | Live cost and a shoppable materials list | Not started |
 | 5 | Electrical placement and routing | Not started |
 | 6 | Plumbing | Not started |
@@ -42,6 +42,10 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/layers.js` is the list of layer toggles.
 - `src/state/viewState.js` reads and writes `localStorage` key `house-builder.view.v1` (camera, layers, phase).
 - `src/ui/editor.js` is Build mode. The tool bar and the options for the active tool sit on the plan. Undo and redo are there too. Export, import, and reset are in the File menu. The house document is `localStorage` key `house-builder.document.v2`. There is no Pan tool: drag empty space, hold Space, or use the middle or right button.
+- `config/google.json` holds the public Google OAuth client ID for project `house-builder-514402`. There is no client secret. The Cloud app is in Testing, so only invited testers can sign in, and consent can expire after about 7 days.
+- `src/auth/google.js` uses Google Identity Services `initTokenClient` in the browser. The only scope is `https://www.googleapis.com/auth/drive.file`. The access token stays in memory.
+- `src/drive/client.js` talks to Drive API v3 with `fetch`. `scripts/test-drive.mjs` mocks `fetch`, so CI does not need Google credentials.
+- `src/ui/account.js` is the header account control and the Drive actions in the File menu. A signed-in open file autosaves about 10 seconds after the last edit.
 - `src/build/` is snapping, wall joins, room detection, and opening placement. No DOM.
 - `src/rules/` is the warning list. Geometry checks live there now. Stage 7 adds code rules through `registerRule`.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.
