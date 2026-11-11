@@ -75,6 +75,16 @@ New walls snap to the grid (default 6 inches), to endpoints and midpoints, and t
 
 The roof is placeholder massing for a Chinese hip-and-gable. `roof.placeholder` stays `true` until someone designs a real roof. Do not present it as structure.
 
+## Proportions
+
+`data/ratios.json` is the ratio library (golden, silver, roots, bronze, plastic, and the musical ratios). Exact forms are evaluated in `src/build/ratios.js`. Custom ratios live on the house as `customRatios`.
+
+`constraints` on the house record `target`, `reference`, `ratioId`, and `operation` (`multiply` or `divide`). `src/build/constraints.js` solves them. A cycle or two constraints on one target produces a warning and does not move those lengths. Wall constraints run after each edit. The sample footprint constraint (`width = φ × depth`) is stored so it is visible on first open. It is not applied automatically, because 76 / 47 is about 0.06% short of φ and the drawn walls stay put. **Snap footprint to φ** applies it. The plan shows the deviation instead of hiding it.
+
+Construction dimensions display to the nearest 1/16 inch. When that rounding is not the stored length, the label also shows the exact decimal. Stored coordinates stay the full float. **Stage 11 blueprint export must use these constrained float lengths, not the 1/16 inch construction rounding.** The rounding is only a label.
+
+Ratio snap (the Grid / Ratio toggle) uses `proportion.module` and `proportion.ratioId`: lengths `module × ratioⁿ`, sums of those lengths, and lengths taken from existing walls. Tick labels show while a wall is dragged.
+
 ## How to run
 
 ```bash

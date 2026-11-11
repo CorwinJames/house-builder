@@ -24,8 +24,10 @@ import { snapOpeningOffset } from "../build/openings.js";
 import { projectOntoWall, snapDrawingPoint, snapPointToGrid, snapToGrid } from "../build/snap.js";
 import { evaluateRules, warningTargets } from "../rules/index.js";
 import { isFutureShown } from "../render/visibility.js";
-import { formatArea, formatFeet } from "../lib/format.js";
+import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
+import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
+import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
 
 const DOC_KEY = "house-builder.document.v2";
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -60,6 +62,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let assemblyExplicit = false;
   let grid = 0.5;
   let catalogId = "door-30";
+  let snapMode = "grid";
+  let guidesOn = false;
   let selection = null;
   let gesture = null;
   let warnings = [];
@@ -86,6 +90,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       <button type="button" id="import-json">Import</button>
       <button type="button" id="reset-sample">Reset</button>
       <input id="import-file" type="file" accept="application/json,.json" hidden />
+    </div>
+    <div class="build-extra" id="proportion-row">
+      <div class="seg" id="snap-mode">
+        <button type="button" data-snap="grid">Grid</button>
+        <button type="button" data-snap="ratio">Ratio</button>
+      </div>
+      <label>Ratio <select id="project-ratio"></select></label>
+      <label>Module <input id="module-length" type="number" min="0.5" step="0.5" /> ft</label>
+      <button type="button" id="guides-toggle">Guides</button>
+      <button type="button" id="snap-footprint">Snap footprint to φ</button>
     </div>
     <p class="assembly-note" id="assembly-note"></p>
     <p class="warn-line" id="warn-line"></p>
@@ -160,6 +174,40 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   document.querySelector("#grid-size").addEventListener("change", (event) => {
     grid = Number(event.target.value);
   });
+  document.querySelector("#project-ratio").innerHTML = ratioLibrary.map((ratio) => (
+    `<option value="${ratio.id}">${ratio.name}</option>`
+  )).join("") + `<option value="custom">Custom</option>`;
+  document.querySelector("#snap-mode").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-snap]");
+    if (!button) return;
+    snapMode = button.dataset.snap;
+    publish();
+  });
+  document.querySelector("#project-ratio").addEventListener("change", (event) => {
+    const next = cloneHouse(house);
+    next.proportion = { ...(next.proportion || { module: 8 }), ratioId: event.target.value };
+    if (event.target.value === "custom" && !(next.customRatios || []).length) {
+      next.customRatios = [{ id: "custom-1", name: "Custom", value: 1.5 }];
+    }
+    commit(next);
+    publish();
+  });
+  document.querySelector("#module-length").addEventListener("change", (event) => {
+    const module = Number(event.target.value);
+    if (!(module > 0)) return;
+    const next = cloneHouse(house);
+    next.proportion = { ...(next.proportion || { ratioId: "golden" }), module };
+    commit(next);
+    publish();
+  });
+  document.querySelector("#guides-toggle").addEventListener("click", () => {
+    guidesOn = !guidesOn;
+    publish();
+  });
+  document.querySelector("#snap-footprint").addEventListener("click", () => {
+    commit(solveConstraints(house, { includeFootprint: true }).house);
+    publish();
+  });
   document.querySelector("#undo").addEventListener("click", undo);
   document.querySelector("#redo").addEventListener("click", redo);
   document.querySelector("#export-json").addEventListener("click", exportJson);
@@ -218,6 +266,27 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } catch {
       return { doc: decorateHouse(sample), fromSave: false };
     }
+  }
+
+  function activeRatio() {
+    const id = house.proportion?.ratioId || "golden";
+    if (id === "custom") {
+      const custom = (house.customRatios || [])[0];
+      return custom || { id: "custom", name: "Custom", symbol: "custom", value: custom?.value || 1.5 };
+    }
+    return findRatio(id, house.customRatios) || findRatio("golden");
+  }
+
+  function ratioOrMagnet(origin, world) {
+    const magnet = snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetRadius() });
+    if (magnet.snapped === "end" || magnet.snapped === "mid") return magnet;
+    return snapToRatioLength(
+      origin,
+      world,
+      activeRatio(),
+      house.proportion?.module || 8,
+      house.walls.map((wall) => wallLength(wall)),
+    );
   }
 
   function catalogItem() {
@@ -334,12 +403,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       window.clearTimeout(longTimer);
       const end = gesture.kind === "room"
         ? { ...snapPointToGrid(world, grid), length: 0 }
-        : snapDrawingPoint(world, {
-          grid,
-          walls: house.walls,
-          origin: gesture.start,
-          magnetRadius: magnetRadius(),
-        });
+        : snapMode === "ratio"
+          ? ratioOrMagnet(gesture.start, world)
+          : snapDrawingPoint(world, {
+            grid,
+            walls: house.walls,
+            origin: gesture.start,
+            magnetRadius: magnetRadius(),
+          });
       gesture.end = end;
       gesture.moved = true;
       publish();
@@ -438,6 +509,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function commit(next, baseline = null) {
+    const solved = solveConstraints(next);
+    next = solved.house;
     const previous = baseline || house;
     if (JSON.stringify(previous) === JSON.stringify(next)) {
       house = previous;
@@ -450,7 +523,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     future.length = 0;
     house = next;
     fromSave = true;
-    refreshWarnings();
+    warnings = [...solved.warnings, ...evaluateRules(house)];
     try {
       localStorage.setItem(DOC_KEY, JSON.stringify(house));
     } catch {
@@ -520,8 +593,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         start: gesture.start,
         end: gesture.end,
         color: draftAssembly?.swatch,
-        lengthLabel: formatFeet(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)),
+        lengthLabel: gesture.end.label || formatFeetFine(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)).construction,
+        ticks: gesture.end.ticks || [],
       } : null,
+      guides: guidesOn ? guideBoxes() : [],
       rect: gesture?.kind === "room" && gesture.end ? {
         x0: gesture.start.x,
         y0: gesture.start.y,
@@ -551,6 +626,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     document.querySelectorAll("#opening-palette button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.opening === catalogId));
     });
+    document.querySelectorAll("#snap-mode button").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.snap === snapMode));
+    });
+    const ratioSelect = document.querySelector("#project-ratio");
+    if (ratioSelect && document.activeElement !== ratioSelect) ratioSelect.value = house.proportion?.ratioId || "golden";
+    const moduleInput = document.querySelector("#module-length");
+    if (moduleInput && document.activeElement !== moduleInput) moduleInput.value = String(house.proportion?.module || 8);
+    document.querySelector("#guides-toggle")?.setAttribute("aria-pressed", String(guidesOn));
     document.querySelector("#undo").disabled = past.length === 0;
     document.querySelector("#redo").disabled = future.length === 0;
     const active = assemblyById[assemblyId];
@@ -577,10 +660,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const wall = house.walls.find((item) => item.id === selection.id);
       if (!wall) { inspector.hidden = true; return; }
       const assembly = assemblyById[wall.assemblyId];
+      const detail = formatFeetFine(wallLength(wall));
+      const linked = (house.constraints || []).find((item) => item.targetId === wall.id);
+      const readout = linked && constraintReadout(house, linked, house.customRatios || []);
+      const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("");
+      const wallOptions = house.walls
+        .filter((item) => item.id !== wall.id)
+        .map((item) => `<option value="${item.id}">${item.id} · ${formatFeetFine(wallLength(item)).construction}</option>`)
+        .join("");
       inspector.innerHTML = `
         <h2>Wall</h2>
-        <p>${formatFeet(wallLength(wall))} · ${assembly?.name || wall.assembly}</p>
+        <p>${detail.construction}${detail.fudged ? ` · exact ${detail.exact}` : ""} · ${assembly?.name || wall.assembly}</p>
         <p class="fine">${assembly?.note || ""}</p>
+        ${linked ? `<p>Proportion: ${readout?.badge || "linked"}${readout?.exact ? " · exact" : ""}</p><button type="button" id="unlink">Unlink</button>` : `
+          <label>Length <select id="prop-op"><option value="multiply">×</option><option value="divide">÷</option></select>
+            <select id="prop-ratio">${ratioOptions}<option value="custom">Custom</option></select></label>
+          <label>of <select id="prop-ref">${wallOptions}</select></label>
+          <label>Custom <input id="custom-value" type="number" min="0.05" step="0.001" value="1.5" /></label>
+          <button type="button" id="link-proportion">Set proportion</button>`}
         <label>Phase
           <select id="edit-phase">
             <option value="phase1" ${wall.phase === "phase1" ? "selected" : ""}>Phase 1</option>
@@ -589,6 +686,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         </label>
         <button type="button" id="edit-delete">Delete wall</button>
       `;
+      inspector.querySelector("#unlink")?.addEventListener("click", () => {
+        commit(unlink(house, wall.id));
+        publish();
+      });
+      inspector.querySelector("#link-proportion")?.addEventListener("click", () => {
+        const ratioId = inspector.querySelector("#prop-ratio").value;
+        const referenceId = inspector.querySelector("#prop-ref").value;
+        const operation = inspector.querySelector("#prop-op").value;
+        const customValue = Number(inspector.querySelector("#custom-value").value);
+        if (!referenceId) return;
+        let next = house;
+        if (ratioId === "custom") {
+          next = cloneHouse(house);
+          next.customRatios = [{ id: "custom-1", name: "Custom", value: customValue, symbol: String(customValue) }];
+        }
+        commit(linkWall(next, wall.id, referenceId, ratioId === "custom" ? "custom" : ratioId, operation, customValue));
+        publish();
+      });
       inspector.querySelector("#edit-phase").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         const target = next.walls.find((item) => item.id === wall.id);
@@ -599,8 +714,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (selection.type === "room") {
       const room = house.rooms.find((item) => item.id === selection.id);
       if (!room) { inspector.hidden = true; return; }
+      const proportion = roomProportion(room, house.customRatios || []);
+      const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}" ${proportion.match?.ratio?.id === ratio.id ? "selected" : ""}>${ratio.name}</option>`).join("");
       inspector.innerHTML = `
         <h2>Room · ${formatArea(polygonArea(room.polygon))} sq ft</h2>
+        <p>${formatFeetFine(proportion.width).construction} × ${formatFeetFine(proportion.depth).construction}</p>
+        <p>${proportion.phrase}</p>
+        <label>Make proportional <select id="make-ratio">${ratioOptions}</select></label>
+        <button type="button" id="make-proportional">Make proportional</button>
         <label>Name <input id="edit-name" value="${escapeAttr(room.name)}" /></label>
         <label>Phase
           <select id="edit-phase">
@@ -610,6 +731,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         </label>
         <button type="button" id="edit-delete">Remove room label</button>
       `;
+      inspector.querySelector("#make-proportional").addEventListener("click", () => {
+        const result = snapRoomToRatio(house, room.id, inspector.querySelector("#make-ratio").value, house.customRatios || []);
+        warnings = result.warnings;
+        if (result.house !== house) commit(result.house);
+        publish();
+      });
       inspector.querySelector("#edit-name").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         next.rooms.find((item) => item.id === room.id).name = event.target.value.trim() || "Room";
@@ -683,6 +810,25 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
     };
     reader.readAsText(file);
+  }
+
+  function guideBoxes() {
+    const ratio = activeRatio();
+    const boxes = [{
+      x0: 0,
+      y0: 0,
+      x1: house.footprint.width,
+      y1: house.footprint.depth,
+      label: `${ratio.symbol || ratio.name} footprint`,
+    }];
+    if (selection?.type === "room") {
+      const room = house.rooms.find((item) => item.id === selection.id);
+      if (room) {
+        const box = roomProportion(room, house.customRatios || []);
+        boxes.push({ x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, label: box.phrase });
+      }
+    }
+    return boxes;
   }
 
   function areas() {

@@ -4,6 +4,8 @@ import schema from "../schemas/house.schema.json" with { type: "json" };
 import { polygonArea, wallLength } from "../src/lib/geom.js";
 import { isFutureShown } from "../src/render/visibility.js";
 import { assemblyById } from "../src/build/catalog.js";
+import { ratioValue, findRatio } from "../src/build/ratios.js";
+import { desiredLength } from "../src/build/constraints.js";
 
 const errors = [];
 const fail = (message) => errors.push(message);
@@ -21,6 +23,14 @@ if (house.sample !== true) fail("sample must be true");
 if (house.roof.placeholder !== true) fail("roof.placeholder must stay true until a real roof is designed");
 if (house.footprint.width !== 76 || house.footprint.depth !== 47) {
   fail("footprint must stay 76 ft east-west by 47 ft north-south");
+}
+const footprintConstraint = (house.constraints || []).find((item) => item.id === "footprint-golden");
+if (!footprintConstraint) fail("sample footprint needs the golden constraint");
+else {
+  const desired = desiredLength(house, footprintConstraint);
+  const phi = ratioValue(findRatio("golden"));
+  if (Math.abs(desired - 47 * phi) > 1e-9) fail("footprint golden constraint does not use phi");
+  if (footprintConstraint.operation !== "multiply") fail("footprint constraint should multiply");
 }
 
 const core = house.phases.phase1.bounds;

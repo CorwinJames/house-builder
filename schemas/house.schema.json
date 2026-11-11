@@ -57,6 +57,16 @@
       "items": { "$ref": "#/$defs/opening" }
     },
     "roof": { "$ref": "#/$defs/roof" },
+    "constraints": {
+      "type": "array",
+      "description": "Length relationships. A target updates from its reference through the ratio. Stage 11 blueprint export must use these solved lengths, not a rounded substitute.",
+      "items": { "$ref": "#/$defs/constraint" }
+    },
+    "customRatios": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/customRatio" }
+    },
+    "proportion": { "$ref": "#/$defs/proportion" },
     "notes": {
       "type": "array",
       "items": { "type": "string" }
@@ -211,6 +221,38 @@
           "description": "Which side of the start→end direction the swing opens toward. Left is counterclockwise."
         },
         "header": { "$ref": "#/$defs/header" }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "targetId", "referenceId", "ratioId", "operation"],
+      "properties": {
+        "id": { "type": "string" },
+        "targetId": { "type": "string", "description": "Wall id, or footprint:width, or footprint:depth." },
+        "referenceId": { "type": "string" },
+        "ratioId": { "type": "string" },
+        "operation": { "enum": ["multiply", "divide"] },
+        "customValue": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "customRatio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "value"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "value": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "proportion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratioId", "module"],
+      "properties": {
+        "ratioId": { "type": "string" },
+        "module": { "type": "number", "exclusiveMinimum": 0, "description": "Base module in feet for the ratio snap series." }
       }
     },
     "header": {

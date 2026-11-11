@@ -34,6 +34,16 @@ The chip at the top says **Sample layout** until you change something. Then it s
 
 The plan and the 3D view update together. Click a wall in 3D to select it. Drawing happens on the plan.
 
+### Proportions
+
+The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The plan marks it **φ × depth** and shows that it is about 0.06% short of exact. Nothing is quietly rounded away: a length that is not a whole number of sixteenths shows both the construction size (nearest 1/16 inch) and the exact decimal.
+
+- **Grid / Ratio** switches how a new wall's length snaps. Ratio uses the project ratio and a module length. While you drag, tick marks are labeled, for example **φ² · 8 ft**.
+- **Guides** draws a square-and-remainder on the footprint, and on a room you have selected.
+- Select a wall to set **this wall = ratio × another wall**, or to unlink it. If you change the reference, the linked wall follows. A loop is left alone and called out.
+- A room's panel shows its length-to-width ratio and the nearest named one, such as **1.618 · Golden · exact** or **1.59 · ~Golden · −1.7%**. **Make proportional** moves the far wall so the room matches the ratio you pick.
+- **Snap footprint to φ** makes the stored width exactly φ times the depth. The walls you already drew do not jump.
+
 - **Plan** is the flat drawing. North is up. Drag to slide around. Scroll, or pinch on a phone, to zoom. Double-click the plan, or press **Fit**, to see the whole house again.
 - **3D** lets you walk around the model. Drag to turn it. Scroll or pinch to move closer. **Reset view** puts the camera back. The roof is a placeholder shape so you can see the idea of a Chinese hip-and-gable. It is not a real roof design.
 - **Split** shows both on a laptop. On a phone, use **Plan** and **3D** one at a time.

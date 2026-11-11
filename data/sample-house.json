@@ -1304,6 +1304,21 @@
     "Phase 1 is a weathertight four-room core. Its hempcrete north, east, and west walls remain in the full house, with doors into the later wings.",
     "The roof is placeholder massing for a Chinese hip-and-gable. It is not a structural design.",
     "This file has no prices. Do not add one unless it cites a source URL and the date it was checked.",
-    "Wall thickness and framing come from data/assemblies.json. Header sizes come from data/headers.json. Both are placeholders and are not code citations."
-  ]
+    "Wall thickness and framing come from data/assemblies.json. Header sizes come from data/headers.json. Both are placeholders and are not code citations.",
+    "The 76 by 47 ft footprint is stored as a golden constraint (width = φ × depth). 76/47 is about 0.06% short of exact φ, and the plan says so instead of changing the drawn walls."
+  ],
+  "constraints": [
+    {
+      "id": "footprint-golden",
+      "targetId": "footprint:width",
+      "referenceId": "footprint:depth",
+      "ratioId": "golden",
+      "operation": "multiply"
+    }
+  ],
+  "customRatios": [],
+  "proportion": {
+    "ratioId": "golden",
+    "module": 8
+  }
 }

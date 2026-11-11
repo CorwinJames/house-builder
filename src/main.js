@@ -6,6 +6,7 @@ import { loadViewState, saveViewState } from "./state/viewState.js";
 import { createPlanView } from "./render/plan2d.js";
 import { createView3d } from "./render/view3d.js";
 import { polygonArea } from "./lib/geom.js";
+import { footprintMatch } from "./build/constraints.js";
 import { attachEditor } from "./ui/editor.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
@@ -153,7 +154,15 @@ function statusText() {
   const stubNote = stubs.length ? ` · ${stubs.join(", ")}: nothing in this layer yet` : "";
   const futureNote = state.phase === "full" && !state.layers.future ? " · Future wings layer is off" : "";
   const phaseNote = state.phase === "phase1" ? "Phase 1 only" : "Full house";
-  return `${phaseNote} · Phase 1 rooms ${formatArea(phase1)} sq ft · All rooms ${formatArea(all)} sq ft${futureNote}${stubNote}`;
+  const foot = footprintMatch(doc, doc.customRatios || []);
+  let footNote = "";
+  if (foot?.badge) {
+    const percent = foot.deviation * 100;
+    footNote = foot.exact
+      ? ` · Footprint ${foot.badge} exact`
+      : ` · Footprint ${foot.badge} ${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(2)}%`;
+  }
+  return `${phaseNote} · Phase 1 rooms ${formatArea(phase1)} sq ft · All rooms ${formatArea(all)} sq ft${footNote}${futureNote}${stubNote}`;
 }
 
 function syncControls() {

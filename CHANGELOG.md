@@ -11,6 +11,7 @@ You can change the sample. Build mode has Select, Wall, Room, Door, Window, Dele
 - Geometry warnings (overlap, an opening that does not fit) are red outlines. They live in `src/rules/` so later code rules can be added without inventing citations.
 - Edits autosave in this browser. Reset, Export JSON, and Import JSON are on the build bar. The house file is schema version 2.
 - A short hint plays the first time you open Build. Long-press or the Pan tool slides the plan on a tablet.
+- Proportion tools: a ratio library, wall-length constraints with cycle detection, ratio snap with tick labels, room proportion readout, and a golden footprint constraint on the sample. Construction sizes show the nearest 1/16 inch beside the exact length when those differ.
 
 ## Stage 1 — sample house, plan, and 3D
 

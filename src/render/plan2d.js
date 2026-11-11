@@ -1,5 +1,7 @@
 import { ASSEMBLY_2D, FINISH_2D, INK, MUTED } from "../theme.js";
-import { formatArea, formatFeet } from "../lib/format.js";
+import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
+import { constraintReadout } from "../build/constraints.js";
+import { roomProportion } from "../build/ratios.js";
 import {
   openingsFor,
   pointAlong,
@@ -323,15 +325,22 @@ export function createPlanView(canvas, initialHouse) {
       const sb = worldToScreen(b.x, b.y);
       let ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
       if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
-      const label = formatFeet(seg.len);
+      const detail = formatFeetFine(seg.len);
+      const label = detail.construction;
+      const note = dim.id === "all-width" ? footprintCaption() : (detail.fudged ? `exact ${detail.exact}` : "");
       ctx.save();
       ctx.translate(mid.x, mid.y);
       ctx.rotate(ang);
-      const width = ctx.measureText(label).width + 10;
+      const width = Math.max(ctx.measureText(label).width, ctx.measureText(note).width) + 12;
       ctx.fillStyle = "rgba(243, 235, 221, 0.92)";
-      ctx.fillRect(-width / 2, -11, width, 16);
+      ctx.fillRect(-width / 2, note ? -18 : -11, width, note ? 28 : 16);
       ctx.fillStyle = INK;
-      ctx.fillText(label, 0, -3);
+      ctx.fillText(label, 0, note ? -8 : -3);
+      if (note) {
+        ctx.font = "600 10px Outfit, 'Segoe UI', sans-serif";
+        ctx.fillStyle = "#2F5D45";
+        ctx.fillText(note, 0, 6);
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -390,6 +399,11 @@ export function createPlanView(canvas, initialHouse) {
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
       ctx.fillStyle = MUTED;
       ctx.fillText(`${formatArea(polygonArea(room.polygon))} sq ft`, s.x, s.y + nameSize * 0.55);
+      if (boxW > 96 && boxH > 72) {
+        ctx.font = `600 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
+        ctx.fillStyle = "#2F5D45";
+        ctx.fillText(roomProportion(room, house.customRatios || []).phrase, s.x, s.y + nameSize * 1.55);
+      }
       if (future) {
         ctx.font = `500 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
         ctx.fillStyle = "#8A7360";
@@ -468,6 +482,8 @@ export function createPlanView(canvas, initialHouse) {
     drawOverlay();
     drawDimensions();
     drawLabels();
+    drawConstraintBadges();
+    drawGuides();
     drawCompass();
     drawWatermark();
   }
@@ -513,7 +529,7 @@ export function createPlanView(canvas, initialHouse) {
       ctx.fill();
       const sa = worldToScreen(a.x, a.y);
       const sb = worldToScreen(b.x, b.y);
-      if (Math.hypot(sb.x - sa.x, sb.y - sa.y) > 28) {
+      if (!state?.layers.infill && Math.hypot(sb.x - sa.x, sb.y - sa.y) > 28) {
         ctx.fillStyle = "#F7F3EB";
         ctx.font = "700 10px Outfit, sans-serif";
         ctx.textAlign = "center";
@@ -568,6 +584,19 @@ export function createPlanView(canvas, initialHouse) {
         ctx.fillText(overlay.draft.lengthLabel, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10);
       }
       ctx.restore();
+      for (const tick of overlay.draft.ticks || []) {
+        const p = worldToScreen(tick.x, tick.y);
+        ctx.save();
+        ctx.fillStyle = "#2F5D45";
+        ctx.strokeStyle = "#2F5D45";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = "600 11px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(tick.label, p.x, p.y - 10);
+        ctx.restore();
+      }
     }
     if (overlay.rect) {
       const { x0, y0, x1, y1 } = overlay.rect;
@@ -625,6 +654,85 @@ export function createPlanView(canvas, initialHouse) {
         ctx.restore();
       }
     }
+  }
+
+  function footprintCaption() {
+    const constraint = (house.constraints || []).find((item) => String(item.targetId).startsWith("footprint:"));
+    const readout = constraint && constraintReadout(house, constraint, house.customRatios || []);
+    if (!readout) return "";
+    if (readout.exact) return `${readout.badge} · exact`;
+    const percent = readout.deviation * 100;
+    const sign = percent > 0 ? "+" : "−";
+    return `${readout.badge} · ${sign}${Math.abs(percent).toFixed(2)}%`;
+  }
+
+  function drawConstraintBadges() {
+    const caption = footprintCaption();
+    if (!caption) return;
+    const point = worldToScreen(house.footprint.width / 2, -10.5);
+    ctx.save();
+    ctx.font = "700 12px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const width = ctx.measureText(caption).width + 16;
+    ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+    ctx.fillRect(point.x - width / 2, point.y - 11, width, 22);
+    ctx.fillStyle = "#2F5D45";
+    ctx.fillText(caption, point.x, point.y);
+    ctx.restore();
+    for (const constraint of house.constraints || []) {
+      if (String(constraint.targetId).startsWith("footprint:")) continue;
+      const target = house.walls.find((wall) => wall.id === constraint.targetId);
+      const reference = house.walls.find((wall) => wall.id === constraint.referenceId);
+      const readout = constraintReadout(house, constraint, house.customRatios || []);
+      if (!target || !readout) continue;
+      const mid = worldToScreen((target.start.x + target.end.x) / 2, (target.start.y + target.end.y) / 2);
+      if (reference) {
+        const other = worldToScreen((reference.start.x + reference.end.x) / 2, (reference.start.y + reference.end.y) / 2);
+        ctx.save();
+        ctx.setLineDash([3, 4]);
+        ctx.strokeStyle = "rgba(47, 93, 69, 0.7)";
+        ctx.beginPath();
+        ctx.moveTo(mid.x, mid.y);
+        ctx.lineTo(other.x, other.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.font = "700 11px Outfit, sans-serif";
+      ctx.fillStyle = "#2F5D45";
+      ctx.textAlign = "left";
+      ctx.fillText(readout.badge, mid.x + 8, mid.y - 8);
+      ctx.restore();
+    }
+  }
+
+  function drawGuides() {
+    const guides = overlay?.guides || [];
+    if (!guides.length) return;
+    ctx.save();
+    ctx.strokeStyle = "#2F5D45";
+    ctx.fillStyle = "#2F5D45";
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 4]);
+    for (const guide of guides) {
+      const a = worldToScreen(guide.x0, guide.y0);
+      const b = worldToScreen(guide.x1, guide.y1);
+      const left = Math.min(a.x, b.x);
+      const top = Math.min(a.y, b.y);
+      const width = Math.abs(b.x - a.x);
+      const height = Math.abs(b.y - a.y);
+      ctx.strokeRect(left, top, width, height);
+      const short = Math.min(width, height);
+      if (width >= height) ctx.strokeRect(left, top, short, height);
+      else ctx.strokeRect(left, top, width, short);
+      ctx.setLineDash([]);
+      ctx.font = "600 12px Outfit, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(guide.label, left + 6, top + 16);
+      ctx.setLineDash([5, 4]);
+    }
+    ctx.restore();
   }
 
   function localPoint(event) {

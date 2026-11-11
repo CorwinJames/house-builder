@@ -28,6 +28,9 @@ export function decorateHouse(house) {
   next.schemaVersion = 2;
   next.walls = next.walls.map((wall) => applyAssembly(wall, wall.assemblyId || assemblyForRender(wall.assembly).id));
   next.openings = next.openings.map((opening) => (opening.header?.placeholder ? opening : withHeader(opening)));
+  next.constraints = next.constraints || [];
+  next.customRatios = next.customRatios || [];
+  next.proportion = next.proportion || { ratioId: "golden", module: 8 };
   return next;
 }
 

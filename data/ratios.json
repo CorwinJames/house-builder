@@ -1,0 +1,18 @@
+{
+  "note": "Mathematical proportions for layout. These are not building-code numbers. Plastic has no radical used here; it is the real root of x³ − x − 1 = 0.",
+  "ratios": [
+    { "id": "golden", "name": "Golden", "symbol": "φ", "exact": "(1+sqrt(5))/2" },
+    { "id": "silver", "name": "Silver", "symbol": "δ", "exact": "1+sqrt(2)" },
+    { "id": "sqrt2", "name": "√2", "symbol": "√2", "exact": "sqrt(2)" },
+    { "id": "sqrt3", "name": "√3", "symbol": "√3", "exact": "sqrt(3)" },
+    { "id": "sqrt5", "name": "√5", "symbol": "√5", "exact": "sqrt(5)" },
+    { "id": "bronze", "name": "Bronze", "symbol": "bronze", "exact": "(3+sqrt(13))/2" },
+    { "id": "plastic", "name": "Plastic", "symbol": "ρ", "compute": "plastic", "value": 1.324717957244746 },
+    { "id": "1-1", "name": "1:1", "symbol": "1:1", "exact": "1/1" },
+    { "id": "2-1", "name": "2:1", "symbol": "2:1", "exact": "2/1" },
+    { "id": "3-2", "name": "3:2", "symbol": "3:2", "exact": "3/2" },
+    { "id": "4-3", "name": "4:3", "symbol": "4:3", "exact": "4/3" },
+    { "id": "5-4", "name": "5:4", "symbol": "5:4", "exact": "5/4" },
+    { "id": "5-3", "name": "5:3", "symbol": "5:3", "exact": "5/3" }
+  ]
+}
