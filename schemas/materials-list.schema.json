@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://corwinjames.github.io/house-builder/schemas/materials-list.schema.json",
+  "title": "Materials list",
+  "description": "Stable export for a later Materials Scout. Quantities come from the house geometry. unitPrice and lineTotal are null when a published price is missing. Those lines are not in pricedTotal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "formatVersion", "phase", "diyFinish", "pricedTotal", "unpricedCount", "lines"],
+  "properties": {
+    "format": { "const": "house-builder.materials" },
+    "formatVersion": { "const": 1 },
+    "houseId": { "type": "string" },
+    "houseName": { "type": "string" },
+    "phase": { "enum": ["phase1", "full"] },
+    "diyFinish": { "type": "boolean" },
+    "pricedTotal": { "type": "number" },
+    "unpricedCount": { "type": "integer", "minimum": 0 },
+    "phase1Total": { "type": "number" },
+    "fullTotal": { "type": "number" },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "name", "quantity", "unit", "priceNeeded", "sourceType"],
+        "properties": {
+          "id": { "type": "string" },
+          "category": { "type": "string" },
+          "name": { "type": "string" },
+          "quantity": { "type": "number" },
+          "unit": { "type": "string" },
+          "unitPrice": { "type": ["number", "null"] },
+          "lineTotal": { "type": ["number", "null"] },
+          "priceNeeded": { "type": "boolean" },
+          "sourceName": { "type": "string" },
+          "sourceUrl": { "type": "string" },
+          "dateChecked": { "type": "string" },
+          "sourceType": { "enum": ["published-price", "published-wage", "bid", "user-entry", "assumption"] },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

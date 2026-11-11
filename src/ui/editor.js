@@ -30,6 +30,7 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
 import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
 import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
+import { selectionCostHtml } from "./costs.js";
 
 const DOC_KEY = "house-builder.document.v2";
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -66,6 +67,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let snapMode = "grid";
   let guidesOn = false;
   let selection = null;
+  let foldedFor = "";
   let gesture = null;
   let warnings = [];
   let tutorialStep = 0;
@@ -774,16 +776,33 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     draftSize[kind] = fields;
   }
 
+  function syncSelectionLayout() {
+    const panel = document.querySelector("#layer-panel");
+    const fold = document.querySelector("#layer-fold");
+    const showing = !inspector.hidden;
+    panel.classList.toggle("showing-selection", showing);
+    const key = showing ? `${selection.type}:${selection.id}` : "";
+    if (!showing) {
+      fold.open = true;
+      foldedFor = "";
+    } else if (foldedFor !== key) {
+      fold.open = false;
+      foldedFor = key;
+    }
+    document.dispatchEvent(new CustomEvent("house-selection", { detail: { showing } }));
+  }
+
   function paintInspector() {
     if (mode !== "build" || !selection) {
       inspector.hidden = true;
       inspector.innerHTML = "";
+      syncSelectionLayout();
       return;
     }
     inspector.hidden = false;
     if (selection.type === "wall") {
       const wall = house.walls.find((item) => item.id === selection.id);
-      if (!wall) { inspector.hidden = true; return; }
+      if (!wall) { inspector.hidden = true; syncSelectionLayout(); return; }
       const assembly = assemblyById[wall.assemblyId];
       const detail = formatFeetFine(wallLength(wall));
       const linked = (house.constraints || []).find((item) => item.targetId === wall.id);
@@ -809,6 +828,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
             <option value="future" ${wall.phase === "future" ? "selected" : ""}>Later</option>
           </select>
         </label>
+        ${selectionCostHtml(house, selection)}
         <button type="button" id="edit-delete">Delete wall</button>
       `;
       inspector.querySelector("#unlink")?.addEventListener("click", () => {
@@ -838,7 +858,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       });
     } else if (selection.type === "room") {
       const room = house.rooms.find((item) => item.id === selection.id);
-      if (!room) { inspector.hidden = true; return; }
+      if (!room) { inspector.hidden = true; syncSelectionLayout(); return; }
       const proportion = roomProportion(room, house.customRatios || []);
       const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}" ${proportion.match?.ratio?.id === ratio.id ? "selected" : ""}>${ratio.name}</option>`).join("");
       inspector.innerHTML = `
@@ -854,6 +874,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
             <option value="future" ${room.phase === "future" ? "selected" : ""}>Later</option>
           </select>
         </label>
+        ${selectionCostHtml(house, selection)}
         <button type="button" id="edit-delete">Remove room label</button>
       `;
       inspector.querySelector("#make-proportional").addEventListener("click", () => {
@@ -877,9 +898,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (selection.type === "opening") {
       inspector.hidden = true;
       inspector.innerHTML = "";
+      syncSelectionLayout();
       return;
     }
     inspector.querySelector("#edit-delete")?.addEventListener("click", eraseSelection);
+    syncSelectionLayout();
   }
 
   function paintTutorial() {
@@ -987,6 +1010,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return true;
   }
 
+  function setCost(partial) {
+    const next = cloneHouse(house);
+    next.cost = { ...(next.cost || {}), ...partial };
+    commit(next);
+  }
+
   function setDesignName(name) {
     const trimmed = String(name || "").trim();
     if (!trimmed || trimmed === house.name) return;
@@ -1001,6 +1030,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     mode: () => mode,
     loadHouse,
     setDesignName,
+    setCost,
+    selection: () => selection,
   };
 }
 

@@ -50,6 +50,16 @@ The chip at the top says **Sample layout**. Edits save on this device without an
 
 The plan and the 3D view update together. Click a wall in 3D to select it. Drawing happens on the plan.
 
+### Costs
+
+The chip in the header is the priced total for Phase 1 or the full house, whichever you are viewing, plus a count of lines that still need a price. Open **Costs** from that chip.
+
+The list is grouped: hempcrete, rammed earth, framing, doors and windows, finishes, and labor. A line with a price links to the page it came from. A line that says **Price needed** is counted and left out of the total, so the number is not pretending to be a whole bid. Foundation, slab, and roof are listed the same way and are not added in. Wiring and plumbing are not here yet.
+
+Paint, flooring, and tile labor are **DIY (James)** at $0. Turn on **Show hired finish labor** to see those hours at the published wage. Lengthen a wall, change its type, or add a window and both the chip and the list move.
+
+**File** can export the list as CSV or as JSON for a later materials search.
+
 ### Proportions
 
 The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The plan marks it **φ × depth** and shows that it is about 0.06% short of exact. Nothing is quietly rounded away: a length that is not a whole number of sixteenths shows both the construction size (nearest 1/16 inch) and the exact decimal.

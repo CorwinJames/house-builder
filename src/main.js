@@ -9,6 +9,7 @@ import { polygonArea } from "./lib/geom.js";
 import { footprintMatch } from "./build/constraints.js";
 import { attachEditor } from "./ui/editor.js";
 import { attachAccount } from "./ui/account.js";
+import { attachCosts } from "./ui/costs.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -28,6 +29,10 @@ app.innerHTML = `
         <h1>House Builder</h1>
       </div>
       <p class="sample-chip">Sample layout · not a final design</p>
+      <button type="button" id="cost-chip" class="cost-chip" title="Materials and labor">
+        <span id="cost-figure">—</span>
+        <span id="cost-note"></span>
+      </button>
       <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
         <button type="button" data-mode="view">View</button>
         <button type="button" data-mode="build">Build</button>
@@ -53,6 +58,8 @@ app.innerHTML = `
             <button type="button" id="drive-share">Share with…</button>
             <p class="menu-label">This device</p>
             <button type="button" id="export-json">Export JSON</button>
+            <button type="button" id="export-materials-csv">Export materials CSV</button>
+            <button type="button" id="export-materials-json">Export materials JSON</button>
             <button type="button" id="import-json">Import JSON</button>
             <button type="button" id="reset-sample">Reset to sample</button>
           </div>
@@ -64,10 +71,14 @@ app.innerHTML = `
     </header>
     <div class="workspace">
       <aside class="layer-panel" id="layer-panel">
-        <div id="inspector" class="inspector" hidden></div>
-        <div class="panel-head">
-          <h2>Layers</h2>
+        <div class="sheet-bar">
           <button type="button" class="icon-btn" id="layers-close" aria-label="Close layers">Close</button>
+        </div>
+        <div id="inspector" class="inspector" hidden></div>
+        <details id="layer-fold" class="layer-fold" open>
+        <summary>Layers</summary>
+        <div class="panel-head">
+          <h2 class="layers-title">Layers</h2>
         </div>
         <div class="layer-list" id="layer-list"></div>
         <div class="legend">
@@ -77,6 +88,7 @@ app.innerHTML = `
           <div class="swatch-row"><span class="swatch frame"></span> Wood framing, interior walls</div>
           <div class="swatch-row"><span class="swatch later"></span> Later wings, dashed</div>
         </div>
+        </details>
       </aside>
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
@@ -107,6 +119,20 @@ app.innerHTML = `
   <div class="scrim" id="scrim" hidden></div>
   <div class="hint" id="build-tutorial" hidden></div>
   <dialog id="drive-dialog" class="drive-dialog"></dialog>
+  <dialog id="cost-dialog" class="cost-dialog">
+    <header class="cost-head">
+      <h2>Costs and materials</h2>
+      <button type="button" data-close>Close</button>
+    </header>
+    <label class="hire-toggle"><input id="cost-hire" type="checkbox" /> Show hired finish labor</label>
+    <div id="cost-summary"></div>
+    <div id="cost-focus"></div>
+    <div id="cost-groups"></div>
+    <p class="dialog-actions">
+      <button type="button" id="cost-csv">Export CSV</button>
+      <button type="button" id="cost-json">Export JSON</button>
+    </p>
+  </dialog>
   <div class="hint" id="hint" role="dialog" aria-labelledby="hint-title">
     <p id="hint-title">Drag the plan to move around. Scroll or pinch to zoom. In 3D, drag to look around the house. Solid rooms are Phase 1, the first part to build. Dashed rooms are later wings. This sample is a starting point, not the final house.</p>
     <button type="button" id="hint-ok">Got it</button>
@@ -149,6 +175,14 @@ editor = attachEditor({
   },
 });
 onDocument = attachAccount({ editor }).onDocument;
+const costs = attachCosts({
+  getHouse: () => editor.house(),
+  getPhase: () => (state.phase === "phase1" ? "phase1" : "full"),
+  getSelection: () => editor.selection(),
+  setDiy(diyFinish) {
+    editor.setCost({ diyFinish });
+  },
+});
 
 plan.setOnChange((planCamera) => {
   state.plan = planCamera;
@@ -223,6 +257,7 @@ function publish() {
   syncControls();
   plan.setState(state);
   model.setState(state);
+  costs?.paint();
   requestAnimationFrame(() => {
     plan.resize();
     model.resize();
@@ -251,6 +286,12 @@ layerList.addEventListener("click", (event) => {
   publish();
 });
 
+document.addEventListener("house-selection", (event) => {
+  if (event.detail.showing && !wide()) {
+    panelOpen = true;
+    syncControls();
+  }
+});
 document.querySelector("#layers-btn").addEventListener("click", () => {
   panelOpen = true;
   syncControls();

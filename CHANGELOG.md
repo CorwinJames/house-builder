@@ -1,5 +1,13 @@
 # Changelog
 
+## Stage 4 — live cost and materials list
+
+The header shows a priced total for the phase you are looking at, and how many lines still need a price. The Costs button opens the materials list: quantity, unit price, line total, and a source link. James's paint, flooring, and tile labor stay at $0 until you turn on hired finish labor.
+
+Quantities come from the walls and rooms. Hempcrete bags use Hemp and Block's published yield (one binder bag and one hurd bag make up to 4.5 cubic feet). Labor hours use labeled assumptions times Jefferson County prevailing wages from L&I's own lookup (effective September 2, 2026). Anything without a published price stays on the list as "price needed" and is not in the total. Foundation, slab, and roof are allowances and are not in the total. Electrical and plumbing are empty on purpose.
+
+A stage 2 house file still opens. The app saves it as schema version 3 with an optional cost block. Export CSV or the materials JSON (`house-builder.materials`, version 1) from the cost panel or the File menu.
+
 ## Stage 3 — Google sign-in and Drive saves
 
 Sign in with Google from the static site and keep a house in a Drive folder named House Builder. The public client ID is in `config/google.json`. There is no client secret and no server. The Google app is in Testing: only invited testers can sign in, and consent may need re-approval about every 7 days. An `access_denied` sign-in says that.

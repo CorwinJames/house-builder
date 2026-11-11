@@ -24,7 +24,7 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 2,
-      "description": "2 adds assemblyId on walls and a placeholder header on each opening. Thickness is copied from the assembly; the user does not type it."
+      "description": "2 adds assemblyId on walls and a placeholder header on each opening. 3 adds an optional cost block for DIY finish and bid overrides. Older files still open."
     },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -70,7 +70,8 @@
     "notes": {
       "type": "array",
       "items": { "type": "string" }
-    }
+    },
+    "cost": { "$ref": "#/$defs/cost" }
   },
   "$defs": {
     "point2": {
@@ -281,6 +282,42 @@
         "overhang": { "type": "number", "minimum": 0 },
         "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
         "note": { "type": "string" }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. Schema 2 files omit this. Bids and user entries replace a published price. DIY finish labor is $0 until hireFinish is used in the app.",
+      "properties": {
+        "diyFinish": { "type": "boolean" },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["priceId", "amount", "sourceType"],
+            "properties": {
+              "priceId": { "type": "string" },
+              "amount": { "type": "number" },
+              "sourceType": { "enum": ["bid", "user-entry"] },
+              "note": { "type": "string" },
+              "url": { "type": "string" },
+              "date": { "type": "string" }
+            }
+          }
+        },
+        "rates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "rate"],
+            "properties": {
+              "id": { "type": "string" },
+              "rate": { "type": "number", "exclusiveMinimum": 0 }
+            }
+          }
+        }
       }
     }
   }

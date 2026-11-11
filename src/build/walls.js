@@ -25,7 +25,12 @@ export function withHeader(opening) {
 /** Fill assembly ids and headers on a house that was saved before Stage 2. */
 export function decorateHouse(house) {
   const next = cloneHouse(house);
-  next.schemaVersion = 2;
+  next.schemaVersion = Math.max(3, next.schemaVersion || 2);
+  next.cost = {
+    diyFinish: next.cost?.diyFinish !== false,
+    overrides: Array.isArray(next.cost?.overrides) ? next.cost.overrides : [],
+    rates: Array.isArray(next.cost?.rates) ? next.cost.rates : [],
+  };
   next.walls = next.walls.map((wall) => applyAssembly(wall, wall.assemblyId || assemblyForRender(wall.assembly).id));
   next.openings = next.openings.map((opening) => (opening.header?.placeholder ? opening : withHeader(opening)));
   next.constraints = next.constraints || [];
