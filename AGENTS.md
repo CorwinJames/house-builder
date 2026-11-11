@@ -41,7 +41,7 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/render/roof.js` builds the placeholder roof shape.
 - `src/layers.js` is the list of layer toggles.
 - `src/state/viewState.js` reads and writes `localStorage` key `house-builder.view.v1` (camera, layers, phase).
-- `src/ui/editor.js` is Build mode: tools, undo, and the house document in `localStorage` key `house-builder.document.v2`.
+- `src/ui/editor.js` is Build mode. The tool bar and the options for the active tool sit on the plan. Undo and redo are there too. Export, import, and reset are in the File menu. The house document is `localStorage` key `house-builder.document.v2`. There is no Pan tool: drag empty space, hold Space, or use the middle or right button.
 - `src/build/` is snapping, wall joins, room detection, and opening placement. No DOM.
 - `src/rules/` is the warning list. Geometry checks live there now. Stage 7 adds code rules through `registerRule`.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.

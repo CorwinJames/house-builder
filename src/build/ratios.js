@@ -137,13 +137,15 @@ export function nearestRatio(aspect, custom = []) {
   return { ...best, exact };
 }
 
+/** One line for a room: "1.098  ·  φ  +9.8%". Symbols stay spaced so they do not collide. */
 export function proportionPhrase(match) {
   if (!match?.ratio) return "";
   const shown = match.aspect.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-  if (match.exact) return `${shown} · ${match.ratio.name} · exact`;
+  const symbol = match.ratio.symbol || match.ratio.name;
+  if (match.exact) return `${shown}  ·  ${symbol}`;
   const percent = match.deviation * 100;
   const sign = percent > 0 ? "+" : "−";
-  return `${shown} · ~${match.ratio.name} · ${sign}${Math.abs(percent).toFixed(1)}%`;
+  return `${shown}  ·  ${symbol}  ${sign}${Math.abs(percent).toFixed(1)}%`;
 }
 
 function symbolPower(symbol, power) {
@@ -187,6 +189,25 @@ export function ratioSeries(module, ratio, otherLengths = [], symbol = "φ") {
     add(length / value, `wall ÷ ${symbol}`);
   }
   return marks.sort((a, b) => a.length - b.length);
+}
+
+/**
+ * Keep a few tick labels that do not sit on top of each other in screen space.
+ * The active length is preferred, then the next nearest marks that clear minGap.
+ */
+export function pickReadableTicks(ticks, activeLength, screenOf, minGap = 76, limit = 4) {
+  if (!ticks?.length) return [];
+  const ranked = [...ticks].sort(
+    (a, b) => Math.abs(a.length - activeLength) - Math.abs(b.length - activeLength),
+  );
+  const placed = [];
+  for (const tick of ranked) {
+    if (placed.length >= limit) break;
+    const pos = screenOf(tick);
+    const clear = placed.every((item) => Math.hypot(item.pos.x - pos.x, item.pos.y - pos.y) >= minGap);
+    if (clear) placed.push({ ...tick, pos });
+  }
+  return placed.sort((a, b) => a.length - b.length);
 }
 
 export function nearestMark(length, marks) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { evaluateExact, plasticConstant, ratioValue, findRatio, nearestRatio, ratioSeries, nearestMark, snapToRatioLength } from "../src/build/ratios.js";
+import { evaluateExact, plasticConstant, ratioValue, findRatio, nearestRatio, proportionPhrase, ratioSeries, nearestMark, snapToRatioLength, pickReadableTicks } from "../src/build/ratios.js";
 import { solveConstraints, linkWall, FOOTPRINT_WIDTH, FOOTPRINT_DEPTH } from "../src/build/constraints.js";
 import { formatFeetFine } from "../src/lib/format.js";
 import { wallLength } from "../src/lib/geom.js";
@@ -45,6 +45,10 @@ check("nearest ratio names a golden rectangle and a near miss", () => {
   assert.equal(near.exact, false);
   assert.ok(near.deviation < 0);
   assert.ok(Math.abs(near.deviation * 100 + 1.7) < 0.15);
+  const line = proportionPhrase(near);
+  assert.equal(line.includes("\n"), false);
+  assert.match(line, /^1\.59  ·  φ  −/);
+  assert.equal(proportionPhrase(nearestRatio(Math.sqrt(5))), "2.236  ·  √5");
 });
 
 check("a wall becomes phi times its reference", () => {
@@ -138,6 +142,19 @@ check("linkWall stores the constraint and sets the length", () => {
   const constraint = linked.constraints.find((item) => item.targetId === "b");
   assert.equal(constraint.ratioId, "sqrt2");
   assert.ok(Math.abs(wallLength(linked.walls.find((item) => item.id === "b")) - 10 * Math.sqrt(2)) < 1e-9);
+});
+
+check("ratio tick labels keep a screen gap and prefer the active length", () => {
+  const ticks = [
+    { length: 8, label: "1 · 8 ft", x: 0 },
+    { length: 12, label: "φ · 8 ft", x: 10 },
+    { length: 20, label: "φ² · 8 ft", x: 200 },
+    { length: 32, label: "sum", x: 210 },
+  ];
+  const picked = pickReadableTicks(ticks, 12.2, (tick) => ({ x: tick.x, y: 0 }), 76, 4);
+  assert.equal(picked[0].label, "φ · 8 ft");
+  assert.equal(picked.length, 2);
+  assert.ok(picked.every((tick, index) => index === 0 || tick.pos.x - picked[index - 1].pos.x >= 76));
 });
 
 check("construction rounding is to the nearest sixteenth and stays visible", () => {

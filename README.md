@@ -20,17 +20,16 @@ Open the URL Vite prints, usually http://localhost:5173/.
 
 ## For Sophie
 
-The chip at the top says **Sample layout** until you change something. Then it says the edits are saved on this device. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
+The chip at the top says **Sample layout**. Edits save on this device without another notice. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
 
 **View** is for looking. **Build** is for changing the house. The first time you open Build, a short hint walks through the tools.
 
 - **Wall.** Drag on the plan. The wall snaps to a grid (6 inches, unless you change Grid), to the ends and middles of other walls, and to straight or 45 degree lines. The length shows while you drag. You never type a thickness. Pick Hempcrete, Rammed earth, or Partition. A wall whose outside face points south suggests rammed earth. North, east, and west exterior walls suggest hempcrete. The note under the palette says these sizes still need an engineer to check them.
 - **Room.** Drag a rectangle. The app adds the four walls. If hempcrete is selected, the south side of that rectangle is rammed earth.
-- **Door** and **Window.** Pick a size, then drag it along a wall. It will not sit on a corner or on top of another opening. A header is filled in above it. That header is a placeholder, not a final size.
-- **Select.** Click a wall, a room, or an opening. Drag the round handles on a wall to stretch it. Connected walls follow. Drag the middle of a wall to move it. In the side panel you can rename a room, switch Phase 1 or Later, or change a wall's material.
+- **Door** and **Window** each show only their own sizes. Set width and height, and the sill for a window, then drag along a wall. It will not sit on a corner or on top of another opening. A selected opening keeps those fields in the panel. The header above it is a placeholder, not a final size.
+- **Select.** Click a wall, a room, or an opening. Drag the round handles on a wall to stretch it. Connected walls follow. Drag the middle of a wall to move it. Drag empty space to slide the plan. You can also hold Space, or use the middle or right mouse button. Two fingers pinch to zoom.
 - **Delete.** Click the thing you want gone. You can also select it and press Delete.
-- **Pan.** Drag to slide the plan instead of drawing. A long press does the same thing. Two fingers pinch to zoom.
-- **Undo** and **Redo** step through your edits. **Reset** puts the sample house back, after you confirm. **Export** downloads the house as a file. **Import** reads one of those files back.
+- **Undo** and **Redo** sit on the plan. Ctrl or Cmd Z undoes. Shift Z redoes. **File** holds Export, Import, and Reset. Reset asks before it puts the sample back.
 
 The plan and the 3D view update together. Click a wall in 3D to select it. Drawing happens on the plan.
 
@@ -41,7 +40,7 @@ The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The pl
 - **Grid / Ratio** switches how a new wall's length snaps. Ratio uses the project ratio and a module length. While you drag, tick marks are labeled, for example **φ² · 8 ft**.
 - **Guides** draws a square-and-remainder on the footprint, and on a room you have selected.
 - Select a wall to set **this wall = ratio × another wall**, or to unlink it. If you change the reference, the linked wall follows. A loop is left alone and called out.
-- A room's panel shows its length-to-width ratio and the nearest named one, such as **1.618 · Golden · exact** or **1.59 · ~Golden · −1.7%**. **Make proportional** moves the far wall so the room matches the ratio you pick.
+- A room's panel shows its length-to-width ratio and the nearest named one, such as **1.618 · φ** or **1.59 · φ −1.7%**. On the plan that line uses a font that can draw φ, δ, √, and ρ, and it stays hidden until you zoom in. **Make proportional** moves the far wall so the room matches the ratio you pick.
 - **Snap footprint to φ** makes the stored width exactly φ times the depth. The walls you already drew do not jump.
 
 - **Plan** is the flat drawing. North is up. Drag to slide around. Scroll, or pinch on a phone, to zoom. Double-click the plan, or press **Fit**, to see the whole house again.

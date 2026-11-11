@@ -1,7 +1,10 @@
 import { ASSEMBLY_2D, FINISH_2D, INK, MUTED } from "../theme.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { constraintReadout } from "../build/constraints.js";
-import { roomProportion } from "../build/ratios.js";
+import { pickReadableTicks, roomProportion } from "../build/ratios.js";
+
+const RATIO_FONT = '"Noto Sans Math", "Noto Sans", "Segoe UI Symbol", "DejaVu Sans", sans-serif';
+const RATIO_GLYPHS = "φδρ√·−+0123456789.% ";
 import {
   openingsFor,
   pointAlong,
@@ -30,6 +33,7 @@ export function createPlanView(canvas, initialHouse) {
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let cameraReady = false;
+  let ratioFontReady = false;
   const pointers = new Map();
   let drag = null;
   let pinch = null;
@@ -399,15 +403,24 @@ export function createPlanView(canvas, initialHouse) {
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
       ctx.fillStyle = MUTED;
       ctx.fillText(`${formatArea(polygonArea(room.polygon))} sq ft`, s.x, s.y + nameSize * 0.55);
-      if (boxW > 96 && boxH > 72) {
-        ctx.font = `600 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
-        ctx.fillStyle = "#2F5D45";
-        ctx.fillText(roomProportion(room, house.customRatios || []).phrase, s.x, s.y + nameSize * 1.55);
+      let proportionDrawn = false;
+      if (camera.pxPerFt >= 20 && boxW > 130 && boxH > 96) {
+        const line = roomProportion(room, house.customRatios || []).phrase;
+        const lineSize = Math.max(13, Math.min(16, nameSize - 2));
+        ctx.font = `400 ${lineSize}px ${RATIO_FONT}`;
+        ctx.letterSpacing = "0.06em";
+        const lineWidth = ctx.measureText(line).width;
+        if (line && lineWidth < boxW - 16) {
+          ctx.fillStyle = "#1d3d2e";
+          ctx.fillText(line, s.x, s.y + nameSize * 1.85);
+          proportionDrawn = true;
+        }
+        ctx.letterSpacing = "0px";
       }
       if (future) {
-        ctx.font = `500 ${Math.max(9, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
+        ctx.font = `500 ${Math.max(11, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
         ctx.fillStyle = "#8A7360";
-        ctx.fillText("later", s.x, s.y + nameSize * 1.45);
+        ctx.fillText("later", s.x, s.y + nameSize * (proportionDrawn ? 3.05 : 1.7));
       }
     }
     ctx.restore();
@@ -452,6 +465,13 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function render() {
+    if (!ratioFontReady && document.fonts?.load) {
+      ratioFontReady = true;
+      Promise.all([
+        document.fonts.load(`400 16px "Noto Sans Math"`, RATIO_GLYPHS),
+        document.fonts.load(`500 16px "Noto Sans"`, RATIO_GLYPHS),
+      ]).then(() => render());
+    }
     const { w, h } = size();
     if (w < 2 || h < 2) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -576,27 +596,64 @@ export function createPlanView(canvas, initialHouse) {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
-      if (overlay.draft.lengthLabel) {
-        ctx.setLineDash([]);
-        ctx.font = "700 14px Outfit, sans-serif";
-        ctx.fillStyle = "#2A241B";
-        ctx.textAlign = "center";
-        ctx.fillText(overlay.draft.lengthLabel, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10);
-      }
       ctx.restore();
-      for (const tick of overlay.draft.ticks || []) {
-        const p = worldToScreen(tick.x, tick.y);
+      const fontPx = Math.max(12, Math.min(15, camera.pxPerFt * 0.9));
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const span = Math.hypot(dx, dy) || 1;
+      let nx = -dy / span;
+      let ny = dx / span;
+      if (ny > 0) { nx *= -1; ny *= -1; }
+      const boxes = [];
+      const drawPill = (text, anchorX, anchorY) => {
         ctx.save();
-        ctx.fillStyle = "#2F5D45";
-        ctx.strokeStyle = "#2F5D45";
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.font = "600 11px Outfit, sans-serif";
+        ctx.font = `600 ${fontPx}px Outfit, sans-serif`;
         ctx.textAlign = "center";
-        ctx.fillText(tick.label, p.x, p.y - 10);
+        ctx.textBaseline = "middle";
+        const padX = 8;
+        const textW = ctx.measureText(text).width;
+        const pillW = textW + padX * 2;
+        const pillH = fontPx + 10;
+        let pillX = anchorX + nx * 16 - pillW / 2;
+        let pillY = anchorY + ny * (pillH + 14) - pillH / 2;
+        if (pillY < 8) pillY = anchorY - ny * (pillH + 14) - pillH / 2;
+        if (pillX < 8) pillX = 8;
+        if (pillX + pillW > canvas.width - 8) pillX = canvas.width - pillW - 8;
+        if (pillY + pillH > canvas.height - 8) pillY = Math.max(8, anchorY - pillH - 10);
+        const box = { pillX, pillY, pillW, pillH };
+        const hit = boxes.some((other) => (
+          box.pillX < other.pillX + other.pillW + 10
+          && box.pillX + box.pillW + 10 > other.pillX
+          && box.pillY < other.pillY + other.pillH + 8
+          && box.pillY + box.pillH + 8 > other.pillY
+        ));
+        if (hit) { ctx.restore(); return false; }
+        boxes.push(box);
+        ctx.beginPath();
+        ctx.arc(anchorX, anchorY, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = "#2F5D45";
+        ctx.fill();
+        ctx.fillStyle = "rgba(247, 243, 235, 0.97)";
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(pillX, pillY, pillW, pillH, 8);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#1d3d2e";
+        ctx.fillText(text, pillX + pillW / 2, pillY + pillH / 2);
         ctx.restore();
-      }
+        return true;
+      };
+      const readable = pickReadableTicks(
+        overlay.draft.ticks || [],
+        end.length || 0,
+        (tick) => worldToScreen(tick.x, tick.y),
+        110,
+        3,
+      );
+      if (overlay.draft.lengthLabel) drawPill(overlay.draft.lengthLabel, b.x, b.y);
+      for (const tick of readable) drawPill(tick.label, tick.pos.x, tick.pos.y);
     }
     if (overlay.rect) {
       const { x0, y0, x1, y1 } = overlay.rect;
@@ -876,6 +933,10 @@ export function createPlanView(canvas, initialHouse) {
     },
     getCamera() {
       return { ...camera };
+    },
+    clientToWorld(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      return screenToWorld(clientX - rect.left, clientY - rect.top);
     },
     beginPan(event) {
       buildGesture = false;
