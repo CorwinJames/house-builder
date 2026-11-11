@@ -24,7 +24,7 @@ The chip at the top says **Sample layout** until you change something. Then it s
 
 **View** is for looking. **Build** is for changing the house. The first time you open Build, a short hint walks through the tools.
 
-- **Wall.** Drag on the plan. The wall snaps to a grid (6 inches, unless you change Grid), to the ends and middles of other walls, and to straight or 45 degree lines. The length shows while you drag. You never type a thickness. Pick Hempcrete, Rammed earth, or Partition. An east-west wall suggests rammed earth, which is what the south side of the sample uses. The note under the palette says these sizes still need an engineer to check them.
+- **Wall.** Drag on the plan. The wall snaps to a grid (6 inches, unless you change Grid), to the ends and middles of other walls, and to straight or 45 degree lines. The length shows while you drag. You never type a thickness. Pick Hempcrete, Rammed earth, or Partition. A wall whose outside face points south suggests rammed earth. North, east, and west exterior walls suggest hempcrete. The note under the palette says these sizes still need an engineer to check them.
 - **Room.** Drag a rectangle. The app adds the four walls. If hempcrete is selected, the south side of that rectangle is rammed earth.
 - **Door** and **Window.** Pick a size, then drag it along a wall. It will not sit on a corner or on top of another opening. A header is filled in above it. That header is a placeholder, not a final size.
 - **Select.** Click a wall, a room, or an opening. Drag the round handles on a wall to stretch it. Connected walls follow. Drag the middle of a wall to move it. In the side panel you can rename a room, switch Phase 1 or Later, or change a wall's material.

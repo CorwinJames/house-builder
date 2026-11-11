@@ -1,5 +1,5 @@
 import { wallLength, pointAlong } from "../lib/geom.js";
-import { assemblyById, headerForSpan, assemblyForRender } from "./catalog.js";
+import { assemblyById, headerForSpan, assemblyForRender, suggestAssemblyId, DEFAULT_EXTERIOR_ID } from "./catalog.js";
 import { nextId } from "./ids.js";
 import { openingFits } from "./openings.js";
 
@@ -240,17 +240,18 @@ export function addRoomRectangle(house, a, b, assemblyId) {
   if (x1 - x0 < 2 || y1 - y0 < 2) {
     return { house, warnings: [{ id: "small-room", severity: "warn", message: "Drag a room at least 2 feet on each side.", target: null }] };
   }
-  const southId = assemblyId === "hempcrete-exterior" ? "rammed-earth-exterior" : assemblyId;
   let current = cloneHouse(house);
   const warnings = [];
   const ids = [];
+  const explicit = assemblyId !== DEFAULT_EXTERIOR_ID;
   const sides = [
-    [ { x: x0, y: y0 }, { x: x1, y: y0 }, southId ],
-    [ { x: x1, y: y0 }, { x: x1, y: y1 }, assemblyId ],
-    [ { x: x1, y: y1 }, { x: x0, y: y1 }, assemblyId ],
-    [ { x: x0, y: y1 }, { x: x0, y: y0 }, assemblyId ],
+    [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: 0, y: -1 }],
+    [{ x: x1, y: y0 }, { x: x1, y: y1 }, { x: 1, y: 0 }],
+    [{ x: x1, y: y1 }, { x: x0, y: y1 }, { x: 0, y: 1 }],
+    [{ x: x0, y: y1 }, { x: x0, y: y0 }, { x: -1, y: 0 }],
   ];
-  for (const [start, end, id] of sides) {
+  for (const [start, end, outward] of sides) {
+    const id = suggestAssemblyId(start, end, assemblyId, explicit, outward);
     const wall = makeWall(start, end, id, "phase1", current.levels[0]?.id || "main", current.levels[0]?.plateHeight || 10);
     const overlap = current.walls.find((other) => wallsOverlap(wall, other));
     if (overlap) {

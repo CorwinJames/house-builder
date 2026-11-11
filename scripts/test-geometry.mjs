@@ -4,7 +4,7 @@ import { snapToGrid, snapAngle, snapDrawingPoint } from "../src/build/snap.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
-import { headerForSpan } from "../src/build/catalog.js";
+import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID } from "../src/build/catalog.js";
 import { evaluateRules } from "../src/rules/index.js";
 import { polygonArea } from "../src/lib/geom.js";
 
@@ -19,6 +19,26 @@ function check(name, fn) {
     console.error(error);
   }
 }
+
+check("rammed earth is suggested only for a south-facing exterior wall", () => {
+  const hemp = DEFAULT_EXTERIOR_ID;
+  const south = { x: 0, y: -1 };
+  const north = { x: 0, y: 1 };
+  const east = { x: 1, y: 0 };
+  const west = { x: -1, y: 0 };
+  const southWall = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
+  const northWall = [{ x: 10, y: 10 }, { x: 0, y: 10 }];
+  assert.equal(suggestAssemblyId(...southWall, hemp, false, south), RAMMED_EARTH_ID);
+  assert.equal(suggestAssemblyId(...northWall, hemp, false, north), hemp);
+  assert.equal(suggestAssemblyId({ x: 0, y: 0 }, { x: 0, y: 10 }, hemp, false, east), hemp);
+  assert.equal(suggestAssemblyId({ x: 10, y: 0 }, { x: 10, y: 10 }, hemp, false, west), hemp);
+  const at30 = { x: Math.sin((30 * Math.PI) / 180), y: -Math.cos((30 * Math.PI) / 180) };
+  const at31 = { x: Math.sin((31 * Math.PI) / 180), y: -Math.cos((31 * Math.PI) / 180) };
+  assert.equal(suggestAssemblyId(...southWall, hemp, false, at30), RAMMED_EARTH_ID);
+  assert.equal(suggestAssemblyId(...southWall, hemp, false, at31), hemp);
+  assert.equal(suggestAssemblyId(...southWall, INTERIOR_ID, false, south), INTERIOR_ID);
+  assert.equal(suggestAssemblyId(...southWall, hemp, true, south), hemp);
+});
 
 check("grid snaps to 6 inches", () => {
   assert.equal(snapToGrid(1.2, 0.5), 1);

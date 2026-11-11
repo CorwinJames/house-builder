@@ -268,6 +268,25 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
   }
 
+  function outwardForWall(start, end) {
+    let cx = (house.footprint?.width || 0) / 2;
+    let cy = (house.footprint?.depth || 0) / 2;
+    if (house.walls.length) {
+      let sx = 0;
+      let sy = 0;
+      for (const wall of house.walls) {
+        sx += (wall.start.x + wall.end.x) / 2;
+        sy += (wall.start.y + wall.end.y) / 2;
+      }
+      cx = sx / house.walls.length;
+      cy = sy / house.walls.length;
+    }
+    return {
+      x: (start.x + end.x) / 2 - cx,
+      y: (start.y + end.y) / 2 - cy,
+    };
+  }
+
   function activeRatio() {
     const id = house.proportion?.ratioId || "golden";
     if (id === "custom") {
@@ -467,7 +486,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     gesture = null;
     if (!current) return;
     if (current.kind === "wall" && current.moved && current.end) {
-      const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit);
+      const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
       const added = addWall(house, current.start, current.end, chosen);
       if (added.house !== house) commit(syncRooms(added.house));
       else warnings = added.warnings;
@@ -583,7 +602,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function makeOverlay() {
     const targets = warningTargets(warnings);
     const draftAssembly = gesture?.kind === "wall" && gesture.end
-      ? assemblyById[suggestAssemblyId(gesture.start, gesture.end, assemblyId, assemblyExplicit)]
+      ? assemblyById[suggestAssemblyId(gesture.start, gesture.end, assemblyId, assemblyExplicit, outwardForWall(gesture.start, gesture.end))]
       : null;
     return {
       warningWalls: [...targets.walls],
