@@ -1,5 +1,11 @@
 # Changelog
 
+## Stage 7 — code rules and warnings
+
+The header has a count of the code checks still open. Open it for a short list grouped into blockers, warnings, and tips. Click a row to zoom the plan to that spot and read the one-sentence reason and the code section. A fix button changes the drawing when the edit is safe. Otherwise the row says Show me. Colored dots on the plan mark the same spots.
+
+Clearing the blockers and warnings means the design matches the rules this model actually checks. A section that was not confirmed in the code text is marked confirm section. Geometry problems stay in the same list. No prices were added.
+
 ## Stage 6 — plumbing
 
 Build mode has a Plumbing tool. Click to place a kitchen sink, dishwasher, toilet, lavatory, shower, tub, clothes washer, laundry sink, hose bibb, water heater, or the water entry. Suggest placements draws ghost fixtures for a bathroom or a kitchen on an interior wet wall.

@@ -30,6 +30,7 @@ export function createPlanView(canvas, initialHouse) {
   const ctx = canvas.getContext("2d");
   let state = null;
   let overlay = null;
+  let markers = [];
   let buildHooks = null;
   let buildGesture = false;
   let onChange = () => {};
@@ -508,6 +509,7 @@ export function createPlanView(canvas, initialHouse) {
     drawOverlay();
     drawDimensions();
     drawLabels();
+    drawMarkers();
     drawConstraintBadges();
     drawGuides();
     drawCompass();
@@ -829,6 +831,36 @@ export function createPlanView(canvas, initialHouse) {
                 ? "A"
                 : "R";
     ctx.fillText(letter, screen.x, screen.y);
+  }
+
+  function drawMarkers() {
+    if (!markers.length) return;
+    const seen = new Map();
+    ctx.save();
+    ctx.font = "700 11px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const marker of markers) {
+      if (!marker.point) continue;
+      const key = `${marker.point.x.toFixed(1)},${marker.point.y.toFixed(1)}`;
+      const slot = seen.get(key) || 0;
+      seen.set(key, slot + 1);
+      const screen = worldToScreen(marker.point.x, marker.point.y);
+      const x = screen.x + (slot - 0) * 14;
+      const y = screen.y - 16;
+      const color = marker.severity === "blocker" ? "#9C341F" : marker.severity === "tip" ? "#2F5D45" : "#C4654A";
+      const radius = marker.active ? 9 : 7;
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "#F7F3EB";
+      ctx.lineWidth = 2;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#F7F3EB";
+      ctx.fillText("!", x, y + 0.5);
+    }
+    ctx.restore();
   }
 
   function drawOverlay() {
@@ -1240,6 +1272,18 @@ export function createPlanView(canvas, initialHouse) {
     },
     fit() {
       fit(true);
+    },
+    focus(x, y) {
+      camera.cx = x;
+      camera.cy = y;
+      camera.pxPerFt = Math.max(camera.pxPerFt || 12, 16);
+      cameraReady = true;
+      render();
+      onChange({ ...camera });
+    },
+    setMarkers(next) {
+      markers = Array.isArray(next) ? next : [];
+      render();
     },
     redraw() {
       render();

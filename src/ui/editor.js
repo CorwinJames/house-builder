@@ -36,7 +36,6 @@ import {
   entryFromClick,
   fixtureFromClick,
   fixtureSpec,
-  fixtureWarnings,
   hitPlumbing,
   laborAssumption as plumbingLabor,
   suggestPlacements as suggestFixtures,
@@ -48,7 +47,6 @@ import {
   buildElectrical,
   deviceFromClick,
   deviceSpec,
-  deviceWarnings,
   hitElectrical,
   laborAssumption,
   panelFromClick,
@@ -1061,7 +1059,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const design = buildElectrical(house);
     const circuit = design.circuits.find((item) => item.deviceIds.includes(device.id));
-    const warningsForDevice = deviceWarnings(device, circuit);
+    const warningsForDevice = warnings.filter((item) => item.target?.type === "device" && item.target.id === device.id && item.citation);
     const groups = [...new Set(PLACE_OPTIONS.filter((item) => item.id !== "panel").map((item) => item.group))];
     const options = groups.map((group) => `<optgroup label="${group}">${PLACE_OPTIONS.filter((item) => item.group === group && item.id !== "panel").map((item) => `<option value="${item.id}" ${item.id === device.kind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
     const spec = deviceSpec(device.kind, device.supply);
@@ -1072,7 +1070,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         <button type="button" id="accept-one">Accept</button>
         <button type="button" id="dismiss-one">Dismiss</button>` : ""}
       ${circuit ? `<p>Circuit ${circuit.number} · ${escapeAttr(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}% drop${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</p>` : `<p class="fine">No circuit until this device is accepted.</p>`}
-      ${warningsForDevice.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}. <a href="${escapeAttr(item.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>`).join("")}
+      ${warningsForDevice.map((item) => `<p class="warn-line">${escapeAttr(item.title)} ${escapeAttr(item.citation.section)}${item.citation.confirmSection ? " · confirm section" : ""}.</p>`).join("")}
       ${device.ghost ? "" : deviceCostHtml(house, device)}
       <label>Device <select id="device-kind">${options}</select></label>
       ${device.kind === "well-pump" ? `<label>Supply <select id="pump-supply"><option value="240" ${device.supply !== "120" ? "selected" : ""}>240V · 20A</option><option value="120" ${device.supply === "120" ? "selected" : ""}>120V · 20A</option></select></label>` : ""}
@@ -1154,7 +1152,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     const spec = fixtureSpec(fixture.kind);
-    const warningsForFixture = fixtureWarnings(house, fixture);
+    const warningsForFixture = warnings.filter((item) => item.target?.type === "fixture" && item.target.id === fixture.id && item.citation);
     const wall = house.walls.find((item) => item.id === fixture.wallId);
     const mass = wall && (wall.assemblyId || "").match(/hemp|rammed/);
     inspector.innerHTML = `
@@ -1162,7 +1160,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       ${fixture.ghost ? `<p>Ghost placement. Accept it or dismiss it.</p>
         <button type="button" id="accept-one">Accept</button>
         <button type="button" id="dismiss-one">Dismiss</button>` : ""}
-      ${warningsForFixture.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}.</p>`).join("")}
+      ${warningsForFixture.map((item) => `<p class="warn-line">${escapeAttr(item.title)} ${escapeAttr(item.citation.section)}${item.citation.confirmSection ? " · confirm section" : ""}.</p>`).join("")}
       ${mass ? `<button type="button" id="toggle-chase">${fixture.chase ? "Chase added" : "Add a furred chase"}</button>` : ""}
       ${fixture.ghost ? "" : fixtureCostHtml(house, fixture)}
       <button type="button" id="suggest-fixtures">Suggest placements</button>

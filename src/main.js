@@ -10,6 +10,7 @@ import { footprintMatch } from "./build/constraints.js";
 import { attachEditor } from "./ui/editor.js";
 import { attachAccount } from "./ui/account.js";
 import { attachCosts } from "./ui/costs.js";
+import { attachWarnings } from "./ui/warnings.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -32,6 +33,9 @@ app.innerHTML = `
       <button type="button" id="cost-chip" class="cost-chip" title="Materials and labor">
         <span id="cost-figure">—</span>
         <span id="cost-note"></span>
+      </button>
+      <button type="button" id="warn-chip" class="warn-chip" title="Code checks">
+        <span id="warn-count">0</span>
       </button>
       <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
         <button type="button" data-mode="view">View</button>
@@ -119,6 +123,14 @@ app.innerHTML = `
   <div class="scrim" id="scrim" hidden></div>
   <div class="hint" id="build-tutorial" hidden></div>
   <dialog id="drive-dialog" class="drive-dialog"></dialog>
+  <dialog id="warn-dialog" class="warn-dialog">
+    <header class="cost-head">
+      <h2>Code check</h2>
+      <button type="button" data-close>Close</button>
+    </header>
+    <p class="fine">Clear the blockers and warnings and this design matches the rules below.</p>
+    <div id="warn-list"></div>
+  </dialog>
   <dialog id="cost-dialog" class="cost-dialog">
     <header class="cost-head">
       <h2>Costs and materials</h2>
@@ -159,6 +171,7 @@ planCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
 const plan = createPlanView(planCanvas, house);
 const model = createView3d(modelCanvas, house);
 let editor;
+let warningsUi;
 let onDocument = () => {};
 editor = attachEditor({
   plan,
@@ -177,6 +190,12 @@ editor = attachEditor({
   },
 });
 onDocument = attachAccount({ editor }).onDocument;
+warningsUi = attachWarnings({
+  getHouse: () => editor.house(),
+  getPhase: () => state.phase,
+  plan,
+  replaceHouse: (next) => editor.loadHouse(next),
+});
 const costs = attachCosts({
   getHouse: () => editor.house(),
   getPhase: () => (state.phase === "phase1" ? "phase1" : "full"),
@@ -260,6 +279,7 @@ function publish() {
   plan.setState(state);
   model.setState(state);
   costs?.paint();
+  warningsUi?.paint();
   requestAnimationFrame(() => {
     plan.resize();
     model.resize();

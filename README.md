@@ -37,7 +37,7 @@ Share with types an email and gives that person edit access on the current file.
 
 ## For Sophie
 
-The chip at the top says **Sample layout**. Edits save on this device without another notice. **Sign in with Google**, then **File → Save to Drive**, also keeps a copy in your Drive. Only an invited tester account can sign in while the Google app is in Testing. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
+The chip at the top says **Sample layout**. Next to the cost is a count of code checks still open. Open it for a short list. Click a row to zoom to that spot. Clearing the blockers and warnings means the drawing matches the rules this model checks, not that a permit is ready. Edits save on this device without another notice. **Sign in with Google**, then **File → Save to Drive**, also keeps a copy in your Drive. Only an invited tester account can sign in while the Google app is in Testing. Solid rooms are Phase 1, the small house that would be built first: a living room, a kitchen, a bathroom, and a bedroom. Dashed, lighter rooms are later wings. Nothing here is locked in.
 
 **View** is for looking. **Build** is for changing the house. The first time you open Build, a short hint walks through the tools.
 
