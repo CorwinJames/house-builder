@@ -109,7 +109,6 @@
     }
   ],
   "hooks": [
-    { "id": "electrical", "name": "Electrical", "note": "Stage 5 adds wire, devices, and labor to this list." },
     { "id": "plumbing", "name": "Plumbing", "note": "Stage 6 adds pipe, fixtures, and labor to this list." }
   ]
 }

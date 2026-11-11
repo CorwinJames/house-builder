@@ -30,7 +30,21 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
 import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
 import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
-import { selectionCostHtml } from "./costs.js";
+import { deviceCostHtml, selectionCostHtml } from "./costs.js";
+import {
+  APPLIANCES,
+  PLACE_OPTIONS,
+  applyDeviceKind,
+  buildElectrical,
+  deviceFromClick,
+  deviceSpec,
+  deviceWarnings,
+  hitElectrical,
+  laborAssumption,
+  panelFromClick,
+  suggestPlacements,
+  wallMethod,
+} from "../electrical/design.js";
 
 const DOC_KEY = "house-builder.document.v2";
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -42,6 +56,7 @@ const TOOLS = [
   { id: "room", label: "Room" },
   { id: "door", label: "Door" },
   { id: "window", label: "Window" },
+  { id: "electrical", label: "Electrical" },
   { id: "erase", label: "Delete" },
 ];
 
@@ -50,6 +65,7 @@ const TUTORIAL = [
   "Room draws a rectangle of walls. The south side suggests rammed earth. The other sides suggest hempcrete.",
   "Door shows only doors. Window shows only windows. Set the size, then drag along a wall.",
   "Select a wall and drag the round handles, or drag empty space to slide the plan. Undo is on the plan, or Ctrl Z.",
+  "Electrical places outlets, lights, switches, and the panel. Suggest placements draws ghost outlets you can accept.",
 ];
 
 export function attachEditor({ plan, model, sample, getViewState, patchViewState, onChange, onDocument }) {
@@ -77,6 +93,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let optionsKey = "";
   let optionsOpen = true;
   const draftSize = {};
+  let deviceKind = "receptacle";
+  let pumpSupply = "240";
 
   const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
@@ -287,6 +305,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         }
       }
     }
+    const electricalHit = hitElectrical(house, world, Math.max(1.1, reach));
+    if (electricalHit) return electricalHit;
     let bestWall = null;
     for (const wall of house.walls) {
       if (!visibleWall(wall)) continue;
@@ -337,7 +357,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "erase") {
       const hit = hitTest(world);
-      if (hit?.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
+      if (hit?.type === "device" || hit?.type === "panel") eraseSelection(hit);
+      else if (hit?.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
       else if (hit?.type === "opening") commit(deleteOpening(house, hit.id));
       else if (hit?.type === "room") {
         const next = cloneHouse(house);
@@ -353,6 +374,19 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         : snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetRadius() });
       gesture = { kind: tool, start, origin: world, snapshot: cloneHouse(house) };
       armPan();
+      return true;
+    }
+    if (tool === "electrical") {
+      const next = cloneHouse(house);
+      if (deviceKind === "panel") {
+        next.electrical.panel = panelFromClick(next, world);
+        selection = { type: "panel", id: "panel" };
+      } else {
+        const device = deviceFromClick(next, world, deviceKind, { supply: pumpSupply });
+        next.electrical.devices.push(device);
+        selection = { type: "device", id: device.id };
+      }
+      commit(next);
       return true;
     }
     if (tool === "door" || tool === "window") {
@@ -530,13 +564,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     onDocument?.("edit");
   }
 
-  function eraseSelection() {
-    if (!selection) return;
-    if (selection.type === "wall") commit(syncRooms(deleteWall(house, selection.id)));
-    else if (selection.type === "opening") commit(deleteOpening(house, selection.id));
-    else if (selection.type === "room") {
+  function eraseSelection(hit = selection) {
+    if (!hit) return;
+    if (hit.type === "device") {
       const next = cloneHouse(house);
-      next.rooms = next.rooms.filter((room) => room.id !== selection.id);
+      next.electrical.devices = next.electrical.devices.filter((item) => item.id !== hit.id);
+      commit(next);
+    } else if (hit.type === "panel") {
+      const next = cloneHouse(house);
+      next.electrical.panel = null;
+      commit(next);
+    } else if (hit.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
+    else if (hit.type === "opening") commit(deleteOpening(house, hit.id));
+    else if (hit.type === "room") {
+      const next = cloneHouse(house);
+      next.rooms = next.rooms.filter((room) => room.id !== hit.id);
       commit(next);
     }
     selection = null;
@@ -549,7 +591,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function pushViews() {
     plan.setHouse(house);
-    model.setHouse(house);
+    model.setHouse?.(house);
     model.setSelected?.(selection?.type === "wall" ? selection.id : null);
     plan.setOverlay(makeOverlay());
     publish();
@@ -610,12 +652,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     box.hidden = !optionsOpen;
     document.querySelector("#options-toggle")?.setAttribute("aria-expanded", String(optionsOpen));
     if (tool === "door" || tool === "window") catalogItem();
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}`;
+    const rates = laborAssumption(house);
+    const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
     }
     optionsKey = key;
+    if (tool === "electrical") {
+      paintElectricalOptions(box, rates);
+      return;
+    }
     if (tool === "wall" || tool === "room") {
       const note = assemblyById[assemblyId]?.note || "";
       box.innerHTML = `
@@ -792,6 +840,179 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     document.dispatchEvent(new CustomEvent("house-selection", { detail: { showing } }));
   }
 
+  function paintElectricalOptions(box, rates) {
+    const groups = [...new Set(PLACE_OPTIONS.map((item) => item.group))];
+    const options = groups.map((group) => `<optgroup label="${group}">${PLACE_OPTIONS.filter((item) => item.group === group).map((item) => `<option value="${item.id}" ${item.id === deviceKind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
+    const spec = deviceKind === "panel" ? null : deviceSpec(deviceKind, pumpSupply);
+    const ghosts = (house.electrical?.devices || []).filter((item) => item.ghost).length;
+    box.innerHTML = `
+      <div class="option-line">
+        <label>Place <select id="device-kind">${options}</select></label>
+        ${deviceKind === "well-pump" ? `<label>Supply <select id="pump-supply"><option value="240" ${pumpSupply === "240" ? "selected" : ""}>240V</option><option value="120" ${pumpSupply === "120" ? "selected" : ""}>120V</option></select></label>` : ""}
+        <button type="button" id="suggest-outlets">Suggest placements</button>
+        ${ghosts ? `<button type="button" id="accept-ghosts">Accept ${ghosts}</button><button type="button" id="dismiss-ghosts">Dismiss</button>` : ""}
+      </div>
+      <p class="fine">${escapeAttr(spec?.note || spec?.name || "Click where the main panel should go. There is one panel.")} Hempcrete and rammed earth default to conduit so the cable is not buried in the wall. An electrician and the inspector need to confirm that.</p>
+      <div class="option-line">
+        <label>Hours per device <input id="labor-device" type="number" min="0" step="0.05" value="${rates.perDevice}" /></label>
+        <label>Panel hours <input id="labor-panel" type="number" min="0" step="0.25" value="${rates.panel}" /></label>
+        <label>Hours per foot <input id="labor-foot" type="number" min="0" step="0.005" value="${rates.perFoot}" /></label>
+      </div>
+      <p class="fine">Those hours are assumptions, not a bid. The wage is the Jefferson County inside-wireman rate.</p>`;
+    box.querySelector("#device-kind").addEventListener("change", (event) => {
+      deviceKind = event.target.value;
+      publish();
+    });
+    box.querySelector("#pump-supply")?.addEventListener("change", (event) => {
+      pumpSupply = event.target.value;
+      publish();
+    });
+    box.querySelector("#suggest-outlets").addEventListener("click", () => {
+      const next = cloneHouse(house);
+      next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost);
+      next.electrical.devices.push(...suggestPlacements(next));
+      commit(next);
+      publish();
+    });
+    box.querySelector("#accept-ghosts")?.addEventListener("click", () => acceptGhosts());
+    box.querySelector("#dismiss-ghosts")?.addEventListener("click", () => dismissGhosts());
+    const saveLabor = () => {
+      const next = cloneHouse(house);
+      next.electrical.labor = {
+        perDevice: Number(box.querySelector("#labor-device").value),
+        panel: Number(box.querySelector("#labor-panel").value),
+        perFoot: Number(box.querySelector("#labor-foot").value),
+      };
+      commit(next);
+      publish();
+    };
+    box.querySelector("#labor-device").addEventListener("change", saveLabor);
+    box.querySelector("#labor-panel").addEventListener("change", saveLabor);
+    box.querySelector("#labor-foot").addEventListener("change", saveLabor);
+  }
+
+  function acceptGhosts(onlyId = null) {
+    const next = cloneHouse(house);
+    next.electrical.devices = next.electrical.devices.map((item) => {
+      if (!item.ghost) return item;
+      if (onlyId && item.id !== onlyId) return item;
+      return { ...item, ghost: false };
+    });
+    if (onlyId) selection = { type: "device", id: onlyId };
+    commit(next);
+    publish();
+  }
+
+  function dismissGhosts(onlyId = null) {
+    const next = cloneHouse(house);
+    next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost || (onlyId && item.id !== onlyId));
+    if (onlyId && selection?.id === onlyId) selection = null;
+    commit(next);
+    publish();
+  }
+
+  function paintDeviceInspector() {
+    if (selection.type === "panel") {
+      const panel = house.electrical?.panel;
+      if (!panel) {
+        inspector.hidden = true;
+        inspector.innerHTML = "";
+        return;
+      }
+      const design = buildElectrical(house);
+      const spaces = design.circuits.reduce((sum, circuit) => sum + circuit.breakerPoles, 0);
+      inspector.innerHTML = `
+        <h2>Main panel</h2>
+        <p>Load calc recommends ${design.load.service}A. ${spaces} breaker spaces are used.</p>
+        <p class="fine">${escapeAttr(design.load.adoption)}</p>
+        <label>Height, feet <input id="device-height" type="number" min="0" max="10" step="0.25" value="${panel.height || 5}" /></label>
+        <button type="button" id="suggest-outlets">Suggest placements</button>
+        <button type="button" id="edit-delete">Delete panel</button>`;
+      inspector.querySelector("#device-height").addEventListener("change", (event) => {
+        const next = cloneHouse(house);
+        next.electrical.panel.height = Number(event.target.value);
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#suggest-outlets").addEventListener("click", () => {
+        const next = cloneHouse(house);
+        next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost);
+        next.electrical.devices.push(...suggestPlacements(next));
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+      return;
+    }
+    const device = (house.electrical?.devices || []).find((item) => item.id === selection.id);
+    if (!device) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const design = buildElectrical(house);
+    const circuit = design.circuits.find((item) => item.deviceIds.includes(device.id));
+    const warningsForDevice = deviceWarnings(device, circuit);
+    const groups = [...new Set(PLACE_OPTIONS.filter((item) => item.id !== "panel").map((item) => item.group))];
+    const options = groups.map((group) => `<optgroup label="${group}">${PLACE_OPTIONS.filter((item) => item.group === group && item.id !== "panel").map((item) => `<option value="${item.id}" ${item.id === device.kind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
+    const spec = deviceSpec(device.kind, device.supply);
+    const wall = house.walls.find((item) => item.id === device.wallId);
+    inspector.innerHTML = `
+      <h2>${escapeAttr(device.ghost ? `Suggested ${spec.name}` : spec.name)}</h2>
+      ${device.ghost ? `<p>Ghost placement. Accept it or dismiss it. You can also place a device anywhere yourself.</p>
+        <button type="button" id="accept-one">Accept</button>
+        <button type="button" id="dismiss-one">Dismiss</button>` : ""}
+      ${circuit ? `<p>Circuit ${circuit.number} · ${escapeAttr(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}% drop${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</p>` : `<p class="fine">No circuit until this device is accepted.</p>`}
+      ${warningsForDevice.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}. <a href="${escapeAttr(item.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>`).join("")}
+      ${device.ghost ? "" : deviceCostHtml(house, device)}
+      <label>Device <select id="device-kind">${options}</select></label>
+      ${device.kind === "well-pump" ? `<label>Supply <select id="pump-supply"><option value="240" ${device.supply !== "120" ? "selected" : ""}>240V · 20A</option><option value="120" ${device.supply === "120" ? "selected" : ""}>120V · 20A</option></select></label>` : ""}
+      <label>Height, feet <input id="device-height" type="number" min="0" max="12" step="0.25" value="${device.height}" /></label>
+      <p class="fine">${escapeAttr(spec.note || "")}</p>
+      <button type="button" id="suggest-outlets">Suggest placements</button>
+      <button type="button" id="edit-delete">Delete device</button>`;
+    inspector.querySelector("#accept-one")?.addEventListener("click", () => acceptGhosts(device.id));
+    inspector.querySelector("#dismiss-one")?.addEventListener("click", () => dismissGhosts(device.id));
+    inspector.querySelector("#device-kind").addEventListener("change", (event) => {
+      const next = cloneHouse(house);
+      const target = next.electrical.devices.find((item) => item.id === device.id);
+      const supply = target.kind === "well-pump" ? target.supply : pumpSupply;
+      Object.assign(target, applyDeviceKind(target, event.target.value, supply));
+      commit(next);
+      publish();
+    });
+    inspector.querySelector("#pump-supply")?.addEventListener("change", (event) => {
+      const next = cloneHouse(house);
+      const target = next.electrical.devices.find((item) => item.id === device.id);
+      Object.assign(target, applyDeviceKind(target, "well-pump", event.target.value));
+      commit(next);
+      publish();
+    });
+    inspector.querySelector("#device-height").addEventListener("change", (event) => {
+      const next = cloneHouse(house);
+      next.electrical.devices.find((item) => item.id === device.id).height = Number(event.target.value);
+      commit(next);
+      publish();
+    });
+    inspector.querySelector("#suggest-outlets").addEventListener("click", () => {
+      const next = cloneHouse(house);
+      next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost);
+      next.electrical.devices.push(...suggestPlacements(next));
+      commit(next);
+      publish();
+    });
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+    inspector.querySelectorAll("[data-method]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!device.wallId) return;
+        const next = cloneHouse(house);
+        next.electrical.wallMethods[device.wallId] = button.dataset.method;
+        commit(next);
+        publish();
+      });
+    });
+  }
+
   function paintInspector() {
     if (mode !== "build" || !selection) {
       inspector.hidden = true;
@@ -828,6 +1049,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
             <option value="future" ${wall.phase === "future" ? "selected" : ""}>Later</option>
           </select>
         </label>
+        <label>Wiring method
+          <select id="wire-method">
+            <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Stud bay</option>
+            <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Conduit in the wall</option>
+            <option value="raceway" ${wallMethod(house, wall) === "raceway" ? "selected" : ""}>Surface raceway</option>
+          </select>
+        </label>
+        <p class="fine">Hempcrete and rammed earth default to conduit so cable is not buried in the mass. That is an assumption. An electrician and the inspector need to confirm it.</p>
         ${selectionCostHtml(house, selection)}
         <button type="button" id="edit-delete">Delete wall</button>
       `;
@@ -853,6 +1082,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         const next = cloneHouse(house);
         const target = next.walls.find((item) => item.id === wall.id);
         target.phase = event.target.value;
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#wire-method").addEventListener("change", (event) => {
+        const next = cloneHouse(house);
+        next.electrical.wallMethods[wall.id] = event.target.value;
         commit(next);
         publish();
       });
@@ -895,6 +1130,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         commit(next);
         publish();
       });
+    } else if (selection.type === "device" || selection.type === "panel") {
+      paintDeviceInspector();
+      syncSelectionLayout();
+      return;
     } else if (selection.type === "opening") {
       inspector.hidden = true;
       inspector.innerHTML = "";

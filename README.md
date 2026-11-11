@@ -54,11 +54,21 @@ The plan and the 3D view update together. Click a wall in 3D to select it. Drawi
 
 The chip in the header is the priced total for Phase 1 or the full house, whichever you are viewing, plus a count of lines that still need a price. Open **Costs** from that chip.
 
-The list is grouped: hempcrete, rammed earth, framing, doors and windows, finishes, and labor. A line with a price links to the page it came from. A line that says **Price needed** is counted and left out of the total, so the number is not pretending to be a whole bid. Foundation, slab, and roof are listed the same way and are not added in. Wiring and plumbing are not here yet.
+The list is grouped: hempcrete, rammed earth, framing, doors and windows, finishes, electrical, and labor. A line with a price links to the page it came from. A line that says **Price needed** is counted and left out of the total, so the number is not pretending to be a whole bid. Foundation, slab, and roof are listed the same way and are not added in. Plumbing is not here yet.
 
 Paint, flooring, and tile labor are **DIY (James)** at $0. Turn on **Show hired finish labor** to see those hours at the published wage. Lengthen a wall, change its type, or add a window and both the chip and the list move.
 
 **File** can export the list as CSV or as JSON for a later materials search.
+
+### Outlets
+
+Open **Build** and choose **Electrical**. The Place menu is receptacles, 240V appliances, switches, lights, and the main panel. Click a wall and the device snaps to it at a normal height. Click the device afterward to change the kind, the height, or, for a well pump, 120V or 240V. The colored line is that circuit's route back to the panel. The header total moves when the new wire and the electrician's time have a price.
+
+**Suggest placements** draws dashed outlets: no point on a wall more than 6 ft from one, kitchen counters closer, and one GFCI in a bathroom. **Accept** keeps them. **Dismiss** clears the dashed ones. You can still put a device anywhere.
+
+The sample already has a phase 1 layout. Turn the **Electrical** layer off if you want the plan quiet. Hempcrete and rammed-earth walls default to conduit instead of burying the cable in the wall. That choice is on the wall's panel, and an electrician still has to confirm it.
+
+**Costs** includes an Electrical group and a service-load section. The steps are there so an electrician can check them. Anything without a published price says **Price needed**.
 
 ### Proportions
 
@@ -74,7 +84,7 @@ The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The pl
 - **3D** lets you walk around the model. Drag to turn it. Scroll or pinch to move closer. **Reset view** puts the camera back. The roof is a placeholder shape so you can see the idea of a Chinese hip-and-gable. It is not a real roof design.
 - **Split** shows both on a laptop. On a phone, use **Plan** and **3D** one at a time.
 - **Phase 1** hides the later wings. **Full house** shows them when the Future wings layer is on.
-- **Layers** turn pieces on and off: framing, hempcrete and rammed earth, floor finishes, later wings, dimensions, and room labels. Electrical, plumbing, and site are listed for later. They have nothing to show yet.
+- **Layers** turn pieces on and off: framing, hempcrete and rammed earth, floor finishes, later wings, dimensions, room labels, and electrical. Plumbing and site are listed for later. They have nothing to show yet.
 - The app remembers your pan, zoom, camera, layers, and phase on this browser. Google sign-in is optional and only stores the house file you save to Drive.
 
 South walls are rammed earth (the banded reddish walls). The other outside walls are hempcrete. Inside walls are wood framing.

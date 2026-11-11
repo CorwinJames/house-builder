@@ -25,7 +25,14 @@ export function withHeader(opening) {
 /** Fill assembly ids and headers on a house that was saved before Stage 2. */
 export function decorateHouse(house) {
   const next = cloneHouse(house);
-  next.schemaVersion = Math.max(3, next.schemaVersion || 2);
+  next.schemaVersion = Math.max(4, next.schemaVersion || 2);
+  next.electrical = {
+    ...(next.electrical || {}),
+    panel: next.electrical?.panel ?? null,
+    devices: Array.isArray(next.electrical?.devices) ? next.electrical.devices : [],
+    wallMethods: next.electrical?.wallMethods || {},
+    devicesPerCircuit: next.electrical?.devicesPerCircuit || 8,
+  };
   next.cost = {
     diyFinish: next.cost?.diyFinish !== false,
     overrides: Array.isArray(next.cost?.overrides) ? next.cost.overrides : [],
