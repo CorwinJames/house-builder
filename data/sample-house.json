@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "id": "sample-house",
   "name": "Sample house",
   "description": "Sophie's one-story sample: about 3,600 sq ft, 76 ft east-west by 47 ft north-south (a golden-ratio footprint). Rammed earth on the south, hempcrete on the north, east, and west. Living, kitchen, and office face south. Bedrooms sit on the east. Baths, laundry, and the garage sit on the north. A shaded patio is on the west. Phase 1 is a four-room core inside that footprint. Later rooms are future wings.",
@@ -8,7 +8,7 @@
   "units": "feet",
   "location": {
     "name": "Jefferson County, Washington",
-    "note": "The parcel, setbacks, and terrain are not in this stage."
+    "note": "The lot in this file is a sample rectangle, not a Jefferson County parcel."
   },
   "orientation": {
     "xAxis": "east",
@@ -2137,5 +2137,55 @@
       "y": 0
     },
     "note": "Phase 1 starter. Bathroom fixtures share the bath's east partition. The kitchen sink is on the nearest interior wall, because the kitchen and bath do not share a wall. The building drain ties those wet walls to a septic stub at the south edge."
+  },
+  "site": {
+    "sample": true,
+    "label": "Sample parcel · not a real lot",
+    "parcel": {
+      "ring": [
+        { "x": -160, "y": -80 },
+        { "x": 340, "y": -80 },
+        { "x": 340, "y": 355.6 },
+        { "x": -160, "y": 355.6 }
+      ],
+      "source": "sample",
+      "note": "500 ft by 435.6 ft, 5.00 acres. Not from Jefferson County GIS."
+    },
+    "zone": {
+      "district": "RR 1:5",
+      "roadClass": "local-access",
+      "frontFt": 20,
+      "sideFt": 5,
+      "rearFt": 5,
+      "assumed": true
+    },
+    "terrain": {
+      "source": "sample",
+      "note": "Sample slope, 0.025 ft per ft uphill to the north. Not a USGS 3DEP or WA DNR lidar surface.",
+      "contourFt": 2,
+      "plane": { "base": 100, "east": 0, "north": 0.025 }
+    },
+    "soil": {
+      "mapUnitName": null,
+      "note": "Not a Web Soil Survey map unit. Import a parcel to query NRCS."
+    },
+    "well": { "id": "well-1", "kind": "drilled", "x": 240, "y": 300 },
+    "septic": {
+      "id": "septic-1",
+      "kind": "gravity",
+      "tank": { "x": 32, "y": -18 },
+      "drainfield": { "x": 20, "y": -55, "width": 60, "depth": 30 },
+      "reserve": { "x": 90, "y": -55, "width": 60, "depth": 30 },
+      "loadingRate": 0.2,
+      "loadingConfirm": true
+    },
+    "driveway": {
+      "placeholder": true,
+      "points": [{ "x": 36, "y": -80 }, { "x": 36, "y": 1 }]
+    },
+    "power": {
+      "placeholder": true,
+      "points": [{ "x": -160, "y": 19.5 }, { "x": 40, "y": 19.5 }]
+    }
   }
 }

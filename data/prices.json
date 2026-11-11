@@ -1308,6 +1308,71 @@
       "url": "https://www.homedepot.com/p/Square-D-Homeline-50-Amp-2-Pole-Circuit-Breaker-3-Pack-HOM250CP3/305089460",
       "dateChecked": "2026-11-11",
       "note": "3-pack is $52.41, which is $17.47 a breaker."
+    },
+    {
+      "id": "well-drilled",
+      "name": "Drilled well",
+      "category": "site",
+      "kind": "material",
+      "unit": "each",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "No published Jefferson County drilling price was found. The well still connects to the water entry and the well-pump circuit."
+    },
+    {
+      "id": "well-shared",
+      "name": "Shared well",
+      "category": "site",
+      "kind": "material",
+      "unit": "each",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "No published share or hookup price was found."
+    },
+    {
+      "id": "septic-tank",
+      "name": "Sewage tank",
+      "category": "site",
+      "kind": "material",
+      "unit": "each",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "No published tank price was found."
+    },
+    {
+      "id": "drainfield",
+      "name": "Drainfield and reserve",
+      "category": "site",
+      "kind": "material",
+      "unit": "square foot",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "Area comes from the design flow and the loading rate. No published install price was found."
+    },
+    {
+      "id": "grading",
+      "name": "Pad cut and fill",
+      "category": "site",
+      "kind": "material",
+      "unit": "cubic yard",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "Quantity is the terrain estimate. No published excavation price was found."
     }
   ]
 }

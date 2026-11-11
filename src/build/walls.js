@@ -25,7 +25,7 @@ export function withHeader(opening) {
 /** Fill assembly ids and headers on a house that was saved before Stage 2. */
 export function decorateHouse(house) {
   const next = cloneHouse(house);
-  next.schemaVersion = Math.max(5, next.schemaVersion || 2);
+  next.schemaVersion = Math.max(6, next.schemaVersion || 2);
   next.electrical = {
     ...(next.electrical || {}),
     panel: next.electrical?.panel ?? null,

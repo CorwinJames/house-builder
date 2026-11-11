@@ -92,7 +92,7 @@ The sample footprint is 76 ft by 47 ft, very close to a golden rectangle. The pl
 - **3D** lets you walk around the model. Drag to turn it. Scroll or pinch to move closer. **Reset view** puts the camera back. The roof is a placeholder shape so you can see the idea of a Chinese hip-and-gable. It is not a real roof design.
 - **Split** shows both on a laptop. On a phone, use **Plan** and **3D** one at a time.
 - **Phase 1** hides the later wings. **Full house** shows them when the Future wings layer is on.
-- **Layers** turn pieces on and off: framing, hempcrete and rammed earth, floor finishes, later wings, dimensions, room labels, electrical, and plumbing. Site is listed for later. It has nothing to show yet.
+- **Layers** turn pieces on and off: framing, hempcrete and rammed earth, floor finishes, later wings, dimensions, room labels, electrical, plumbing, and site. Site shows the sample lot, setbacks, contours, the well, and the septic field. The lot is labeled as a sample, not a real parcel. File → Import parcel JSON can bring in a file from `scripts/fetch-parcel.mjs`.
 - The app remembers your pan, zoom, camera, layers, and phase on this browser. Google sign-in is optional and only stores the house file you save to Drive.
 
 South walls are rammed earth (the banded reddish walls). The other outside walls are hempcrete. Inside walls are wood framing.

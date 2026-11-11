@@ -8,7 +8,7 @@ function defaultLayers() {
 
 export function defaultViewState() {
   return {
-    version: 1,
+    version: 2,
     view: "split",
     phase: "full",
     layers: defaultLayers(),
@@ -27,7 +27,11 @@ export function loadViewState() {
     return {
       ...base,
       ...parsed,
-      layers: { ...base.layers, ...(parsed.layers || {}) },
+      layers: {
+        ...base.layers,
+        ...(parsed.layers || {}),
+        ...(parsed.version === 2 ? {} : { site: true }),
+      },
     };
   } catch {
     return base;

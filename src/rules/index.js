@@ -1,12 +1,13 @@
 import { pointAlong } from "../lib/geom.js";
 import { geometryWarnings } from "./geometry.js";
 import { applyFix, codeWarnings } from "./code.js";
+import { siteWarnings } from "./site.js";
 
 /**
  * One list of warnings. Geometry checks and code rules both return findings.
  * A code finding carries title, why, severity, citation, and an optional fix.
  */
-const rules = [geometryWarnings, codeWarnings];
+const rules = [geometryWarnings, codeWarnings, siteWarnings];
 
 export function registerRule(rule) {
   rules.push(rule);

@@ -18,7 +18,7 @@ if (!validate(house)) {
   }
 }
 
-if (house.schemaVersion !== 5) fail("sample schemaVersion must be 5");
+if (house.schemaVersion !== 6) fail("sample schemaVersion must be 6");
 if (!(house.plumbing?.fixtures || []).some((item) => item.phase === "phase1" && !item.ghost)) {
   fail("sample needs a phase 1 plumbing layout");
 }

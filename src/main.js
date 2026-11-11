@@ -11,6 +11,7 @@ import { attachEditor } from "./ui/editor.js";
 import { attachAccount } from "./ui/account.js";
 import { attachCosts } from "./ui/costs.js";
 import { attachWarnings } from "./ui/warnings.js";
+import { siteCardHtml } from "./ui/sitePanel.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -65,12 +66,14 @@ app.innerHTML = `
             <button type="button" id="export-materials-csv">Export materials CSV</button>
             <button type="button" id="export-materials-json">Export materials JSON</button>
             <button type="button" id="import-json">Import JSON</button>
+            <button type="button" id="import-site">Import parcel JSON</button>
             <button type="button" id="reset-sample">Reset to sample</button>
           </div>
         </details>
         <button type="button" id="save-status" class="save-status" hidden></button>
         <div id="account" class="account"></div>
         <input id="import-file" type="file" accept="application/json,.json" hidden />
+        <input id="import-site-file" type="file" accept="application/json,.json" hidden />
       </div>
     </header>
     <div class="workspace">
@@ -97,6 +100,7 @@ app.innerHTML = `
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
           <canvas id="plan-canvas"></canvas>
+          <div id="site-card" class="site-card" hidden></div>
           <div class="hud">
             <span>Plan · north up</span>
             <button type="button" id="fit-plan">Fit</button>
@@ -280,6 +284,19 @@ function publish() {
   model.setState(state);
   costs?.paint();
   warningsUi?.paint();
+  const siteCard = document.querySelector("#site-card");
+  if (siteCard && editor) {
+    const show = state.layers.site !== false;
+    const html = show ? siteCardHtml(editor.house()) : "";
+    siteCard.hidden = !html;
+    if (html && siteCard.dataset.html !== html) {
+      const open = siteCard.querySelector("details")?.open;
+      siteCard.innerHTML = html;
+      siteCard.dataset.html = html;
+      const details = siteCard.querySelector("details");
+      if (details && open) details.open = true;
+    }
+  }
   requestAnimationFrame(() => {
     plan.resize();
     model.resize();
@@ -331,6 +348,21 @@ document.querySelector("#hint-ok").addEventListener("click", () => {
   publish();
 });
 document.querySelector("#fit-plan").addEventListener("click", () => plan.fit());
+document.querySelector("#import-site").addEventListener("click", () => {
+  document.querySelector("#import-site-file").click();
+});
+document.querySelector("#import-site-file").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const site = parsed.site || parsed;
+    if (!editor.applySite(site)) return;
+  } catch {
+    // A bad parcel file leaves the current lot in place.
+  }
+});
 document.querySelector("#reset-3d").addEventListener("click", () => model.resetCamera());
 
 document.addEventListener("keydown", (event) => {

@@ -2,7 +2,7 @@
  * Layer registry shared by the plan and the 3D view.
  *
  * To add a layer, see "How to add a new layer" in AGENTS.md.
- * Site still has a toggle and an empty draw group.
+ * Site draws the parcel, setbacks, contours, well, and septic.
  * Electrical draws circuits. Plumbing draws supply and drains.
  */
 export const LAYER_DEFS = [
@@ -14,7 +14,7 @@ export const LAYER_DEFS = [
   { id: "labels", label: "Labels", stub: false },
   { id: "electrical", label: "Electrical", stub: false },
   { id: "plumbing", label: "Plumbing", stub: false },
-  { id: "site", label: "Site", stub: true },
+  { id: "site", label: "Site", stub: false },
 ];
 
 export const LAYER_IDS = LAYER_DEFS.map((layer) => layer.id);

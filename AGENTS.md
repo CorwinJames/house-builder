@@ -8,7 +8,7 @@ This applies to every assistant that touches the repo: Grok Build, Claude, Curso
 
 A personal, static house planner for James Corwin and his wife Sophie. They are designing one hempcrete house in Jefferson County, Washington. It is not a general CAD product. Features get added as they experiment.
 
-The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Stage 4 prices the list from cited sources. Stage 5 places electrical devices and routes circuits. Stage 6 places fixtures and routes supply and drain piping. Stage 7 checks the drawing against cited code rules. Assembly thicknesses are still placeholders with no invented code citations.
+The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Stage 4 prices the list from cited sources. Stage 5 places electrical devices and routes circuits. Stage 6 places fixtures and routes supply and drain piping. Stage 7 checks the drawing against cited code rules. Stage 8 makes the parcel the level: setbacks, a well, a septic field, and a pad. Assembly thicknesses are still placeholders with no invented code citations.
 
 There is no server. The site is a static build deployed to GitHub Pages.
 
@@ -24,8 +24,8 @@ There is no server. The site is a static build deployed to GitHub Pages.
 | 4 | Live cost and a shoppable materials list | **Done** |
 | 5 | Electrical placement and routing | **Done** |
 | 6 | Plumbing | **Done** |
-| 7 | Code-rule warnings | Not started |
-| 8 | The parcel as the level: terrain, buildable area, pad, grading | Not started |
+| 7 | Code-rule warnings | **Done** |
+| 8 | The parcel as the level: terrain, buildable area, pad, grading | **Done** |
 | 9 | Permits and a build timeline | Not started |
 | 10 | Sunlight and airflow | Not started |
 | 11 | Blueprint set | Not started |
@@ -52,7 +52,7 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/rules/` is the warning list. Geometry checks and the code rules both come out of `evaluateRules`. The header badge, the list, and the plan markers read that one list.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.
 - `data/assemblies.json` defines wall types. `data/headers.json` is the placeholder header table. `data/opening-catalog.json` is the door and window palette.
-- `schemas/house.schema.json` is the contract for the house file. Schema versions 2, 3, and 4 still open. The app writes version 5, which adds an optional `plumbing` block. Version 4 added optional electrical devices. Version 3 added an optional `cost` block. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
+- `schemas/house.schema.json` is the contract for the house file. Schema versions 2 through 5 still open. The app writes version 6, which adds an optional `site` block. Version 5 added plumbing. Version 4 added electrical. Version 3 added cost. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
 - `src/cost/` turns geometry into quantities and applies `data/prices.json`. `src/ui/costs.js` is the header total and the materials panel. Electrical quantities come from `src/electrical/`. Plumbing quantities come from `src/plumbing/`.
 - `src/electrical/design.js` places devices, suggests receptacles, groups circuits, routes them, and builds the electrical rows. The plan draws those routes when the Electrical layer is on.
 - `src/plumbing/design.js` places fixtures, suggests a bathroom or kitchen layout, routes supply and DWV, and builds the plumbing rows. The plan draws those routes when the Plumbing layer is on. Labels wait for hover or selection.
@@ -60,7 +60,7 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 
 The phase toggle and the Future wings layer both gate later rooms. Phase 1 only hides future geometry even if the layer is on. Full house hides it when the layer is off. See `src/render/visibility.js`.
 
-Site is a real toggle with an empty draw group. Leave it empty until that stage. The Electrical layer draws devices and circuit routes. The Plumbing layer draws fixtures, supply, and drains.
+The Site layer draws the parcel, setbacks, contours, the well, and the septic field. `scripts/fetch-parcel.mjs` can pull a Jefferson County lot by parcel number or address. The sample lot is a labeled 5 acre rectangle, not a real parcel. The Electrical layer draws devices and circuit routes. The Plumbing layer draws fixtures, supply, and drains.
 
 ## Data model
 
