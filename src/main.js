@@ -71,10 +71,14 @@ app.innerHTML = `
     </header>
     <div class="workspace">
       <aside class="layer-panel" id="layer-panel">
-        <div id="inspector" class="inspector" hidden></div>
-        <div class="panel-head">
-          <h2>Layers</h2>
+        <div class="sheet-bar">
           <button type="button" class="icon-btn" id="layers-close" aria-label="Close layers">Close</button>
+        </div>
+        <div id="inspector" class="inspector" hidden></div>
+        <details id="layer-fold" class="layer-fold" open>
+        <summary>Layers</summary>
+        <div class="panel-head">
+          <h2 class="layers-title">Layers</h2>
         </div>
         <div class="layer-list" id="layer-list"></div>
         <div class="legend">
@@ -84,6 +88,7 @@ app.innerHTML = `
           <div class="swatch-row"><span class="swatch frame"></span> Wood framing, interior walls</div>
           <div class="swatch-row"><span class="swatch later"></span> Later wings, dashed</div>
         </div>
+        </details>
       </aside>
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
@@ -281,6 +286,12 @@ layerList.addEventListener("click", (event) => {
   publish();
 });
 
+document.addEventListener("house-selection", (event) => {
+  if (event.detail.showing && !wide()) {
+    panelOpen = true;
+    syncControls();
+  }
+});
 document.querySelector("#layers-btn").addEventListener("click", () => {
   panelOpen = true;
   syncControls();
