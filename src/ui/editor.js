@@ -40,6 +40,8 @@ import {
   laborAssumption as plumbingLabor,
   suggestPlacements as suggestFixtures,
 } from "../plumbing/design.js";
+import { hitSite, placeSite } from "../site/design.js";
+import { siteInspectorHtml, siteOptionsHtml } from "./sitePanel.js";
 import {
   APPLIANCES,
   PLACE_OPTIONS,
@@ -66,6 +68,7 @@ const TOOLS = [
   { id: "window", label: "Window" },
   { id: "electrical", label: "Electrical" },
   { id: "plumbing", label: "Plumbing" },
+  { id: "site", label: "Site" },
   { id: "erase", label: "Delete" },
 ];
 
@@ -105,6 +108,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let deviceKind = "receptacle";
   let pumpSupply = "240";
   let fixtureKind = "kitchen-sink";
+  let siteKind = "well";
 
   const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
@@ -317,11 +321,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const electricalHit = hitElectrical(house, world, Math.max(1.1, reach));
     const plumbingHit = hitPlumbing(house, world, Math.max(1.1, reach));
+    const siteHit = hitSite(house, world, tool === "site" ? Math.max(8, reach * 3) : 1.6);
+    if (tool === "site" && siteHit) return siteHit;
     if (tool === "plumbing" && plumbingHit) return plumbingHit;
     if (tool === "electrical" && electricalHit) return electricalHit;
     if (plumbingHit && electricalHit) {
       return (plumbingHit.distance ?? 0) <= (electricalHit.distance ?? 0) ? plumbingHit : electricalHit;
     }
+    if (siteHit && (tool === "select" || tool === "site")) return siteHit;
     if (plumbingHit) return plumbingHit;
     if (electricalHit) return electricalHit;
     let bestWall = null;
@@ -404,6 +411,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         selection = { type: "device", id: device.id };
       }
       commit(next);
+      return true;
+    }
+    if (tool === "site") {
+      const placed = placeSite(house, world, siteKind);
+      selection = placed.selection;
+      commit(placed.house);
       return true;
     }
     if (tool === "plumbing") {
@@ -612,6 +625,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const next = cloneHouse(house);
       next.plumbing.entry = null;
       commit(next);
+    } else if (hit.type === "well") {
+      const next = cloneHouse(house);
+      next.site.well = null;
+      commit(next);
+    } else if (hit.type === "septic" || hit.type === "drainfield" || hit.type === "reserve") {
+      const next = cloneHouse(house);
+      next.site.septic = null;
+      commit(next);
     } else if (hit.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
     else if (hit.type === "opening") commit(deleteOpening(house, hit.id));
     else if (hit.type === "room") {
@@ -694,7 +715,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -706,6 +727,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "plumbing") {
       paintPlumbingOptions(box, pipeRates);
+      return;
+    }
+    if (tool === "site") {
+      box.innerHTML = siteOptionsHtml(siteKind);
+      box.querySelectorAll("[data-site]").forEach((button) => {
+        button.addEventListener("click", () => {
+          siteKind = button.dataset.site;
+          optionsKey = "";
+          publish();
+        });
+      });
       return;
     }
     if (tool === "wall" || tool === "room") {
@@ -1318,6 +1350,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         commit(next);
         publish();
       });
+    } else if (selection.type === "well" || selection.type === "septic" || selection.type === "drainfield" || selection.type === "reserve") {
+      inspector.innerHTML = siteInspectorHtml(house, selection);
+      inspector.querySelector("#well-kind")?.addEventListener("change", (event) => {
+        const next = cloneHouse(house);
+        next.site.well.kind = event.target.value;
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#septic-kind")?.addEventListener("change", (event) => {
+        const next = cloneHouse(house);
+        next.site.septic.kind = event.target.value;
+        commit(next);
+        publish();
+      });
+      inspector.querySelector("#edit-delete")?.addEventListener("click", eraseSelection);
     } else if (selection.type === "fixture" || selection.type === "entry") {
       paintFixtureInspector();
       syncSelectionLayout();
@@ -1447,6 +1494,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     commit(next);
   }
 
+  function applySite(site) {
+    if (!site?.parcel?.ring) return false;
+    const next = cloneHouse(house);
+    next.site = site;
+    commit(next);
+    return true;
+  }
+
   function setDesignName(name) {
     const trimmed = String(name || "").trim();
     if (!trimmed || trimmed === house.name) return;
@@ -1460,6 +1515,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     areas,
     mode: () => mode,
     loadHouse,
+    applySite,
     setDesignName,
     setCost,
     selection: () => selection,

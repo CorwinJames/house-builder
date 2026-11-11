@@ -579,6 +579,25 @@ button:focus-visible {
 
 .hud button { pointer-events: auto; min-height: 32px; padding: 4px 10px; }
 
+.site-card {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  width: min(260px, calc(100% - 20px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(247, 243, 235, 0.94);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-size: 0.82rem;
+}
+.site-card p { margin: 0 0 4px; }
+.site-kicker { color: var(--muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+.site-title { font-family: Fraunces, Palatino, Georgia, serif; font-size: 1.15rem; }
+.site-card details { margin-top: 4px; }
+.site-card summary { cursor: pointer; font-weight: 700; }
+
 .build-hud {
   position: absolute;
   z-index: 4;

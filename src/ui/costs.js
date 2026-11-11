@@ -10,6 +10,7 @@ const GROUPS = [
   ["finishes", "Finishes"],
   ["electrical", "Electrical"],
   ["plumbing", "Plumbing"],
+  ["site", "Site"],
   ["labor", "Labor"],
   ["allowances", "Allowances, not in the total"],
 ];

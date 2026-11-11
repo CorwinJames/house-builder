@@ -1,5 +1,13 @@
 # Changelog
 
+## Stage 8 — land
+
+The Site layer is on. The sample is a labeled 5 acre rectangle, not a real Jefferson County parcel. The plan shows the lot, road and side setbacks, a buildable area, contour lines, a well, a septic tank, a drainfield, and a reserve area. A card on the plan gives the acreage, the soil line, the gravity check, and the pad cut and fill.
+
+Build mode has a Site tool for the well, tank, field, and reserve. The well panel offers a drilled well, a shared well, or public water, and it ties to the water entry and the well-pump circuit. The septic panel offers gravity, pressure, or a mound, and it checks the building-drain drop against the ground slope. Costs for the well, tank, field, and grading say price needed. A helper script can import a real parcel, an elevation, and a soil name. Driveway and power lines are dashed placeholders.
+
+A house outside the setback, or a well too close to the field, shows up in the code check list.
+
 ## Stage 7 — code rules and warnings
 
 The header has a count of the code checks still open. Open it for a short list grouped into blockers, warnings, and tips. Click a row to zoom the plan to that spot and read the one-sentence reason and the code section. A fix button changes the drawing when the edit is safe. Otherwise the row says Show me. Colored dots on the plan mark the same spots.

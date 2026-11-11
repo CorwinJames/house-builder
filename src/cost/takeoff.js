@@ -2,6 +2,7 @@ import assumptions from "../../data/cost-assumptions.json" with { type: "json" }
 import { assemblyById } from "../build/catalog.js";
 import { electricalBom } from "../electrical/design.js";
 import { plumbingBom } from "../plumbing/design.js";
+import { siteBom } from "../site/design.js";
 import { openingsFor, polygonArea, wallLength } from "../lib/geom.js";
 
 const wasteById = Object.fromEntries(assumptions.waste.map((item) => [item.id, item.factor]));
@@ -280,6 +281,7 @@ export function takeoff(house, options = {}) {
     }
     rows.push(...electricalBom(house, options.phase || "full"));
     rows.push(...plumbingBom(house, options.phase || "full"));
+    rows.push(...siteBom(house));
   }
 
   return rows;

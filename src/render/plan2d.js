@@ -20,6 +20,7 @@ import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
+import { buildSite, SETBACKS } from "../site/design.js";
 
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
@@ -74,14 +75,22 @@ export function createPlanView(canvas, initialHouse) {
     const { w, h } = size();
     if (w < 20 || h < 20) return;
     const future = state ? isFutureShown(state) : true;
-    const bounds = future
-      ? { x0: -12, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 6 }
-      : {
-          x0: house.phases.phase1.bounds.x0 - 10,
-          y0: house.phases.phase1.bounds.y0 - 8,
-          x1: house.phases.phase1.bounds.x1 + 6,
-          y1: house.phases.phase1.bounds.y1 + 6,
-        };
+    const siteView = state?.layers?.site !== false ? buildSite(house) : null;
+    const bounds = siteView?.bounds
+      ? {
+          x0: siteView.bounds.x0 - 20,
+          y0: siteView.bounds.y0 - 20,
+          x1: siteView.bounds.x1 + 20,
+          y1: siteView.bounds.y1 + 20,
+        }
+      : future
+        ? { x0: -12, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 6 }
+        : {
+            x0: house.phases.phase1.bounds.x0 - 10,
+            y0: house.phases.phase1.bounds.y0 - 8,
+            x1: house.phases.phase1.bounds.x1 + 6,
+            y1: house.phases.phase1.bounds.y1 + 6,
+          };
     camera.cx = (bounds.x0 + bounds.x1) / 2;
     camera.cy = (bounds.y0 + bounds.y1) / 2;
     camera.pxPerFt = Math.max(
@@ -143,6 +152,145 @@ export function createPlanView(canvas, initialHouse) {
     ctx.save();
     if (camera.pxPerFt >= 9) strokeLines(1, "rgba(90, 70, 40, 0.07)", 5);
     strokeLines(5, "rgba(90, 70, 40, 0.18)", 0);
+    ctx.restore();
+  }
+
+  function siteOn() {
+    return state?.layers?.site !== false && !!house.site?.parcel;
+  }
+
+  function drawRing(ring) {
+    if (!ring?.length) return;
+    ctx.beginPath();
+    ring.forEach((point, index) => {
+      const screen = worldToScreen(point.x, point.y);
+      if (index === 0) ctx.moveTo(screen.x, screen.y);
+      else ctx.lineTo(screen.x, screen.y);
+    });
+    ctx.closePath();
+  }
+
+  function drawSiteGround() {
+    if (!siteOn()) return;
+    const view = buildSite(house);
+    if (!view) return;
+    ctx.save();
+    drawRing(view.ring);
+    ctx.fillStyle = "rgba(214, 196, 166, 0.55)";
+    ctx.fill();
+    drawRing(view.buildable);
+    ctx.fillStyle = "rgba(47, 93, 69, 0.14)";
+    ctx.fill();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "#2F5D45";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(122, 96, 64, 0.45)";
+    ctx.lineWidth = 1;
+    for (const line of view.contours) {
+      const a = worldToScreen(line[0].x, line[0].y);
+      const b = worldToScreen(line[1].x, line[1].y);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#6B4A2A";
+    ctx.lineWidth = 2;
+    drawRing(view.ring);
+    ctx.stroke();
+    const front = view.ring.slice().sort((a, b) => a.y - b.y)[0];
+    const label = worldToScreen(front.x + 30, front.y + (SETBACKS.zone.frontLocalFt / 2));
+    ctx.fillStyle = "#6B4A2A";
+    ctx.font = "600 12px Outfit, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`${house.site.zone?.frontFt || 20} ft road`, label.x, label.y);
+    ctx.restore();
+  }
+
+  function drawSitePieces() {
+    if (!siteOn()) return;
+    const site = house.site;
+    ctx.save();
+    const path = (points) => {
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const screen = worldToScreen(point.x, point.y);
+        if (index === 0) ctx.moveTo(screen.x, screen.y);
+        else ctx.lineTo(screen.x, screen.y);
+      });
+    };
+    if (site.driveway?.points?.length > 1) {
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = "#8A5A12";
+      ctx.lineWidth = 3;
+      path(site.driveway.points);
+      ctx.stroke();
+    }
+    if (site.power?.points?.length > 1) {
+      ctx.setLineDash([2, 6]);
+      ctx.strokeStyle = "#3D4C7A";
+      ctx.lineWidth = 2;
+      path(site.power.points);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    const hatch = (rect, dashed) => {
+      if (!rect) return;
+      drawRing([
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.width, y: rect.y },
+        { x: rect.x + rect.width, y: rect.y + rect.depth },
+        { x: rect.x, y: rect.y + rect.depth },
+      ]);
+      ctx.fillStyle = dashed ? "rgba(90, 122, 90, 0.18)" : "rgba(90, 122, 70, 0.35)";
+      ctx.fill();
+      ctx.setLineDash(dashed ? [4, 4] : []);
+      ctx.strokeStyle = "#2F5D45";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    hatch(site.septic?.drainfield, false);
+    hatch(site.septic?.reserve, true);
+    if (site.septic?.tank) {
+      const tank = worldToScreen(site.septic.tank.x, site.septic.tank.y);
+      ctx.fillStyle = "#2F5D45";
+      ctx.beginPath();
+      ctx.arc(tank.x, tank.y, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#F7F3EB";
+      ctx.font = "700 10px Outfit, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("S", tank.x, tank.y + 0.5);
+    }
+    if (site.well) {
+      const well = worldToScreen(site.well.x, site.well.y);
+      ctx.strokeStyle = "rgba(31, 111, 139, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(well.x, well.y, (SETBACKS.well.drainfieldFt) * (camera.pxPerFt || 8), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#1F6F8B";
+      ctx.beginPath();
+      ctx.arc(well.x, well.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#F7F3EB";
+      ctx.font = "700 11px Outfit, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("W", well.x, well.y + 0.5);
+      if (house.plumbing?.entry) {
+        const entry = worldToScreen(house.plumbing.entry.x, house.plumbing.entry.y);
+        ctx.strokeStyle = "#1F6F8B";
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(well.x, well.y);
+        ctx.lineTo(entry.x, entry.y);
+        ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 
@@ -491,6 +639,7 @@ export function createPlanView(canvas, initialHouse) {
     ctx.fillStyle = "#F3EBDD";
     ctx.fillRect(0, 0, w, h);
     drawGrid();
+    drawSiteGround();
     drawRooms();
     for (const wall of house.walls) {
       if (wallVisible(wall)) drawWall(wall);
@@ -506,6 +655,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     drawElectrical();
     drawPlumbing();
+    drawSitePieces();
     drawOverlay();
     drawDimensions();
     drawLabels();
