@@ -685,6 +685,32 @@
       "note": "No published product price was recorded for this line. It stays out of the total."
     },
     {
+      "id": "raceway",
+      "name": "Surface raceway",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "foot",
+      "amount": null,
+      "sourceType": "assumption",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "No published product price was recorded for this line. It stays out of the total."
+    },
+    {
+      "id": "raceway-fitting",
+      "name": "Surface raceway fitting",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "each",
+      "amount": null,
+      "sourceType": "assumption",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-11",
+      "note": "No published product price was recorded for this line. It stays out of the total."
+    },
+    {
       "id": "electrical-permit",
       "name": "Washington L&I electrical permit",
       "category": "electrical",

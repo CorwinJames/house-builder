@@ -1,5 +1,5 @@
-import { costReport, formatMoney, materialsCsv, materialsDocument } from "../cost/list.js";
-import { buildElectrical } from "../electrical/design.js";
+import { costReport, effectiveRecord, formatMoney, materialsCsv, materialsDocument } from "../cost/list.js";
+import { BRANCH_DROP_PERCENT, RULES, buildElectrical, deviceShare, wallMethod } from "../electrical/design.js";
 
 const GROUPS = [
   ["hempcrete", "Hempcrete"],
@@ -88,6 +88,76 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
   return { paint };
 }
 
+const WIRE_METHODS = [
+  ["stud-bay", "Stud bay"],
+  ["conduit", "Conduit in the wall"],
+  ["raceway", "Surface raceway"],
+];
+
+function priceTakeoffRows(house, rows) {
+  const overrides = house.cost?.overrides || [];
+  return rows.map((row) => {
+    const record = effectiveRecord(row.wageId || row.id, overrides);
+    const unitPrice = record ? record.amount : null;
+    const priceNeeded = typeof unitPrice !== "number";
+    const lineTotal = priceNeeded ? null : Math.round(row.quantity * unitPrice * 100) / 100;
+    return {
+      ...row,
+      name: row.kind === "labor" ? "Electrical labor" : (record?.name || row.id),
+      unitPrice: priceNeeded ? null : unitPrice,
+      lineTotal,
+      priceNeeded,
+      sourceName: record?.sourceName || "Price needed",
+      url: record?.url || "",
+    };
+  });
+}
+
+function summarizeRows(lines) {
+  const pricedTotal = Math.round(lines.filter((line) => !line.priceNeeded).reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+  const unpricedCount = lines.filter((line) => line.priceNeeded).length;
+  return { lines, pricedTotal, unpricedCount };
+}
+
+function wallCost(house, wallId) {
+  const design = buildElectrical(house, { phase: "full" });
+  const rows = design.devices
+    .filter((device) => device.wallId === wallId)
+    .flatMap((device) => deviceShare(house, device.id));
+  return summarizeRows(priceTakeoffRows(house, rows));
+}
+
+function methodDiff(base, alt) {
+  if (!base || !alt) return "";
+  const delta = Math.round((alt.pricedTotal - base.pricedTotal) * 100) / 100;
+  const money = delta === 0 ? "same priced total" : `${delta > 0 ? "+" : "−"}${formatMoney(Math.abs(delta))} priced`;
+  const unpriced = alt.unpricedCount - base.unpricedCount;
+  const extra = unpriced > 0 ? " · more price-needed lines" : unpriced < 0 ? " · fewer price-needed lines" : "";
+  return `${money}${extra}`;
+}
+
+export function deviceCostHtml(house, device) {
+  const own = summarizeRows(priceTakeoffRows(house, deviceShare(house, device.id)));
+  const wall = (house.walls || []).find((item) => item.id === device.wallId);
+  const methods = wall ? WIRE_METHODS.map(([id, label]) => {
+    const next = JSON.parse(JSON.stringify(house));
+    next.electrical.wallMethods = { ...(next.electrical.wallMethods || {}), [wall.id]: id };
+    return { id, label, report: wallCost(next, wall.id) };
+  }) : [];
+  const currentId = wall ? wallMethod(house, wall) : "";
+  const current = methods.find((item) => item.id === currentId)?.report;
+  const choices = methods.map((item) => `
+    <button type="button" class="method-choice" data-method="${item.id}" aria-pressed="${item.id === currentId}">
+      <span>${escapeHtml(item.label)}</span>
+      <span class="fine">${item.id === currentId ? "This wall now" : escapeHtml(`For this wall, ${methodDiff(current, item.report)}`)}</span>
+    </button>`).join("");
+  return `
+    <h3>How this wall can be wired</h3>
+    ${wall ? `<div class="method-list">${choices}</div><p class="fine">Choosing one sets it for the whole wall. Hempcrete and rammed earth default to conduit so the cable is not buried in the mass. Surface raceway is the other way to stay out of that mass. Both need an electrician and the inspector to confirm.</p>` : `<p class="fine">This one is not on a wall, so the run is treated as ceiling or attic cable.</p>`}
+    <h3>This device</h3>
+    ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this device · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this device.</p>`}`;
+}
+
 export function selectionCostHtml(house, selection) {
   if (!selection || (selection.type !== "wall" && selection.type !== "room")) return "";
   const report = costReport(house, {
@@ -109,7 +179,7 @@ function loadHtml(house, phase) {
   }
   const spaces = design.circuits.reduce((sum, circuit) => sum + circuit.breakerPoles, 0);
   const steps = load.steps.map((step) => `<li><strong>${escapeHtml(step.label)}</strong> ${escapeHtml(step.detail)} · ${step.va.toLocaleString()} VA<p class="fine">${escapeHtml(step.section)}</p></li>`).join("");
-  const circuits = design.circuits.map((circuit) => `<li>Circuit ${circuit.number} ${escapeHtml(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.volts} V drop (${circuit.voltageDrop.percent}%)${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</li>`).join("");
+  const circuits = design.circuits.map((circuit) => `<li${circuit.voltageDrop.percent > BRANCH_DROP_PERCENT ? ` class="warn-line"` : ""}>Circuit ${circuit.number} ${escapeHtml(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.volts} V drop (${circuit.voltageDrop.percent}%)${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}${circuit.voltageDrop.percent > BRANCH_DROP_PERCENT ? `. Over 3% branch-circuit guidance (${escapeHtml(RULES.voltageDrop.section)}).` : ""}</li>`).join("");
   const gaps = (design.gaps || []).map((gap) => `<li class="warn-line">${escapeHtml(gap.message)} ${escapeHtml(gap.section)}. <a href="${escapeAttr(gap.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></li>`).join("");
   return `<section>
     <h3>Service load</h3>
@@ -117,7 +187,7 @@ function loadHtml(house, phase) {
     <p class="fine">${escapeHtml(load.adoption)} <a href="${escapeAttr(load.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>
     <ol class="cost-lines">${steps}</ol>
     ${gaps ? `<ul class="cost-lines">${gaps}</ul>` : ""}
-    ${circuits ? `<h3>Circuits</h3><ul class="cost-lines">${circuits}</ul><p class="fine">Voltage drop is 2 × 12.9 × amps × feet to the far device ÷ circular mils, from NEC Chapter 9 Table 8 copper, and it assumes the whole circuit current goes that far. Confirm the table. The cable length includes a vertical drop at every device. Eight devices per general circuit is an assumption, not a code maximum. The route is Manhattan distance from the panel plus a vertical drop from a 10 ft plate.</p>` : ""}
+    ${circuits ? `<h3>Circuits</h3><ul class="cost-lines">${circuits}</ul><p class="fine">Voltage drop is 2 × 12.9 × amps × feet to the far device ÷ circular mils, from NEC Chapter 9 Table 8 copper, and it assumes the whole circuit current goes that far. Confirm the table. ${escapeHtml(RULES.voltageDrop.section)} recommends 3% on the branch and 5% with the feeder. It is guidance. The cable length includes a vertical drop at every device. Circuits are split to stay near that 3% when they can. Eight devices per circuit is still the assumed cap, not a code maximum.</p>` : ""}
   </section>`;
 }
 

@@ -1324,10 +1324,10 @@
   "electrical": {
     "panel": {
       "id": "panel-main",
-      "wallId": "wall-n-p1",
-      "offset": 12,
-      "x": 34,
-      "y": 31.5,
+      "wallId": "wall-p1-h",
+      "offset": 17,
+      "x": 40,
+      "y": 19.5,
       "height": 5,
       "phase": "phase1"
     },

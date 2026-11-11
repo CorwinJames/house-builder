@@ -45,7 +45,17 @@ export const RULES = {
     url: "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70",
     adoptionUrl: "https://apps.leg.wa.gov/wac/default.aspx?cite=296-46B-010",
   },
+  voltageDrop: {
+    section: "NEC 210.19(A) Informational Note",
+    text: "Branch-circuit conductors sized so the drop stays within 3 percent at the farthest outlet, and so feeder plus branch stays within 5 percent, provide reasonable efficiency of operation. Guidance, not a mandatory rule.",
+    url: "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70",
+    adoption: "WAC 296-46B-010 adopts the 2023 NEC.",
+    adoptionUrl: "https://apps.leg.wa.gov/wac/default.aspx?cite=296-46B-010",
+  },
 };
+
+/** Branch-circuit guidance from NEC 210.19(A) Informational Note. Not a hard maximum. */
+export const BRANCH_DROP_PERCENT = 3;
 
 export const APPLIANCES = {
   range: { name: "Range", volts: 240, amps: 40, note: "NEC 210.19(A)(3): a household range of 8.75 kW or more needs at least 40A. Confirm the nameplate." },
@@ -409,6 +419,36 @@ function chunk(items, size) {
 }
 
 /**
+ * Keep each group under the 3 percent branch-circuit guidance when a panel is present.
+ * A device that is already over 3 percent on its own stays on its own circuit so the warning can show.
+ */
+function packByDrop(items, spec, origin, limit) {
+  const pool = [...items];
+  const groups = [];
+  const gauge = gaugeForAmps(spec.amps);
+  while (pool.length) {
+    pool.sort((a, b) => (Math.abs(a._x - origin.x) + Math.abs(a._y - origin.y)) - (Math.abs(b._x - origin.x) + Math.abs(b._y - origin.y)));
+    const group = [pool.shift()];
+    while (pool.length && group.length < limit) {
+      let best = 0;
+      let bestDrop = Infinity;
+      for (let i = 0; i < pool.length; i += 1) {
+        const trial = routeChain(origin, [...group, pool[i]]);
+        const drop = voltageDrop(spec.amps, trial.farthest, gauge, spec.volts).percent;
+        if (drop < bestDrop) {
+          bestDrop = drop;
+          best = i;
+        }
+      }
+      if (bestDrop > BRANCH_DROP_PERCENT) break;
+      group.push(pool.splice(best, 1)[0]);
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+/**
  * Group real (not ghost) devices into circuits and route each one from the panel.
  * devicesPerCircuit is an assumption, not a code maximum.
  */
@@ -458,31 +498,36 @@ export function buildElectrical(house, { phase = "full", devicesPerCircuit = 8 }
   const bath = rest.filter((item) => item.roomRole === "bath" && isReceptacle(item));
   const kitchen = rest.filter((item) => item.roomRole === "kitchen" && isReceptacle(item));
   const laundry = rest.filter((item) => item.roomRole === "laundry" && isReceptacle(item));
-  add({ name: "Bathroom", volts: 120, amps: 20, gfci: true, afci: false, dedicated: true }, bath);
-  const kitchenA = kitchen.filter((_, index) => index % 2 === 0);
-  const kitchenB = kitchen.filter((_, index) => index % 2 === 1);
-  add({ name: "Kitchen small-appliance A", volts: 120, amps: 20, gfci: true, afci: true, dedicated: true }, kitchenA);
-  add({ name: "Kitchen small-appliance B", volts: 120, amps: 20, gfci: true, afci: true, dedicated: true }, kitchenB);
-  add({ name: "Laundry", volts: 120, amps: 20, gfci: true, afci: false, dedicated: true }, laundry);
+  const groupDevices = (items, spec) => (panel ? packByDrop(items, spec, origin, limit) : chunk(items, limit));
+  const bathSpec = { name: "Bathroom", volts: 120, amps: 20, gfci: true, afci: false, dedicated: true };
+  groupDevices(bath, bathSpec).forEach((group, index, all) => add({
+    ...bathSpec,
+    name: all.length > 1 ? `Bathroom ${index + 1}` : "Bathroom",
+  }, group));
+  const kitchenSpec = { volts: 120, amps: 20, gfci: true, afci: true, dedicated: true };
+  groupDevices(kitchen, { ...kitchenSpec, name: "Kitchen" }).forEach((group, index) => add({
+    ...kitchenSpec,
+    name: `Kitchen small-appliance ${String.fromCharCode(65 + (index % 26))}`,
+  }, group));
+  const laundrySpec = { name: "Laundry", volts: 120, amps: 20, gfci: true, afci: false, dedicated: true };
+  groupDevices(laundry, laundrySpec).forEach((group, index, all) => add({
+    ...laundrySpec,
+    name: all.length > 1 ? `Laundry ${index + 1}` : "Laundry",
+  }, group));
   const dedicatedIds = new Set([...bath, ...kitchen, ...laundry].map((item) => item.id));
   const general = rest.filter((item) => !dedicatedIds.has(item.id));
   const lights = general.filter((item) => ["light", "wall-light", "fan", "smoke", "switch", "switch-3way"].includes(item.kind));
   const receptacles = general.filter((item) => !lights.includes(item));
-  chunk(receptacles, limit).forEach((group, index) => add({
+  const receptacleSpec = { volts: 120, amps: 20, afci: true, dedicated: false };
+  groupDevices(receptacles, { ...receptacleSpec, name: "Receptacles" }).forEach((group, index) => add({
+    ...receptacleSpec,
     name: `Receptacles ${index + 1}`,
-    volts: 120,
-    amps: 20,
     gfci: group.some((item) => item.kind === "gfci" || item.kind === "wr-receptacle" || item.roomRole === "outdoor"),
-    afci: true,
-    dedicated: false,
   }, group));
-  chunk(lights, limit).forEach((group, index) => add({
+  const lightSpec = { volts: 120, amps: 15, gfci: false, afci: true, dedicated: false };
+  groupDevices(lights, { ...lightSpec, name: "Lights" }).forEach((group, index) => add({
+    ...lightSpec,
     name: `Lights ${index + 1}`,
-    volts: 120,
-    amps: 15,
-    gfci: false,
-    afci: true,
-    dedicated: false,
   }, group));
 
   const rooms = (house.rooms || []).filter((room) => !room.outdoor && (phase === "full" || room.phase !== "future"));
@@ -567,28 +612,36 @@ export function electricalBom(house, phase = "full") {
   const wire = {};
   let conduit = 0;
   let fittings = 0;
+  let raceway = 0;
+  let racewayFittings = 0;
   let nmFeet = 0;
   for (const circuit of design.circuits) {
     const conductors = circuit.volts === 240 ? 3 : 2;
     const key = `${circuit.gauge}-${conductors}`;
     let dropNm = 0;
     let dropConduit = 0;
+    let dropRaceway = 0;
     let horizontal = 0;
     for (const segment of circuit.segments) {
       horizontal += segment.length;
       const device = design.devices.find((item) => item.id === segment.deviceId);
       const wall = (house.walls || []).find((item) => item.id === device?.wallId);
-      if (wall && wallMethod(house, wall) === "conduit") dropConduit += segment.drop || 0;
+      const method = wall ? wallMethod(house, wall) : "stud-bay";
+      if (method === "conduit") dropConduit += segment.drop || 0;
+      else if (method === "raceway") dropRaceway += segment.drop || 0;
       else dropNm += segment.drop || 0;
     }
     wire[key] = (wire[key] || 0) + horizontal + dropNm;
     nmFeet += horizontal + dropNm;
     conduit += dropConduit;
-    if (dropConduit > 0) fittings += circuit.segments.filter((segment) => {
+    raceway += dropRaceway;
+    for (const segment of circuit.segments) {
       const device = design.devices.find((item) => item.id === segment.deviceId);
       const wall = (house.walls || []).find((item) => item.id === device?.wallId);
-      return wall && wallMethod(house, wall) === "conduit";
-    }).length * 2;
+      const method = wall ? wallMethod(house, wall) : "stud-bay";
+      if (method === "conduit" && segment.drop) fittings += 2;
+      if (method === "raceway" && segment.drop) racewayFittings += 2;
+    }
   }
   const wireId = {
     "14-2": "nm-14-2",
@@ -646,6 +699,10 @@ export function electricalBom(house, phase = "full") {
     rows.push({ id: "emt-half", category: "electrical", quantity: round2(conduit), unit: "foot", kind: "material", basis: "Conduit is the default on hempcrete and rammed earth so the wire is not buried in the wall. Assumption: each vertical drop on those walls is 1/2 in. EMT, and the horizontal run stays NM. Needs electrician and inspector confirmation." });
     rows.push({ id: "emt-fitting", category: "electrical", quantity: fittings, unit: "each", kind: "material", basis: "Two fittings per conduit drop. Assumption." });
   }
+  if (raceway > 0) {
+    rows.push({ id: "raceway", category: "electrical", quantity: round2(raceway), unit: "foot", kind: "material", basis: "Surface raceway on the vertical drop, so the cable stays out of the wall. The horizontal run stays NM. Assumption. Needs electrician and inspector confirmation." });
+    rows.push({ id: "raceway-fitting", category: "electrical", quantity: racewayFittings, unit: "each", kind: "material", basis: "Two raceway fittings per drop. Assumption." });
+  }
   if (nmFeet > 0) {
     rows.push({ id: "nm-staple", category: "electrical", quantity: Math.ceil(nmFeet / 4.5), unit: "each", kind: "material", basis: "NEC 334.30 secures NM within 12 in. of a box and every 4.5 ft. One staple per 4.5 ft of NM is the count used here. Confirm the spacing." });
   }
@@ -659,17 +716,95 @@ export function electricalBom(house, phase = "full") {
   return rows.filter((row) => row.quantity > 0);
 }
 
-export function deviceWarnings(device) {
+export function deviceWarnings(device, circuit = null) {
+  const warnings = [];
   if ((device.roomRole === "bath" || device.roomRole === "kitchen" || device.roomRole === "outdoor") && device.kind === "receptacle") {
-    return [{
+    warnings.push({
       message: "This location needs GFCI protection.",
       section: "NEC 210.8(A)",
       url: "https://www.nfpa.org/codes-and-standards/nfpa-70-standard-development/70",
       adoption: "WAC 296-46B-010 adopts the 2023 NEC.",
       adoptionUrl: "https://apps.leg.wa.gov/wac/default.aspx?cite=296-46B-010",
-    }];
+    });
   }
-  return [];
+  if (circuit && circuit.voltageDrop.percent > BRANCH_DROP_PERCENT) {
+    warnings.push({
+      message: `Voltage drop is ${circuit.voltageDrop.percent}% at the far device. The informational note recommends 3% or less on the branch circuit, and 5% or less once the feeder is included.`,
+      section: RULES.voltageDrop.section,
+      url: RULES.voltageDrop.url,
+      adoption: RULES.voltageDrop.adoption,
+      adoptionUrl: RULES.voltageDrop.adoptionUrl,
+    });
+  }
+  return warnings;
+}
+
+const WIRE_IDS = {
+  "14-2": "nm-14-2",
+  "12-2": "nm-12-2",
+  "10-2": "nm-10-2",
+  "10-3": "nm-10-3",
+  "8-3": "nm-8-3",
+  "6-3": "nm-6-3",
+  "4-3": "nm-4-3",
+};
+
+const DEVICE_PRICE = {
+  receptacle: "device-receptacle",
+  gfci: "device-gfci",
+  "wr-receptacle": "device-wr",
+  switch: "device-switch",
+  "switch-3way": "device-switch-3way",
+  light: "device-light",
+  "wall-light": "device-light",
+  fan: "device-fan",
+  smoke: "device-smoke",
+  range: "device-range",
+  dryer: "device-dryer",
+  ev: "device-ev",
+  "water-heater": "device-water-heater",
+  "heat-pump": "device-heat-pump",
+  "well-pump": "device-well-pump",
+};
+
+/** This device's own parts: the device, box, plate, its cable, the drop material, and its labor. */
+export function deviceShare(house, deviceId) {
+  const design = buildElectrical(house, { phase: "full" });
+  const device = design.devices.find((item) => item.id === deviceId);
+  const circuit = design.circuits.find((item) => item.deviceIds.includes(deviceId));
+  if (!device || !circuit) return [];
+  const segment = circuit.segments.find((item) => item.deviceId === deviceId);
+  const horizontal = segment?.length || 0;
+  const drop = segment?.drop || 0;
+  const wall = (house.walls || []).find((item) => item.id === device.wallId);
+  const method = wall ? wallMethod(house, wall) : "stud-bay";
+  const nm = horizontal + (method === "conduit" || method === "raceway" ? 0 : drop);
+  const rows = [];
+  const conductors = circuit.volts === 240 ? 3 : 2;
+  const wireKey = `${circuit.gauge}-${conductors}`;
+  if (nm > 0) {
+    rows.push({ id: WIRE_IDS[wireKey] || `wire-${wireKey}`, category: "electrical", quantity: round2(nm), unit: "foot", kind: "material", basis: "This device's share of the cable: the run from the previous device, plus the vertical drop when that drop is NM." });
+  }
+  rows.push({ id: DEVICE_PRICE[device.kind] || `device-${device.kind}`, category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "This device." });
+  rows.push({ id: "device-box", category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "One box for this device. Assumption." });
+  rows.push({ id: "device-plate", category: "electrical", quantity: 1, unit: "each", kind: "material", basis: "One cover plate for this device. Assumption." });
+  if (method === "conduit" && drop > 0) {
+    rows.push({ id: "emt-half", category: "electrical", quantity: round2(drop), unit: "foot", kind: "material", basis: "Vertical drop in 1/2 in. EMT. Assumption." });
+    rows.push({ id: "emt-fitting", category: "electrical", quantity: 2, unit: "each", kind: "material", basis: "Two fittings on this drop. Assumption." });
+  }
+  if (method === "raceway" && drop > 0) {
+    rows.push({ id: "raceway", category: "electrical", quantity: round2(drop), unit: "foot", kind: "material", basis: "Vertical drop in surface raceway. Assumption." });
+    rows.push({ id: "raceway-fitting", category: "electrical", quantity: 2, unit: "each", kind: "material", basis: "Two raceway fittings on this drop. Assumption." });
+  }
+  if (nm > 0) {
+    rows.push({ id: "nm-staple", category: "electrical", quantity: Math.max(1, Math.ceil(nm / 4.5)), unit: "each", kind: "material", basis: "This device's NM, one staple per 4.5 ft. NEC 334.30. Assumption." });
+  }
+  const rates = laborAssumption(house);
+  const hours = round2(rates.perDevice + rates.perFoot * (horizontal + drop));
+  if (hours > 0) {
+    rows.push({ id: "electrical-labor", category: "labor", quantity: hours, unit: "hour", kind: "labor", wageId: "wage-electrician", basis: `This device's share: ${rates.perDevice} hour plus ${rates.perFoot} hour per foot of its cable. Assumption.` });
+  }
+  return rows;
 }
 
 function round2(value) {

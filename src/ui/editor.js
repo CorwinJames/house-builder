@@ -30,7 +30,7 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { polygonArea, wallLength } from "../lib/geom.js";
 import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
 import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
-import { selectionCostHtml } from "./costs.js";
+import { deviceCostHtml, selectionCostHtml } from "./costs.js";
 import {
   APPLIANCES,
   PLACE_OPTIONS,
@@ -952,7 +952,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const design = buildElectrical(house);
     const circuit = design.circuits.find((item) => item.deviceIds.includes(device.id));
-    const warningsForDevice = deviceWarnings(device);
+    const warningsForDevice = deviceWarnings(device, circuit);
     const groups = [...new Set(PLACE_OPTIONS.filter((item) => item.id !== "panel").map((item) => item.group))];
     const options = groups.map((group) => `<optgroup label="${group}">${PLACE_OPTIONS.filter((item) => item.group === group && item.id !== "panel").map((item) => `<option value="${item.id}" ${item.id === device.kind ? "selected" : ""}>${item.label}</option>`).join("")}</optgroup>`).join("");
     const spec = deviceSpec(device.kind, device.supply);
@@ -962,13 +962,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       ${device.ghost ? `<p>Ghost placement. Accept it or dismiss it. You can also place a device anywhere yourself.</p>
         <button type="button" id="accept-one">Accept</button>
         <button type="button" id="dismiss-one">Dismiss</button>` : ""}
+      ${circuit ? `<p>Circuit ${circuit.number} · ${escapeAttr(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}% drop${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</p>` : `<p class="fine">No circuit until this device is accepted.</p>`}
+      ${warningsForDevice.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}. <a href="${escapeAttr(item.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>`).join("")}
+      ${device.ghost ? "" : deviceCostHtml(house, device)}
       <label>Device <select id="device-kind">${options}</select></label>
       ${device.kind === "well-pump" ? `<label>Supply <select id="pump-supply"><option value="240" ${device.supply !== "120" ? "selected" : ""}>240V · 20A</option><option value="120" ${device.supply === "120" ? "selected" : ""}>120V · 20A</option></select></label>` : ""}
       <label>Height, feet <input id="device-height" type="number" min="0" max="12" step="0.25" value="${device.height}" /></label>
       <p class="fine">${escapeAttr(spec.note || "")}</p>
-      ${wall ? `<p class="fine">On ${escapeAttr(wall.id)}. Wiring method: ${escapeAttr(wallMethod(house, wall).replace("-", " "))}.</p>` : `<p class="fine">Not snapped to a wall. The run is treated as ceiling or attic.</p>`}
-      ${circuit ? `<p>Circuit ${circuit.number} · ${escapeAttr(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}% drop${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</p>` : `<p class="fine">No circuit until this device is accepted.</p>`}
-      ${warningsForDevice.map((item) => `<p class="warn-line">${escapeAttr(item.message)} ${escapeAttr(item.section)}. <a href="${escapeAttr(item.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>`).join("")}
       <button type="button" id="suggest-outlets">Suggest placements</button>
       <button type="button" id="edit-delete">Delete device</button>`;
     inspector.querySelector("#accept-one")?.addEventListener("click", () => acceptGhosts(device.id));
@@ -1002,6 +1002,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       publish();
     });
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+    inspector.querySelectorAll("[data-method]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (!device.wallId) return;
+        const next = cloneHouse(house);
+        next.electrical.wallMethods[device.wallId] = button.dataset.method;
+        commit(next);
+        publish();
+      });
+    });
   }
 
   function paintInspector() {
@@ -1042,9 +1051,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         </label>
         <label>Wiring method
           <select id="wire-method">
+            <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Stud bay</option>
             <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Conduit in the wall</option>
-            <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Along the studs and plates</option>
-            <option value="attic" ${wallMethod(house, wall) === "attic" ? "selected" : ""}>Ceiling or attic</option>
+            <option value="raceway" ${wallMethod(house, wall) === "raceway" ? "selected" : ""}>Surface raceway</option>
           </select>
         </label>
         <p class="fine">Hempcrete and rammed earth default to conduit so cable is not buried in the mass. That is an assumption. An electrician and the inspector need to confirm it.</p>

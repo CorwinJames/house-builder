@@ -10,7 +10,7 @@ Hempcrete and rammed-earth walls default to conduit so the cable is not buried i
 
 Wire, devices, boxes, breakers, the panel, staples, conduit, a ground rod, and the electrical permit are lines on the stage 4 materials list. Published prices are used where a product page was found. The rest say "price needed" and stay out of the total. Electrician hours use the Jefferson County inside-wireman rate from L&I, and the hours themselves are assumptions you can edit.
 
-The sample's phase 1 core has a starter layout. Older house files still open. The app saves them as schema version 4.
+The sample's phase 1 core has a starter layout. Its circuits are split so each one stays within 3 percent under the voltage-drop assumption. NEC 210.19(A) Informational Note is the citation, and a circuit you build past 3 percent shows that warning. Circuit labels appear when you point at a run or select a device, off the room names. Older house files still open. The app saves them as schema version 4.
 
 ## Stage 4 — live cost and materials list
 

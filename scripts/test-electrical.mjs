@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { costReport, priceProblems } from "../src/cost/list.js";
+import sample from "../data/sample-house.json" with { type: "json" };
 import {
+  BRANCH_DROP_PERCENT,
   buildElectrical,
   deviceFromClick,
+  deviceWarnings,
   gaugeForAmps,
   loadCalc,
   outletStations,
@@ -160,6 +163,38 @@ check("placing an outlet adds priced wire and changes the total", () => {
 
 check("new electrical prices keep a source, and unpriced lines have no invented amount", () => {
   assert.deepEqual(priceProblems(), []);
+});
+
+check("the sample phase 1 circuits stay within the 3 percent branch guidance", () => {
+  const design = buildElectrical(sample, { phase: "phase1" });
+  assert.ok(design.circuits.length > 1);
+  for (const circuit of design.circuits) {
+    assert.ok(circuit.voltageDrop.percent <= BRANCH_DROP_PERCENT, `${circuit.name} is ${circuit.voltageDrop.percent}%`);
+  }
+});
+
+check("a long branch circuit warns with the informational note", () => {
+  const house = {
+    walls: [],
+    rooms: [],
+    electrical: {
+      panel: { id: "panel", x: 0, y: 0, height: 5, phase: "phase1" },
+      devices: [{
+        id: "far",
+        kind: "receptacle",
+        volts: 120,
+        x: 80,
+        y: 0,
+        height: 1.5,
+        phase: "phase1",
+        roomRole: "general",
+      }],
+    },
+  };
+  const circuit = buildElectrical(house).circuits[0];
+  assert.ok(circuit.voltageDrop.percent > 3);
+  const warnings = deviceWarnings(house.electrical.devices[0], circuit);
+  assert.ok(warnings.some((item) => item.section === "NEC 210.19(A) Informational Note"));
 });
 
 if (failed) {
