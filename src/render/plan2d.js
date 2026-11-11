@@ -1238,6 +1238,8 @@ export function createPlanView(canvas, initialHouse) {
         ctx.restore();
       }
     }
+    if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
+    for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
     if (overlay.ghostOpening) {
       const ghost = overlay.ghostOpening;
       const wall = house.walls.find((item) => item.id === ghost.wallId);
@@ -1251,6 +1253,39 @@ export function createPlanView(canvas, initialHouse) {
         ctx.restore();
       }
     }
+  }
+
+  function drawPlaceGhost(ghost, suggested) {
+    const screen = worldToScreen(ghost.x, ghost.y);
+    ctx.save();
+    ctx.strokeStyle = suggested ? "#2F5D45" : "#1F6F8B";
+    ctx.fillStyle = suggested ? "rgba(47, 93, 69, 0.16)" : "rgba(31, 111, 139, 0.22)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    if (ghost.width && ghost.depth) {
+      const w = ghost.width * camera.pxPerFt;
+      const h = ghost.depth * camera.pxPerFt;
+      ctx.fillRect(screen.x - w / 2, screen.y - h / 2, w, h);
+      ctx.strokeRect(screen.x - w / 2, screen.y - h / 2, w, h);
+    } else {
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(screen.x - 18, screen.y);
+    ctx.lineTo(screen.x + 18, screen.y);
+    ctx.moveTo(screen.x, screen.y - 18);
+    ctx.lineTo(screen.x, screen.y + 18);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "700 12px Outfit, sans-serif";
+    ctx.fillStyle = "#1d3d2e";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(ghost.label || "", screen.x + 16, screen.y - 16);
+    ctx.restore();
   }
 
   function footprintScreenBox() {
@@ -1412,6 +1447,7 @@ export function createPlanView(canvas, initialHouse) {
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) {
       const world = worldFromEvent(event);
+      buildHooks?.hover?.(event, world);
       let nextCircuit = null;
       let circuitDistance = Infinity;
       if (state?.layers.electrical && house.electrical) {
@@ -1560,6 +1596,9 @@ export function createPlanView(canvas, initialHouse) {
     },
     setBuildHooks(hooks) {
       buildHooks = hooks;
+    },
+    setCursor(cursor) {
+      canvas.style.cursor = cursor || "";
     },
     getCamera() {
       return { ...camera };

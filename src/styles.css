@@ -385,7 +385,7 @@ button:focus-visible {
   color: #f6f1e8;
 }
 
-.layers-btn, .icon-btn, .hud button {
+.toolbar-btn, .layers-btn, .icon-btn, .hud button {
   border: 1px solid var(--line);
   background: var(--card);
   border-radius: 999px;
@@ -578,6 +578,11 @@ button:focus-visible {
 }
 
 .hud button { pointer-events: auto; min-height: 32px; padding: 4px 10px; }
+.viewport-model .hud button[aria-pressed="true"] {
+  background: var(--moss);
+  color: #f6f1e8;
+  border-color: transparent;
+}
 
 .site-fold {
   margin: 0 10px 12px;
@@ -1091,7 +1096,13 @@ button:focus-visible {
   .topbar.menu-open .controls { display: flex; width: 100%; }
   .brand h1 { font-size: 1rem; }
   .build-bar { padding-top: 4px; }
-  .tool, .chip, .inspector button:not(.btn-quiet), .cat-tile, .method-choice { min-height: 44px; }
+  .tool, .chip, .inspector button:not(.btn-quiet), .cat-tile, .method-choice, .toolbar-btn, .viewport-model .hud button { min-height: 44px; }
+  .viewport-model .hud {
+    right: 8px;
+    max-width: calc(100% - 16px);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .build-hud { align-items: stretch; left: 6px; right: 6px; bottom: 6px; }
   .tool-dock {
@@ -1119,5 +1130,18 @@ button:focus-visible {
   }
   .shop-row { grid-template-columns: 1fr auto; }
 }
+
+#site-kind { flex-wrap: wrap; max-width: 100%; }
+.cost-line { margin: 8px 0 0; font-size: 0.92rem; }
+.new-plan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.new-plan-actions button {
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  padding: 8px 14px;
+  font-weight: 700;
+}
+.new-plan-actions button.primary { background: var(--moss); color: #f6f1e8; border-color: transparent; }
 
 [hidden] { display: none !important; }

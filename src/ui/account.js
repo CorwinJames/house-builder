@@ -371,7 +371,39 @@ export function attachAccount({ editor }) {
     statusEl.textContent = label;
   }
 
-  return { onDocument };
+  async function saveUnsavedCopy() {
+    if (!auth || !user) return false;
+    const doc = editor.house();
+    try {
+      await withAuth(async (token) => {
+        if (!folderId) folderId = await ensureAppFolder(fetch, token);
+        return createDesign(fetch, token, {
+          folderId,
+          designName: `${doc.name || "Plan"} copy`,
+          house: doc,
+        });
+      });
+      currentFile = null;
+      writeBinding(null);
+      setStatus("saved", "Saved a copy");
+      return true;
+    } catch {
+      setStatus("offline", "Not saved");
+      return false;
+    }
+  }
+
+  function unbind() {
+    currentFile = null;
+    writeBinding(null);
+  }
+
+  return {
+    onDocument,
+    isSignedIn: () => Boolean(user && auth),
+    saveUnsavedCopy,
+    unbind,
+  };
 }
 
 function shareLink(fileId) {

@@ -41,7 +41,7 @@ import {
   suggestPlacements as suggestFixtures,
   buildPlumbing,
 } from "../plumbing/design.js";
-import { hitSite, placeSite, buildSite } from "../site/design.js";
+import { fieldFootprint, hitSite, placeSite, suggestSite } from "../site/design.js";
 import { budgetPhrase, gameHead, issueCards, quietDelete, statTiles, groupByRoom } from "./gamecard.js";
 import { costReport } from "../cost/list.js";
 import { siteInspectorHtml, siteOptionsHtml } from "./sitePanel.js";
@@ -83,7 +83,7 @@ const TOOL_HINTS = {
   window: "Pick a size, then drag along a wall.",
   electrical: "Click a wall to place a device. Other systems fade.",
   plumbing: "Click a wall to place a fixture. Other systems fade.",
-  site: "Click the lot to place a well, tank, or field.",
+  site: "Pick Well, Septic tank, Drain field, or Reserve. A ghost follows the pointer. Click the lot to place it.",
   erase: "Click the thing you want gone.",
 };
 
@@ -124,6 +124,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let pumpSupply = "240";
   let fixtureKind = "kitchen-sink";
   let siteKind = "well";
+  let siteGhosts = [];
+  let hoverWorld = null;
   let advancedOn = false;
   let suggestKind = null;
 
@@ -134,15 +136,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     `<button type="button" class="tool" data-tool="${item.id}" title="${item.tip}"><span class="tool-icon" aria-hidden="true">${item.icon}</span><span>${item.label}</span></button>`
   )).join("");
 
-  plan.setBuildHooks({
+  const buildHooks = {
     down: onDown,
     move: onMove,
     up: onUp,
+    hover: onHover,
     cancel: () => {
       window.clearTimeout(longTimer);
       gesture = null;
     },
-  });
+  };
+  plan.setBuildHooks(buildHooks);
+  model.setBuildHooks?.(buildHooks);
   model.setOnPick?.((wallId) => {
     if (mode !== "build") return;
     selection = wallId ? { type: "wall", id: wallId } : null;
@@ -153,13 +158,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const button = event.target.closest("button[data-mode]");
     if (!button) return;
     mode = button.dataset.mode;
-    if (mode === "build") {
-      const view = getViewState();
-      if (view.view === "model") {
-        patchViewState({ view: window.matchMedia("(min-width: 861px)").matches ? "split" : "plan" });
-      }
-      if (!view.buildTutorialDone) tutorialStep = 0;
-    }
+    if (mode === "build" && !getViewState().buildTutorialDone) tutorialStep = 0;
     publish();
     onChange();
   });
@@ -167,8 +166,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const button = event.target.closest("button[data-tool]");
     if (!button) return;
     tool = button.dataset.tool;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing") optionsOpen = true;
     publish();
     onChange();
+    if (tool === "site") {
+      plan.fit();
+      model.frameParcel?.();
+    }
   });
   hud.addEventListener("click", onHudClick);
   document.querySelector("#options-toggle").addEventListener("click", () => {
@@ -230,18 +234,6 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   });
   document.addEventListener("keyup", (event) => {
     if (event.code === "Space") spaceHeld = false;
-  });
-  document.querySelector("#plan-canvas").addEventListener("pointermove", (event) => {
-    if (mode !== "build" || gesture || (tool !== "door" && tool !== "window")) {
-      if (hoverPlace) {
-        hoverPlace = null;
-        plan.setOverlay(makeOverlay());
-      }
-      return;
-    }
-    if (event.buttons) return;
-    hoverPlace = openingSpot(plan.clientToWorld(event.clientX, event.clientY));
-    plan.setOverlay(makeOverlay());
   });
 
   refreshWarnings();
@@ -336,7 +328,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const electricalHit = hitElectrical(house, world, Math.max(1.1, reach));
     const plumbingHit = hitPlumbing(house, world, Math.max(1.1, reach));
-    const siteHit = hitSite(house, world, tool === "site" ? Math.max(8, reach * 3) : 1.6);
+    const siteLimit = tool === "site" || tool === "select" ? Math.max(8, 22 / (plan.getCamera().pxPerFt || 8)) : 1.6;
+    const siteHit = hitSite(house, world, siteLimit);
     if (tool === "site" && siteHit) return siteHit;
     if (tool === "plumbing" && plumbingHit) return plumbingHit;
     if (tool === "electrical" && electricalHit) return electricalHit;
@@ -371,8 +364,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return null;
   }
 
-  function onDown(event, world) {
-    if (mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
+  function pointFor(activeTool, world, extra) {
+    if (activeTool === "site" || activeTool === "room" || activeTool === "wall") return world || extra?.surface || null;
+    return extra?.surface || world || null;
+  }
+
+  function onDown(event, world, extra) {
+    world = pointFor(tool, world, extra);
+    if (!world || mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
     window.clearTimeout(longTimer);
     const armPan = () => {
       longTimer = window.setTimeout(() => {
@@ -381,7 +380,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }, 480);
     };
     if (tool === "select") {
-      const hit = hitTest(world);
+      const hit = hitTest(world) || extra?.pick || null;
       if (!hit) {
         selection = null;
         publish();
@@ -403,8 +402,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return true;
     }
     if (tool === "erase") {
-      const hit = hitTest(world);
-      if (hit?.type === "device" || hit?.type === "panel" || hit?.type === "fixture" || hit?.type === "entry") eraseSelection(hit);
+      const hit = hitTest(world) || extra?.pick || null;
+      if (hit?.type === "device" || hit?.type === "panel" || hit?.type === "fixture" || hit?.type === "entry" || hit?.type === "well" || hit?.type === "septic" || hit?.type === "drainfield" || hit?.type === "reserve") eraseSelection(hit);
       else if (hit?.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
       else if (hit?.type === "opening") commit(deleteOpening(house, hit.id));
       else if (hit?.type === "room") {
@@ -465,8 +464,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return false;
   }
 
-  function onMove(event, world) {
-    if (!gesture) return;
+  function onMove(event, world, extra) {
+    world = pointFor(tool, world, extra);
+    if (!gesture || !world) return;
     if (Math.hypot(event.clientX - (gesture.clientX || event.clientX), event.clientY - (gesture.clientY || event.clientY)) > 8) {
       window.clearTimeout(longTimer);
     }
@@ -518,6 +518,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       preview(translateWall(gesture.snapshot, gesture.hit.id, snapToGrid(dx, grid), snapToGrid(dy, grid)));
       return;
     }
+    if (gesture.kind === "select" && ["fixture", "device", "panel", "entry", "well", "septic", "drainfield", "reserve"].includes(gesture.hit?.type)) {
+      const dx = world.x - gesture.origin.x;
+      const dy = world.y - gesture.origin.y;
+      if (!gesture.moved && Math.hypot(dx, dy) < 0.35) return;
+      window.clearTimeout(longTimer);
+      gesture.moved = true;
+      preview(relocate(gesture.snapshot, gesture.hit, world));
+      return;
+    }
     if (gesture.kind === "select" && gesture.hit?.type === "opening") {
       const opening = gesture.snapshot.openings.find((item) => item.id === gesture.hit.id);
       const wall = opening && gesture.snapshot.walls.find((item) => item.id === opening.wallId);
@@ -558,6 +567,83 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       commit(syncRooms(house), current.snapshot);
     }
     publish();
+  }
+
+  function placeGhostAt(point) {
+    if (tool === "site") {
+      const labels = { well: "Well", tank: "Septic tank", drainfield: "Drain field", reserve: "Reserve" };
+      const ghost = { kind: siteKind, label: labels[siteKind] || siteKind, x: point.x, y: point.y };
+      if (siteKind === "drainfield" || siteKind === "reserve") {
+        const field = fieldFootprint(house);
+        ghost.width = field.width;
+        ghost.depth = field.depth;
+      }
+      return ghost;
+    }
+    if (tool === "plumbing") {
+      return { kind: fixtureKind, label: fixtureKind.replaceAll("-", " "), x: point.x, y: point.y };
+    }
+    return { kind: deviceKind, label: deviceKind.replaceAll("-", " "), x: point.x, y: point.y };
+  }
+
+  function relocate(snapshot, hit, world) {
+    if (hit.type === "well" || hit.type === "septic" || hit.type === "drainfield" || hit.type === "reserve") {
+      const kind = hit.type === "septic" ? "tank" : hit.type;
+      return placeSite(snapshot, world, kind).house;
+    }
+    const next = cloneHouse(snapshot);
+    if (hit.type === "fixture") {
+      const current = next.plumbing?.fixtures?.find((item) => item.id === hit.id);
+      if (!current) return next;
+      Object.assign(current, fixtureFromClick(next, world, current.kind), { id: current.id, ghost: false });
+    } else if (hit.type === "device") {
+      const current = next.electrical?.devices?.find((item) => item.id === hit.id);
+      if (!current) return next;
+      Object.assign(current, deviceFromClick(next, world, current.kind, { supply: current.supply }), { id: current.id, ghost: false });
+    } else if (hit.type === "panel" && next.electrical?.panel) {
+      next.electrical.panel = { ...next.electrical.panel, ...panelFromClick(next, world), id: next.electrical.panel.id };
+    } else if (hit.type === "entry") {
+      next.plumbing.entry = { ...(next.plumbing.entry || {}), ...entryFromClick(next, world) };
+    }
+    return next;
+  }
+
+  function startSiteSuggest() {
+    siteGhosts = suggestSite(house);
+    optionsKey = "";
+    publish();
+  }
+
+  function acceptSiteGhosts(kinds) {
+    const keep = new Set(kinds);
+    let next = house;
+    for (const ghost of siteGhosts) {
+      if (!keep.has(ghost.kind)) continue;
+      const placed = placeSite(next, { x: ghost.x, y: ghost.y }, ghost.kind);
+      next = placed.house;
+      selection = placed.selection;
+    }
+    siteGhosts = siteGhosts.filter((ghost) => !keep.has(ghost.kind));
+    optionsKey = "";
+    commit(next);
+  }
+
+  function skipSiteGhosts(kinds) {
+    const drop = new Set(kinds);
+    siteGhosts = siteGhosts.filter((ghost) => !drop.has(ghost.kind));
+    optionsKey = "";
+    publish();
+  }
+
+  function onHover(event, world, extra) {
+    if (mode !== "build" || gesture) return;
+    const point = pointFor(tool, world, extra);
+    if (!point) return;
+    hoverPlace = tool === "door" || tool === "window" ? openingSpot(point) : null;
+    hoverWorld = tool === "site" || tool === "electrical" || tool === "plumbing" ? point : null;
+    const overlay = makeOverlay();
+    plan.setOverlay(overlay);
+    model.setOverlay?.(overlay);
   }
 
   function openingSpot(world) {
@@ -716,6 +802,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         x1: gesture.end.x,
         y1: gesture.end.y,
       } : null,
+      placeGhost: hoverWorld && !gesture ? placeGhostAt(hoverWorld) : null,
+      siteGhosts,
       ghostOpening: (gesture?.kind === "opening" && gesture.place) || hoverPlace ? {
         wallId: (gesture?.place || hoverPlace).wall.id,
         offset: (gesture?.place || hoverPlace).offset,
@@ -759,8 +847,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     paintToolOptions();
     paintInspector();
     paintTutorial();
-    plan.setOverlay(mode === "build" ? makeOverlay() : null);
+    const overlay = mode === "build" ? makeOverlay() : null;
+    plan.setOverlay(overlay);
+    model.setOverlay?.(overlay);
+    model.setSelection?.(mode === "build" ? selection : null);
     model.setSelected?.(mode === "build" && selection?.type === "wall" ? selection.id : null);
+    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing"].includes(tool) ? "crosshair" : "");
   }
 
   function paintToolOptions() {
@@ -773,7 +865,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -788,13 +880,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     if (tool === "site") {
-      box.innerHTML = siteOptionsHtml(siteKind);
+      box.innerHTML = siteOptionsHtml(siteKind, siteGhosts);
       box.querySelectorAll("[data-site]").forEach((button) => {
         button.addEventListener("click", () => {
           siteKind = button.dataset.site;
           optionsKey = "";
           publish();
         });
+      });
+      box.querySelector("#suggest-site")?.addEventListener("click", startSiteSuggest);
+      box.querySelector("#accept-all-site")?.addEventListener("click", () => acceptSiteGhosts(siteGhosts.map((item) => item.kind)));
+      box.querySelectorAll("[data-accept-site]").forEach((button) => {
+        button.addEventListener("click", () => acceptSiteGhosts([button.dataset.acceptSite]));
+      });
+      box.querySelectorAll("[data-skip-site]").forEach((button) => {
+        button.addEventListener("click", () => skipSiteGhosts([button.dataset.skipSite]));
       });
       return;
     }
@@ -1575,6 +1675,27 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return true;
   }
 
+  function replaceDocument(doc) {
+    past.length = 0;
+    future.length = 0;
+    siteGhosts = [];
+    hoverWorld = null;
+    hoverPlace = null;
+    gesture = null;
+    selection = null;
+    house = decorateHouse(doc);
+    fromSave = false;
+    try {
+      localStorage.setItem(DOC_KEY, JSON.stringify(house));
+    } catch {
+      // Export still works if the browser store is full.
+    }
+    refreshWarnings();
+    pushViews();
+    publish();
+    plan.fit();
+  }
+
   function setDesignName(name) {
     const trimmed = String(name || "").trim();
     if (!trimmed || trimmed === house.name) return;
@@ -1615,6 +1736,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     areas,
     mode: () => mode,
     loadHouse,
+    replaceDocument,
+    isDirty: () => past.length > 0 || future.length > 0,
     applySite,
     setDesignName,
     setCost,

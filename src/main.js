@@ -12,6 +12,7 @@ import { attachAccount } from "./ui/account.js";
 import { attachCosts } from "./ui/costs.js";
 import { attachWarnings } from "./ui/warnings.js";
 import { siteCardHtml } from "./ui/sitePanel.js";
+import { blankPlan, fourRoomSample } from "./build/newPlan.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -54,9 +55,14 @@ app.innerHTML = `
           <button type="button" data-view="model">3D</button>
         </div>
         <button type="button" class="layers-btn" id="layers-btn" aria-expanded="false">Layers</button>
+        <button type="button" class="toolbar-btn" id="toolbar-new">New plan</button>
+        <button type="button" class="toolbar-btn" id="toolbar-open">Open</button>
+        <button type="button" class="toolbar-btn" id="toolbar-save">Save</button>
         <details class="file-menu" id="file-menu">
           <summary>File</summary>
           <div class="file-menu-panel">
+            <p class="menu-label">Plan</p>
+            <button type="button" id="menu-new">New plan</button>
             <p class="menu-label">Drive</p>
             <button type="button" id="drive-save">Save to Drive</button>
             <button type="button" id="drive-save-as">Save as…</button>
@@ -125,7 +131,7 @@ app.innerHTML = `
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
-          <div class="hud"><span>3D · roof is a placeholder</span><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
+          <div class="hud"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
           <p class="webgl-fallback" id="webgl-fallback" hidden></p>
         </section>
       </div>
@@ -135,6 +141,15 @@ app.innerHTML = `
   <div id="budget-toast" class="budget-toast" hidden></div>
   <div id="app-toast" class="app-toast" hidden></div>
   <div class="scrim" id="scrim" hidden></div>
+  <dialog id="new-plan-dialog" class="cost-dialog">
+    <header class="cost-head"><h2>New plan</h2><button type="button" data-close>Close</button></header>
+    <p id="new-plan-warn" class="fine"></p>
+    <div class="new-plan-actions">
+      <button type="button" id="new-blank">Blank plan</button>
+      <button type="button" class="primary" id="new-sample">Four-room sample</button>
+    </div>
+    <p class="fine">Blank starts with an empty floor and a sample lot. The four-room sample is the phase 1 living, kitchen, bathroom, and bedroom.</p>
+  </dialog>
   <dialog id="labor-dialog" class="cost-dialog">
     <header class="cost-head"><h2>Labor assumptions</h2><button type="button" data-close>Close</button></header>
     <p class="fine">These hours are assumptions you can edit. The wage stays the published Jefferson County rate.</p>
@@ -218,7 +233,8 @@ editor = attachEditor({
     onDocument(source);
   },
 });
-onDocument = attachAccount({ editor }).onDocument;
+const account = attachAccount({ editor });
+onDocument = account.onDocument;
 warningsUi = attachWarnings({
   getHouse: () => editor.house(),
   getPhase: () => state.phase,
@@ -328,10 +344,24 @@ function publish() {
       if (details && open) details.open = true;
     }
   }
+  sync3d();
   requestAnimationFrame(() => {
     plan.resize();
     model.resize();
   });
+}
+
+let orbit3d = true;
+let cutaway3d = false;
+function sync3d() {
+  const editing = editor?.mode() === "build" && !orbit3d;
+  model.setEditing?.(editing);
+  model.setCutaway?.(cutaway3d);
+  document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing));
+  document.querySelector("#orbit-3d")?.setAttribute("aria-pressed", String(!editing));
+  document.querySelector("#cutaway-3d")?.setAttribute("aria-pressed", String(cutaway3d));
+  const label = document.querySelector("#model-mode-label");
+  if (label) label.textContent = editing ? "3D · edit" : "3D · orbit";
 }
 
 document.querySelector("#phase-seg").addEventListener("click", (event) => {
@@ -400,6 +430,55 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
   }
 });
 document.querySelector("#reset-3d").addEventListener("click", () => model.resetCamera());
+document.querySelector("#edit-3d").addEventListener("click", () => {
+  orbit3d = false;
+  if (editor.mode() !== "build") document.querySelector("[data-mode=build]").click();
+  else publish();
+});
+document.querySelector("#orbit-3d").addEventListener("click", () => {
+  orbit3d = true;
+  publish();
+});
+document.querySelector("#cutaway-3d").addEventListener("click", () => {
+  cutaway3d = !cutaway3d;
+  publish();
+});
+document.querySelector("#toolbar-open").addEventListener("click", () => document.querySelector("#drive-open").click());
+document.querySelector("#toolbar-save").addEventListener("click", () => document.querySelector("#drive-save").click());
+document.querySelector("#toolbar-new").addEventListener("click", openNewPlan);
+document.querySelector("#menu-new").addEventListener("click", openNewPlan);
+document.querySelector("#new-plan-dialog [data-close]").addEventListener("click", () => document.querySelector("#new-plan-dialog").close());
+document.querySelector("#new-blank").addEventListener("click", () => startNew("blank"));
+document.querySelector("#new-sample").addEventListener("click", () => startNew("sample"));
+
+function openNewPlan() {
+  document.querySelector("#file-menu").open = false;
+  const warn = document.querySelector("#new-plan-warn");
+  warn.textContent = editor.isDirty()
+    ? (account.isSignedIn()
+      ? "This plan has unsaved changes. A new Drive file keeps this copy, then the plan on screen is replaced."
+      : "This plan has unsaved changes on this device. Starting a new plan discards them. Export JSON from the File menu if you want a copy.")
+    : "The plan on screen is replaced. Open and Save stay next to New plan.";
+  document.querySelector("#new-plan-dialog").showModal();
+}
+
+async function startNew(kind) {
+  if (editor.isDirty()) {
+    const signed = account.isSignedIn();
+    const ok = window.confirm(signed
+      ? "Save a new Drive copy of this plan, then start fresh?"
+      : "Discard the unsaved changes and start a new plan?");
+    if (!ok) return;
+    if (signed) {
+      const saved = await account.saveUnsavedCopy();
+      if (!saved && !window.confirm("Drive did not save a copy. Discard the changes anyway?")) return;
+    }
+  }
+  account.unbind();
+  editor.replaceDocument(kind === "blank" ? blankPlan() : fourRoomSample(house));
+  document.querySelector("#new-plan-dialog").close();
+  document.dispatchEvent(new CustomEvent("app-toast", { detail: { text: kind === "blank" ? "Blank plan" : "Four-room sample" } }));
+}
 document.querySelector("#roof-toggle").addEventListener("click", () => {
   state.roof = state.roof === false;
   document.querySelector("#roof-toggle").setAttribute("aria-pressed", String(state.roof !== false));
