@@ -36,6 +36,7 @@ export function createPlanView(canvas, initialHouse) {
   let buildGesture = false;
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
+  let labelBoxes = [];
   let cameraReady = false;
   let ratioFontReady = false;
   const pointers = new Map();
@@ -214,7 +215,7 @@ export function createPlanView(canvas, initialHouse) {
     if (!siteOn()) return;
     const site = house.site;
     ctx.save();
-    if (state?.focus && state.focus !== "site") ctx.globalAlpha = 0.16;
+    ctx.globalAlpha = systemAlpha("site");
     const path = (points) => {
       ctx.beginPath();
       points.forEach((point, index) => {
@@ -455,6 +456,10 @@ export function createPlanView(canvas, initialHouse) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const dim of dims) {
+      const minPx = dim.id.startsWith("all-") ? 58 : 30;
+      if (Math.abs(dim.dist) * camera.pxPerFt < minPx) {
+        dim.dist = Math.sign(dim.dist || 1) * (minPx / camera.pxPerFt);
+      }
       const seg = offsetSegment(dim);
       const ext = 0.7;
       const a = { x: seg.x0, y: seg.y0 };
@@ -480,6 +485,7 @@ export function createPlanView(canvas, initialHouse) {
         );
       }
       const mid = worldToScreen((a.x + b.x) / 2, (a.y + b.y) / 2);
+      const origin = worldToScreen((dim.x0 + dim.x1) / 2, (dim.y0 + dim.y1) / 2);
       const sa = worldToScreen(a.x, a.y);
       const sb = worldToScreen(b.x, b.y);
       let ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
@@ -487,10 +493,35 @@ export function createPlanView(canvas, initialHouse) {
       const detail = formatFeetFine(seg.len);
       const label = detail.construction;
       const note = dim.id === "all-width" ? footprintCaption() : (detail.fudged ? `exact ${detail.exact}` : "");
+      const boxW = Math.max(ctx.measureText(label).width, note ? ctx.measureText(note).width : 0) + 12;
+      const boxH = note ? 28 : 16;
+      const awayX = mid.x - origin.x;
+      const awayY = mid.y - origin.y;
+      const away = Math.hypot(awayX, awayY) || 1;
+      const houseScreen = footprintScreenBox();
+      const clearOfHouse = {
+        x: houseScreen.x - 6,
+        y: houseScreen.y - 6,
+        w: houseScreen.w + 12,
+        h: houseScreen.h + 12,
+      };
+      let shift = 0;
+      let box = { x: mid.x - boxW / 2, y: mid.y - boxH / 2, w: boxW, h: boxH };
+      const crowded = () => labelBoxes.some((item) => rectsOverlap(item, box)) || rectsOverlap(box, clearOfHouse);
+      while (crowded() && shift < 96) {
+        shift += 12;
+        box = {
+          x: mid.x + (awayX / away) * shift - boxW / 2,
+          y: mid.y + (awayY / away) * shift - boxH / 2,
+          w: boxW,
+          h: boxH,
+        };
+      }
+      labelBoxes.push(box);
       ctx.save();
-      ctx.translate(mid.x, mid.y);
+      ctx.translate(box.x + boxW / 2, box.y + boxH / 2);
       ctx.rotate(ang);
-      const width = Math.max(ctx.measureText(label).width, ctx.measureText(note).width) + 12;
+      const width = boxW;
       ctx.fillStyle = "rgba(243, 235, 221, 0.92)";
       ctx.fillRect(-width / 2, note ? -18 : -11, width, note ? 28 : 16);
       ctx.fillStyle = INK;
@@ -546,18 +577,39 @@ export function createPlanView(canvas, initialHouse) {
       const boxW = (Math.max(...xs) - Math.min(...xs)) * camera.pxPerFt;
       const boxH = (Math.max(...ys) - Math.min(...ys)) * camera.pxPerFt;
       if (boxW < 52 || boxH < 36) continue;
+      const roomTop = worldToScreen(Math.min(...xs), Math.max(...ys));
+      const roomScreen = { x: roomTop.x, y: roomTop.y, w: boxW, h: boxH };
+      const insideRoom = (rect) => rect.x >= roomScreen.x + 2
+        && rect.y >= roomScreen.y + 2
+        && rect.x + rect.w <= roomScreen.x + roomScreen.w - 2
+        && rect.y + rect.h <= roomScreen.y + roomScreen.h - 2;
       const at = room.labelAt || polygonCentroid(room.polygon);
       const s = worldToScreen(at.x, at.y);
       const future = room.phase === "future";
       const nameSize = Math.max(11, Math.min(18, camera.pxPerFt * 1.05));
       ctx.font = `600 ${nameSize}px Outfit, 'Segoe UI', sans-serif`;
       ctx.fillStyle = future ? "#6A5E52" : INK;
-      const nameY = boxH < 78 ? s.y : s.y - nameSize * 0.55;
+      let nameY = boxH < 78 ? s.y : s.y - nameSize * 0.55;
+      const nameW = ctx.measureText(room.name).width + 8;
+      let nameBox = { x: s.x - nameW / 2, y: nameY - nameSize * 0.7, w: nameW, h: nameSize * 1.3 };
+      let guard = 0;
+      while (labelBoxes.some((item) => rectsOverlap(item, nameBox)) && guard < 4) {
+        nameY -= nameSize;
+        nameBox = { ...nameBox, y: nameY - nameSize * 0.7 };
+        guard += 1;
+      }
+      labelBoxes.push(nameBox);
       ctx.fillText(room.name, s.x, nameY);
       if (boxW < 78 || boxH < 78) continue;
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
-      ctx.fillStyle = MUTED;
-      ctx.fillText(`${formatArea(polygonArea(room.polygon))} sq ft`, s.x, s.y + nameSize * 0.55);
+      const areaText = `${formatArea(polygonArea(room.polygon))} sq ft`;
+      const areaW = ctx.measureText(areaText).width + 8;
+      const areaBox = { x: s.x - areaW / 2, y: s.y + nameSize * 0.55 - nameSize * 0.6, w: areaW, h: nameSize };
+      if (insideRoom(areaBox) && !labelBoxes.some((item) => rectsOverlap(item, areaBox))) {
+        labelBoxes.push(areaBox);
+        ctx.fillStyle = MUTED;
+        ctx.fillText(areaText, s.x, s.y + nameSize * 0.55);
+      }
       let proportionDrawn = false;
       if (camera.pxPerFt >= 20 && boxW > 130 && boxH > 96) {
         const line = roomProportion(room, house.customRatios || []).phrase;
@@ -574,8 +626,15 @@ export function createPlanView(canvas, initialHouse) {
       }
       if (future) {
         ctx.font = `500 ${Math.max(11, nameSize - 4)}px Outfit, 'Segoe UI', sans-serif`;
-        ctx.fillStyle = "#8A7360";
-        ctx.fillText("later", s.x, s.y + nameSize * (proportionDrawn ? 3.05 : 1.7));
+        const later = "later";
+        const laterW = ctx.measureText(later).width + 8;
+        const laterY = s.y + nameSize * (proportionDrawn ? 3.05 : 1.7);
+        const laterBox = { x: s.x - laterW / 2, y: laterY - nameSize * 0.55, w: laterW, h: nameSize };
+        if (insideRoom(laterBox) && !labelBoxes.some((item) => rectsOverlap(item, laterBox))) {
+          labelBoxes.push(laterBox);
+          ctx.fillStyle = "#8A7360";
+          ctx.fillText(later, s.x, laterY);
+        }
       }
     }
     ctx.restore();
@@ -629,6 +688,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     const { w, h } = size();
     if (w < 2 || h < 2) return;
+    labelBoxes = [];
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const pw = Math.round(w * dpr);
     const ph = Math.round(h * dpr);
@@ -720,13 +780,18 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  function systemAlpha(system) {
+    if (!state?.focus || state.focus === system) return 1;
+    return 0.25;
+  }
+
   function drawPlumbing() {
     if (!state?.layers.plumbing || !house.plumbing) return;
     const design = buildPlumbing(house, { phase: electricalPhase() });
     const selectedId = overlay?.selection?.type === "fixture" ? overlay.selection.id : null;
     const active = hoverPipeId || (selectedId ? `fixture:${selectedId}` : null);
     ctx.save();
-    if (state?.focus && state.focus !== "plumbing") ctx.globalAlpha = 0.16;
+    ctx.globalAlpha = systemAlpha("plumbing");
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     const drawRun = (points, color, dashed, id, label) => {
@@ -894,7 +959,6 @@ export function createPlanView(canvas, initialHouse) {
         break;
       }
     }
-    ctx.globalAlpha = 1;
     ctx.fillStyle = "rgba(247, 243, 235, 0.92)";
     ctx.fillRect(chosen.x - width / 2, chosen.y - height / 2, width, height);
     ctx.fillStyle = color;
@@ -909,12 +973,12 @@ export function createPlanView(canvas, initialHouse) {
     const selectedId = overlay?.selection?.type === "device" ? overlay.selection.id : null;
     const activeId = hoverCircuitId || design.circuits.find((circuit) => circuit.deviceIds.includes(selectedId))?.id || null;
     ctx.save();
-    if (state?.focus && state.focus !== "electrical") ctx.globalAlpha = 0.16;
+    const fade = systemAlpha("electrical");
     design.circuits.forEach((circuit, index) => {
       const color = CIRCUIT_COLORS[index % CIRCUIT_COLORS.length];
       const active = circuit.id === activeId;
       ctx.strokeStyle = color;
-      ctx.globalAlpha = active ? 1 : 0.9;
+      ctx.globalAlpha = fade * (active ? 1 : 0.9);
       ctx.lineWidth = active ? 4 : 2.25;
       ctx.beginPath();
       let started = false;
@@ -940,7 +1004,7 @@ export function createPlanView(canvas, initialHouse) {
       if (at) {
         const screen = worldToScreen(at.x, at.y);
         const selected = overlay?.selection?.type === "panel";
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = systemAlpha("electrical");
         ctx.fillStyle = "#1d1a16";
         ctx.fillRect(screen.x - 8, screen.y - 10, selected ? 18 : 16, selected ? 22 : 20);
         ctx.fillStyle = "#F7F3EB";
@@ -959,7 +1023,7 @@ export function createPlanView(canvas, initialHouse) {
     const screen = worldToScreen(at.x, at.y);
     const selected = overlay?.selection?.type === "device" && overlay.selection.id === device.id;
     ctx.beginPath();
-    ctx.globalAlpha = ghost ? 0.7 : 1;
+    ctx.globalAlpha = (ghost ? 0.7 : 1) * systemAlpha("electrical");
     ctx.fillStyle = "#F7F3EB";
     ctx.strokeStyle = device.volts === 240 ? "#8A5A12" : "#1F6F8B";
     ctx.lineWidth = selected ? 3 : 1.5;
@@ -1189,6 +1253,19 @@ export function createPlanView(canvas, initialHouse) {
     }
   }
 
+  function footprintScreenBox() {
+    const southWest = worldToScreen(0, 0);
+    const northEast = worldToScreen(house.footprint.width, house.footprint.depth);
+    const x = Math.min(southWest.x, northEast.x);
+    const y = Math.min(southWest.y, northEast.y);
+    return {
+      x,
+      y,
+      w: Math.abs(northEast.x - southWest.x),
+      h: Math.abs(northEast.y - southWest.y),
+    };
+  }
+
   function footprintCaption() {
     const constraint = (house.constraints || []).find((item) => String(item.targetId).startsWith("footprint:"));
     const readout = constraint && constraintReadout(house, constraint, house.customRatios || []);
@@ -1201,18 +1278,27 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawConstraintBadges() {
     const caption = footprintCaption();
-    if (!caption) return;
-    const point = worldToScreen(house.footprint.width / 2, -10.5);
-    ctx.save();
-    ctx.font = "700 12px Outfit, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const width = ctx.measureText(caption).width + 16;
-    ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
-    ctx.fillRect(point.x - width / 2, point.y - 11, width, 22);
-    ctx.fillStyle = "#2F5D45";
-    ctx.fillText(caption, point.x, point.y);
-    ctx.restore();
+    const captionOnDimension = !!state?.layers.dimensions && isFutureShown(state);
+    if (caption && !captionOnDimension) {
+      const point = worldToScreen(house.footprint.width / 2, -10.5);
+      ctx.save();
+      ctx.font = "700 12px Outfit, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const width = ctx.measureText(caption).width + 16;
+      let box = { x: point.x - width / 2, y: point.y - 11, w: width, h: 22 };
+      let guard = 0;
+      while (labelBoxes.some((item) => rectsOverlap(item, box)) && guard < 6) {
+        box = { ...box, y: box.y + 16 };
+        guard += 1;
+      }
+      labelBoxes.push(box);
+      ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+      ctx.fillRect(box.x, box.y, box.w, box.h);
+      ctx.fillStyle = "#2F5D45";
+      ctx.fillText(caption, box.x + width / 2, box.y + 11);
+      ctx.restore();
+    }
     for (const constraint of house.constraints || []) {
       if (String(constraint.targetId).startsWith("footprint:")) continue;
       const target = house.walls.find((wall) => wall.id === constraint.targetId);

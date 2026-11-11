@@ -277,7 +277,8 @@ function statusText() {
   const phaseNote = state.phase === "phase1" ? "Phase 1 only" : "Full house";
   const foot = footprintMatch(doc, doc.customRatios || []);
   let footNote = "";
-  if (foot?.badge) {
+  const planShowsFootprint = effectiveView() !== "model";
+  if (foot?.badge && !planShowsFootprint) {
     const percent = foot.deviation * 100;
     footNote = foot.exact
       ? ` · Footprint ${foot.badge} exact`
