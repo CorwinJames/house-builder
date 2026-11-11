@@ -131,6 +131,25 @@ export function trapArmLimit(trap) {
   return TRAP_ARM_MAX[trap] || TRAP_ARM_MAX[1.5];
 }
 
+/**
+ * Vertical pipe from the trap down to the building drain, in feet.
+ * Assumption: a closet bend and drop for a toilet, and about 2 ft for a sink.
+ * This is not the trap arm. The trap arm is only the horizontal run to the vent.
+ */
+const DRAIN_DROP = {
+  toilet: 2,
+  lavatory: 1.5,
+  "kitchen-sink": 2,
+  shower: 1.5,
+  tub: 1.5,
+  washer: 2.5,
+  "laundry-sink": 2,
+};
+
+export function fixtureDrainDrop(kind) {
+  return DRAIN_DROP[kind] ?? 1.5;
+}
+
 /** PEX-a 1/2 in. internal diameter, inches. Uponor publishes about 0.475. Confirm the submittal. */
 const PEX_ID = { 0.5: 0.475, 0.75: 0.671, 1: 0.862 };
 
@@ -417,13 +436,15 @@ export function buildPlumbing(house, { phase = "full" } = {}) {
       const along = fixture.wallId && fixture.wallId === anchor.wallId && fixture.offset != null && anchor.offset != null
         ? round2(Math.abs(fixture.offset - anchor.offset))
         : leg.length;
+      const developed = round2(along + fixtureDrainDrop(fixture.kind));
       dwv.push({
         fixtureId: fixture.id,
         kind: fixture.kind,
         trap: fixture.trap,
         dfu: fixture.dfu,
         size: Math.max(fixture.trap || 0, drainSize(fixture.dfu, { waterClosets: fixture.waterCloset ? 1 : 0 })),
-        length: leg.length,
+        length: developed,
+        horizontal: along,
         points: leg.points,
         trapArm: along,
       });
@@ -641,7 +662,7 @@ export function plumbingBom(house, phase = "full") {
     dwv[id] = (dwv[id] || 0) + design.building.length;
   }
   for (const [id, feet] of Object.entries(dwv)) {
-    if (id.startsWith("abs-")) rows.push({ id, category: "plumbing", quantity: round2(feet), unit: "foot", kind: "material", basis: "Drain and building drain length. Sized from UPC Table 703.2." });
+    if (id.startsWith("abs-")) rows.push({ id, category: "plumbing", quantity: round2(feet), unit: "foot", kind: "material", basis: "Drain and building drain length. A fixture on the stack still includes a vertical drop from the trap, so the length is not zero. That drop is an assumption. Sized from UPC Table 703.2." });
   }
   if (wyes) rows.push({ id: "dwv-wye", category: "plumbing", quantity: wyes, unit: "each", kind: "material", basis: "One wye where a fixture drain meets the stack. Assumption." });
   if (design.vent.size) {
@@ -653,7 +674,8 @@ export function plumbingBom(house, phase = "full") {
   const valves = design.fixtures.filter((item) => item.kind !== "water-heater").length;
   if (valves) rows.push({ id: "shutoff", category: "plumbing", quantity: valves, unit: "each", kind: "material", basis: "One shutoff per fixture. A sink really wants hot and cold; this count is one each until a second is confirmed." });
   for (const fixture of design.fixtures) {
-    rows.push({ id: `fixture-${fixture.kind}`, category: "plumbing", quantity: 1, unit: "each", kind: "material", basis: "One fixture. A basic published model where we have one. James chooses the finish." });
+    const id = fixture.kind === "water-heater" && fixture.heaterType === "heat-pump" ? "fixture-hpwh" : `fixture-${fixture.kind}`;
+    rows.push({ id, category: "plumbing", quantity: 1, unit: "each", kind: "material", basis: "One fixture. A basic published model where we have one. James chooses the finish." });
   }
   if (design.entry) {
     rows.push({ id: "main-shutoff", category: "plumbing", quantity: 1, unit: "each", kind: "material", basis: "Main shutoff at the water entry." });
@@ -697,7 +719,7 @@ export function fixtureShare(house, fixtureId) {
   }
   if (runs.length) rows.push({ id: "pex-elbow", category: "plumbing", quantity: runs.length * 2, unit: "each", kind: "material", basis: "Two elbows on each of this fixture's supply runs. Assumption." });
   if (drain) {
-    rows.push({ id: `abs-${String(drain.size).replace(".", "-")}`, category: "plumbing", quantity: drain.length, unit: "foot", kind: "material", basis: "This fixture's drain to the stack." });
+    rows.push({ id: `abs-${String(drain.size).replace(".", "-")}`, category: "plumbing", quantity: drain.length, unit: "foot", kind: "material", basis: "This fixture's drain: the horizontal trap arm plus a vertical drop to the building drain. The drop is an assumption, so a fixture on the stack is not zero feet." });
     rows.push({ id: `trap-${String(drain.trap).replace(".", "-")}`, category: "plumbing", quantity: 1, unit: "each", kind: "material", basis: "This fixture's trap." });
     rows.push({ id: "dwv-wye", category: "plumbing", quantity: 1, unit: "each", kind: "material", basis: "The wye at the stack. Assumption." });
   }

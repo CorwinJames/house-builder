@@ -378,12 +378,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 2.3202,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Southwire-250-ft-10-3-Orange-Solid-Romex-SIMpull-CU-NM-B-W-G-Wire-63948455/202316277",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "250 ft coil is $580.05, which is $2.3202 a foot."
     },
     {
       "id": "nm-8-3",
@@ -391,12 +391,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 3.096,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Southwire-125-ft-8-3-Stranded-Romex-SIMpull-CU-NM-B-W-G-Wire-63949202/202316278",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "125 ft coil is $387, which is $3.096 a foot."
     },
     {
       "id": "nm-6-3",
@@ -430,12 +430,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 1.68,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Leviton-15-Amp-125-V-Tamper-Resistant-Duplex-Outlet-Receptacle-White-1-Pack-T5320-W-T5320-W/100662608",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic 15A tamper-resistant duplex. A 20A circuit with more than one receptacle can use it. James chooses the finish."
     },
     {
       "id": "device-switch",
@@ -443,12 +443,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 0.98,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Leviton-15-Amp-Single-Pole-Toggle-Light-Switch-White-1451-2W-R52-01451-02W/100026991",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic single-pole toggle. James chooses the finish."
     },
     {
       "id": "device-switch-3way",
@@ -456,12 +456,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 4.98,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Leviton-Decora-15-Amp-3-Way-Switch-White-5603-2WS-R62-05603-2WS/100078412",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic 3-way switch. James chooses the finish."
     },
     {
       "id": "device-light",
@@ -469,12 +469,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 39.98,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Cedar-Hill-15in-White-LED-Ceiling-Light-With-Adjustable-Color-Temperature-CHTHDCL01601HW/700159623",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "A basic integrated LED ceiling light. James chooses the finish."
     },
     {
       "id": "device-fan",
@@ -495,12 +495,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 62.97,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Kidde-Hardwired-Smoke-and-Carbon-Monoxide-Detector-Interconnectable-and-LED-Warning-Lights-and-Voice-Alarm-21032781-21032781/328175572",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic hardwired smoke and CO alarm."
     },
     {
       "id": "device-range",
@@ -586,12 +586,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 2.34,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Carlon-1-Gang-8-cu-in-Electrical-PVC-Shallow-Flanged-Old-Work-Electrical-Switch-and-Oulet-Box-B108R-UPC-B108R-UPC/100404058",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic old-work box."
     },
     {
       "id": "device-plate",
@@ -599,12 +599,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 0.519,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Leviton-1-Gang-White-Midway-Toggle-Nylon-Wall-Plate-10-Pack-M52-00PJ1-0WM/100356782",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "10-pack is $5.19, which is $0.519 a plate. James chooses the finish."
     },
     {
       "id": "breaker-1",
@@ -638,12 +638,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 0.858,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/1-2-in-x-10-ft-Electric-Metallic-Tube-EMT-Conduit-853428/100400405",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "10 ft stick is $8.58, which is $0.858 a foot."
     },
     {
       "id": "emt-fitting",
@@ -664,12 +664,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 0.01596,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Gardner-Bender-1-2-in-Steel-Staples-for-14-2-12-2-and-10-2-Non-Metallic-Cable-500-Pack-MS-500J/100182811",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "500-pack is $7.98, which is $0.01596 a staple."
     },
     {
       "id": "ground-rod",
@@ -677,12 +677,12 @@
       "category": "electrical",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 26.44,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/ERICO-1-2-in-x-8-ft-Copper-Ground-Rod-611380UPC/202195737",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "8 ft copper-bonded rod. The clamp is a separate line."
     },
     {
       "id": "raceway",
@@ -782,12 +782,12 @@
       "category": "plumbing",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 0.8998,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Uponor-AquaPEX-3-4-in-x-100-ft-White-PEX-A-Expansion-Pipe-F1040750R/331786467",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "100 ft coil is $89.98, which is $0.8998 a foot."
     },
     {
       "id": "pex-one",
@@ -795,25 +795,25 @@
       "category": "plumbing",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 1.78,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Uponor-AquaPEX-1-in-x-100-ft-White-PEX-A-Expansion-Pipe-F1041000R/331786498",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "100 ft coil is $178, which is $1.78 a foot."
     },
     {
       "id": "pex-manifold",
-      "name": "PEX manifold",
+      "name": "12-port PEX manifold with valves",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 178.87,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/SharkBite-12-Port-PEX-Manifold-with-1-2-in-Brass-Ball-Valves-RM22712/202800752",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "A basic 12-port manifold. James can choose another."
     },
     {
       "id": "pex-elbow",
@@ -882,16 +882,16 @@
     },
     {
       "id": "abs-3",
-      "name": "3 in. ABS DWV pipe, per foot",
+      "name": "3 in. PVC DWV foam-core pipe, per foot",
       "category": "plumbing",
       "kind": "material",
       "unit": "foot",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 3.278,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Charlotte-Pipe-3-in-x-10-ft-PVC-Schedule-40-Foam-Core-DWV-Pipe-PVC-04300-0600/100348479",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "10 ft stick is $32.78, which is $3.278 a foot. PVC foam-core DWV, used in place of ABS. James can choose the material."
     },
     {
       "id": "abs-4",
@@ -925,12 +925,12 @@
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 7.52,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Charlotte-Pipe-1-1-2-in-ABS-DWV-P-Trap-ABS00706X0600HD/313834658",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic 1-1/2 in. ABS P-trap."
     },
     {
       "id": "trap-2",
@@ -960,16 +960,16 @@
     },
     {
       "id": "dwv-wye",
-      "name": "DWV wye",
+      "name": "3 in. x 2 in. ABS DWV wye",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 12.44,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Charlotte-Pipe-3-in-x-2-in-ABS-DWV-All-Hub-Wye-ABS006011400HD/313834672",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic reducing wye for a branch into the 3 in. drain."
     },
     {
       "id": "vent-1-25",
@@ -1051,16 +1051,16 @@
     },
     {
       "id": "shutoff",
-      "name": "Shutoff valve",
+      "name": "Quarter-turn angle stop",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 10.98,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Uponor-ProPEX-1-2-in-PEX-A-Expansion-Barb-x-3-8-in-OD-Compression-Lead-Free-Brass-Quarter-Turn-Angle-Stop-Valve-LF5855038R/332499290",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic fixture stop. James chooses the finish."
     },
     {
       "id": "fixture-kitchen-sink",
@@ -1068,12 +1068,12 @@
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 79,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Glacier-Bay-25-in-Drop-in-Single-Bowl-22-Gauge-Stainless-Steel-Kitchen-Sink-VT2522A16/323052616",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "A basic sink. James chooses the finish."
     },
     {
       "id": "fixture-dishwasher",
@@ -1129,16 +1129,16 @@
     },
     {
       "id": "fixture-washer",
-      "name": "Clothes washer box",
+      "name": "Washer outlet box with valves",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 20.47,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/ProPlus-Washer-Outlet-Box-with-Valves-90312/300281975",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic washer box."
     },
     {
       "id": "fixture-laundry-sink",
@@ -1168,29 +1168,29 @@
     },
     {
       "id": "fixture-water-heater",
-      "name": "Water heater",
+      "name": "50 gal electric water heater",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 569,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Rheem-Performance-50-Gal-Medium-4500-Watt-Double-Element-Electric-Water-Heater-with-6-Year-Warranty-XE50M06ST45U1/326434092",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Basic 50 gal electric tank. The product page says Washington may require a demand-response model. Confirm that before buying. James chooses the heater."
     },
     {
       "id": "main-shutoff",
-      "name": "Main shutoff valve",
+      "name": "3/4 in. PEX ball valve",
       "category": "plumbing",
       "kind": "material",
       "unit": "each",
-      "amount": null,
-      "sourceType": "assumption",
-      "sourceName": "Price needed",
-      "url": "",
+      "amount": 17.83,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Uponor-ProPEX-3-4-in-PEX-A-Expansion-Barb-Lead-Free-Brass-Full-Port-Stop-and-Drain-Ball-Valve-LFD48175R/331804713",
       "dateChecked": "2026-11-11",
-      "note": "No published product price was recorded for this line. It stays out of the total."
+      "note": "Full-port stop used as the main shutoff."
     },
     {
       "id": "pressure-tank",
@@ -1243,6 +1243,71 @@
       "url": "",
       "dateChecked": "2026-11-11",
       "note": "No published product price was recorded for this line. It stays out of the total."
+    },
+    {
+      "id": "fixture-hpwh",
+      "name": "50 gal heat-pump water heater",
+      "category": "plumbing",
+      "kind": "material",
+      "unit": "each",
+      "amount": 1279,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Rheem-Performance-Platinum-50-Gal-10-Year-Hybrid-High-Efficiency-Tank-Electric-Heat-Pump-Water-Heater-XE50T10H45U0/312742081",
+      "dateChecked": "2026-11-11",
+      "note": "The page listed $1,279, marked down from $1,699. Demand-response compliant. James chooses the heater."
+    },
+    {
+      "id": "ground-clamp",
+      "name": "Ground rod clamp",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "each",
+      "amount": 4.82,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/1-2-in-1-in-Ground-Clamp-36010/100198848",
+      "dateChecked": "2026-11-11",
+      "note": "Clamp for a 1/2 in. to 1 in. ground rod."
+    },
+    {
+      "id": "breaker-20",
+      "name": "20A single-pole Homeline breaker",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "each",
+      "amount": 7.51,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Square-D-Homeline-20-Amp-Single-Pole-Circuit-Breaker-HOM120CP-HOM120CP/100045009",
+      "dateChecked": "2026-11-11",
+      "note": "Basic HOM120."
+    },
+    {
+      "id": "breaker-20-df",
+      "name": "20A dual-function AFCI/GFCI Homeline breaker",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "each",
+      "amount": 79.44,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Square-D-Homeline-20-Amp-Single-Pole-Dual-Function-CAFCI-and-GFCI-Circuit-Breaker-HOM120DFC-HOM120DFC/204844652",
+      "dateChecked": "2026-11-11",
+      "note": "HOM120DFC, used where the circuit needs both AFCI and GFCI."
+    },
+    {
+      "id": "breaker-50-2",
+      "name": "50A two-pole Homeline breaker",
+      "category": "electrical",
+      "kind": "material",
+      "unit": "each",
+      "amount": 17.47,
+      "sourceType": "published-price",
+      "sourceName": "The Home Depot",
+      "url": "https://www.homedepot.com/p/Square-D-Homeline-50-Amp-2-Pole-Circuit-Breaker-3-Pack-HOM250CP3/305089460",
+      "dateChecked": "2026-11-11",
+      "note": "3-pack is $52.41, which is $17.47 a breaker."
     }
   ]
 }

@@ -115,6 +115,33 @@ check("suggest placements puts a toilet, lavatory, and shower in a bathroom", ()
   assert.deepEqual(kitchenGhosts.map((item) => item.kind), ["kitchen-sink", "dishwasher"]);
 });
 
+check("a sink that is the stack still has a real drain length and no trap-arm warning", () => {
+  const house = {
+    walls: [{ id: "w", start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, assemblyId: "interior-partition", role: "interior", thickness: 0.5 }],
+    rooms: [],
+    plumbing: {
+      septic: { x: 0, y: -20 },
+      fixtures: [{
+        id: "sink",
+        kind: "kitchen-sink",
+        x: 5,
+        y: 0.4,
+        wallId: "w",
+        offset: 5,
+        roomId: "k",
+        roomRole: "kitchen",
+        phase: "phase1",
+      }],
+    },
+  };
+  const design = buildPlumbing(house);
+  const drain = design.dwv[0];
+  assert.equal(drain.trapArm, 0);
+  assert.ok(drain.length >= 2);
+  const warnings = fixtureWarnings(house, house.plumbing.fixtures[0], design);
+  assert.equal(warnings.some((item) => item.section === "UPC Table 1002.2"), false);
+});
+
 check("placing a sink adds priced PEX and changes nothing that was invented", () => {
   assert.deepEqual(priceProblems(), []);
   const bare = { walls: [], rooms: [], plumbing: { fixtures: [], entry: { x: 0, y: 0, phase: "phase1" } } };

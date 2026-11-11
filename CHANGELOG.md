@@ -8,7 +8,7 @@ Cold and hot supply and the drains draw on the plan. Lengths stay hidden until y
 
 Pipe, fittings, traps, the toilet, and plumber hours join the materials list. Published prices are used where a product page was found. The rest say "price needed." The plumber rate is the Jefferson County journey-level rate from L&I. Hours per fixture and per foot are assumptions you can edit.
 
-The sample's phase 1 core has a starter layout. The water heater and the well entry look for the stage 5 circuits. Older house files still open. The app saves them as schema version 5.
+The sample's phase 1 core has a starter layout. The water heater and the well entry look for the stage 5 circuits. A fixture that sits on the stack still counts a vertical drop, so its drain length is not zero. Older house files still open. The app saves them as schema version 5.
 
 ## Stage 5 — electrical
 
