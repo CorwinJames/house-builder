@@ -18,7 +18,11 @@ if (!validate(house)) {
   }
 }
 
-if (house.schemaVersion !== 2) fail("schemaVersion must be 2");
+if (house.schemaVersion !== 4) fail("sample schemaVersion must be 4");
+if (!house.electrical?.panel) fail("sample needs a main panel");
+if (!(house.electrical.devices || []).some((item) => item.phase === "phase1" && !item.ghost)) {
+  fail("sample needs a phase 1 electrical layout");
+}
 if (house.sample !== true) fail("sample must be true");
 if (house.roof.placeholder !== true) fail("roof.placeholder must stay true until a real roof is designed");
 if (house.footprint.width !== 76 || house.footprint.depth !== 47) {

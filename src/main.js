@@ -127,6 +127,7 @@ app.innerHTML = `
     <label class="hire-toggle"><input id="cost-hire" type="checkbox" /> Show hired finish labor</label>
     <div id="cost-summary"></div>
     <div id="cost-focus"></div>
+    <div id="cost-load"></div>
     <div id="cost-groups"></div>
     <p class="dialog-actions">
       <button type="button" id="cost-csv">Export CSV</button>

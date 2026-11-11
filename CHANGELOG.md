@@ -1,10 +1,22 @@
 # Changelog
 
+## Stage 5 — electrical
+
+Build mode has an Electrical tool. Click to place a receptacle, a GFCI, a weather-resistant outlet, a 240V appliance, a switch, a light, a fan, a smoke alarm, or the main panel. The device snaps to a wall at a standard height, which you can edit. Suggest placements draws ghost outlets from the spacing rules, and you can accept or dismiss them.
+
+The app groups those devices into circuits, picks a breaker and a wire gauge, and draws a color-coded route from the panel. The route is the shortest Manhattan path plus a vertical drop. Each circuit shows its length and voltage drop. The cost panel shows a simple dwelling load calculation and the recommended service size, with the section notes an electrician can check.
+
+Hempcrete and rammed-earth walls default to conduit so the cable is not buried in the mass. Other walls default to the stud bay. You can change that per wall. Conduit and fittings are listed. That routing choice is an assumption and needs an electrician and the inspector.
+
+Wire, devices, boxes, breakers, the panel, staples, conduit, a ground rod, and the electrical permit are lines on the stage 4 materials list. Published prices are used where a product page was found. The rest say "price needed" and stay out of the total. Electrician hours use the Jefferson County inside-wireman rate from L&I, and the hours themselves are assumptions you can edit.
+
+The sample's phase 1 core has a starter layout. Older house files still open. The app saves them as schema version 4.
+
 ## Stage 4 — live cost and materials list
 
 The header shows a priced total for the phase you are looking at, and how many lines still need a price. The Costs button opens the materials list: quantity, unit price, line total, and a source link. James's paint, flooring, and tile labor stay at $0 until you turn on hired finish labor.
 
-Quantities come from the walls and rooms. Hempcrete bags use Hemp and Block's published yield (one binder bag and one hurd bag make up to 4.5 cubic feet). Labor hours use labeled assumptions times Jefferson County prevailing wages from L&I's own lookup (effective September 2, 2026). Anything without a published price stays on the list as "price needed" and is not in the total. Foundation, slab, and roof are allowances and are not in the total. Electrical and plumbing are empty on purpose.
+Quantities come from the walls and rooms. Hempcrete bags use Hemp and Block's published yield (one binder bag and one hurd bag make up to 4.5 cubic feet). Labor hours use labeled assumptions times Jefferson County prevailing wages from L&I's own lookup (effective September 2, 2026). Anything without a published price stays on the list as "price needed" and is not in the total. Foundation, slab, and roof are allowances and are not in the total. Plumbing is still empty. Electrical was added in stage 5.
 
 A stage 2 house file still opens. The app saves it as schema version 3 with an optional cost block. Export CSV or the materials JSON (`house-builder.materials`, version 1) from the cost panel or the File menu.
 

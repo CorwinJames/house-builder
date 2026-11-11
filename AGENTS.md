@@ -8,7 +8,7 @@ This applies to every assistant that touches the repo: Grok Build, Claude, Curso
 
 A personal, static house planner for James Corwin and his wife Sophie. They are designing one hempcrete house in Jefferson County, Washington. It is not a general CAD product. Features get added as they experiment.
 
-The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Thickness and framing come from assembly data. There are still no prices and no code citations.
+The long-term feeling is a simple building game: drag walls and rooms, and the app fills in real assemblies, routes wire and pipe, prices a materials list from cited sources, and warns against cited code rules. The output should eventually be drawings an engineer can stamp. Stage 2 is drag-to-build. Stage 4 prices the list from cited sources. Stage 5 places electrical devices and routes circuits. Assembly thicknesses are still placeholders with no invented code citations.
 
 There is no server. The site is a static build deployed to GitHub Pages.
 
@@ -22,7 +22,7 @@ There is no server. The site is a static build deployed to GitHub Pages.
 | 2 | Drag-to-build walls and rooms, with wall assemblies filled in | **Done** |
 | 3 | Google sign-in and Drive saves | **Done** |
 | 4 | Live cost and a shoppable materials list | **Done** |
-| 5 | Electrical placement and routing | Not started |
+| 5 | Electrical placement and routing | **Done** |
 | 6 | Plumbing | Not started |
 | 7 | Code-rule warnings | Not started |
 | 8 | The parcel as the level: terrain, buildable area, pad, grading | Not started |
@@ -52,13 +52,14 @@ Plain ES modules and [Vite](https://vitejs.dev/). Three.js draws the model. Ther
 - `src/rules/` is the warning list. Geometry checks live there now. Stage 7 adds code rules through `registerRule`.
 - `data/sample-house.json` is the house. Renderers do not hard-code room sizes.
 - `data/assemblies.json` defines wall types. `data/headers.json` is the placeholder header table. `data/opening-catalog.json` is the door and window palette.
-- `schemas/house.schema.json` is the contract for the house file. Schema version 2 still opens. The app writes version 3, which adds an optional `cost` block. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
-- `src/cost/` turns geometry into quantities and applies `data/prices.json`. `src/ui/costs.js` is the header total and the materials panel. Electrical and plumbing categories are empty hooks for stages 5 and 6.
+- `schemas/house.schema.json` is the contract for the house file. Schema versions 2 and 3 still open. The app writes version 4, which adds an optional `electrical` block. Version 3 added an optional `cost` block. `schemas/materials-list.schema.json` is the export a later Materials Scout can read.
+- `src/cost/` turns geometry into quantities and applies `data/prices.json`. `src/ui/costs.js` is the header total and the materials panel. Electrical quantities come from `src/electrical/`. Plumbing is still an empty hook for stage 6.
+- `src/electrical/design.js` places devices, suggests receptacles, groups circuits, routes them, and builds the electrical rows. The plan draws those routes when the Electrical layer is on.
 - `scripts/check-model.mjs` checks the sample against the schema. `scripts/test-geometry.mjs` checks snapping, joins, rooms, and openings.
 
 The phase toggle and the Future wings layer both gate later rooms. Phase 1 only hides future geometry even if the layer is on. Full house hides it when the layer is off. See `src/render/visibility.js`.
 
-Electrical, plumbing, and site are real toggles with empty draw groups. Leave them empty until those stages.
+Plumbing and site are real toggles with empty draw groups. Leave them empty until those stages. The Electrical layer draws devices and circuit routes.
 
 ## Data model
 
@@ -127,7 +128,14 @@ The workflow token cannot turn Pages on. A person with admin on the repo has to 
 3. In `src/render/view3d.js`, a group with that id already exists if the id is in `LAYER_DEFS` (groups are created from the registry). Put meshes in `buckets[id]`, or in `futureBuckets[id]` when the geometry is part of a later wing.
 4. In `src/render/plan2d.js`, draw the geometry only when `state.layers[id]` is on, and only when `isPhaseVisible` allows it.
 5. If the geometry is part of the house, add it to `data/sample-house.json` and to `schemas/house.schema.json`. Then extend `scripts/check-model.mjs` so a bad file fails `npm test`.
-6. Do not invent quantities for electrical, plumbing, or site. Those layers stay empty until their stage, and even then every number needs a source.
+6. Do not invent quantities for plumbing or site. Electrical quantities come from the placed devices and the rules in `src/electrical/design.js`. A new electrical price still needs a source, a URL when it has an amount, and a date.
+
+## How to add an electrical device or rule
+
+1. Add the kind to `DEVICE_DEFAULTS` or `APPLIANCES` in `src/electrical/design.js`, and to `PLACE_OPTIONS` so Build mode can place it. An appliance sets volts and amps. `gaugeForAmps` then picks the wire.
+2. If it needs its own circuit, teach `buildElectrical` where that kind belongs. Dedicated 240V loads are already one circuit each. Kitchen, bathroom, and laundry receptacles are grouped before the general circuits.
+3. Add a price id in `electricalBom` and a matching record in `data/prices.json`. If you cannot find a published price, set `amount` to `null` and `sourceName` to `Price needed`. Do not invent a dollar amount.
+4. A code rule needs the NEC section, the WAC 296-46B adoption URL, and a short note when the section number or the application is an assumption. Put the citation on the rule object. Do not paraphrase a number you have not checked. `deviceWarnings` is the small inline warning for a rule this stage already implements, such as a plain receptacle in a bathroom.
 
 ## Sample house, short version
 

@@ -2,8 +2,8 @@
  * Layer registry shared by the plan and the 3D view.
  *
  * To add a layer, see "How to add a new layer" in AGENTS.md.
- * Stub layers (electrical, plumbing, site) have toggles and empty
- * draw groups so later stages can fill them without a new UI concept.
+ * Plumbing and site still have toggles and empty draw groups.
+ * Electrical draws on the plan when its layer is on.
  */
 export const LAYER_DEFS = [
   { id: "framing", label: "Framing", stub: false },
@@ -12,7 +12,7 @@ export const LAYER_DEFS = [
   { id: "future", label: "Future wings", stub: false },
   { id: "dimensions", label: "Dimensions", stub: false },
   { id: "labels", label: "Labels", stub: false },
-  { id: "electrical", label: "Electrical", stub: true },
+  { id: "electrical", label: "Electrical", stub: false },
   { id: "plumbing", label: "Plumbing", stub: true },
   { id: "site", label: "Site", stub: true },
 ];

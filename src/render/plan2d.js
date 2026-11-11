@@ -18,6 +18,7 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
+import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
 
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
@@ -499,6 +500,7 @@ export function createPlanView(canvas, initialHouse) {
         if (isPhaseVisible(wall.phase, state)) drawStuds(wall);
       }
     }
+    drawElectrical();
     drawOverlay();
     drawDimensions();
     drawLabels();
@@ -558,6 +560,106 @@ export function createPlanView(canvas, initialHouse) {
       }
     }
     ctx.restore();
+  }
+
+  function electricalPhase() {
+    if (!state) return "full";
+    if (state.phase === "phase1" || !state.layers.future) return "phase1";
+    return "full";
+  }
+
+  function drawElectrical() {
+    if (!state?.layers.electrical || !house.electrical) return;
+    const design = buildElectrical(house, { phase: electricalPhase() });
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    design.circuits.forEach((circuit, index) => {
+      const color = CIRCUIT_COLORS[index % CIRCUIT_COLORS.length];
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.92;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      let started = false;
+      for (const segment of circuit.segments) {
+        for (const point of segment.points) {
+          const screen = worldToScreen(point.x, point.y);
+          if (!started) {
+            ctx.moveTo(screen.x, screen.y);
+            started = true;
+          } else ctx.lineTo(screen.x, screen.y);
+        }
+      }
+      ctx.stroke();
+      const last = circuit.segments[circuit.segments.length - 1];
+      if (!last) return;
+      const end = last.points[last.points.length - 1];
+      const screen = worldToScreen(end.x, end.y);
+      const selected = overlay?.selection?.type === "device" && circuit.deviceIds.includes(overlay.selection.id);
+      if (selected || camera.pxPerFt >= 7) {
+        ctx.globalAlpha = 1;
+        ctx.font = "700 11px Outfit, sans-serif";
+        ctx.fillStyle = color;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(`${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}%`, screen.x + 8, screen.y - 6);
+      }
+    });
+    for (const device of design.devices) drawDeviceMark(device, false);
+    for (const device of house.electrical.devices || []) {
+      if (!device.ghost || !isPhaseVisible(device.phase, state)) continue;
+      drawDeviceMark(device, true);
+    }
+    if (design.panel && isPhaseVisible(design.panel.phase || "phase1", state)) {
+      const at = panelPoint(house);
+      if (at) {
+        const screen = worldToScreen(at.x, at.y);
+        const selected = overlay?.selection?.type === "panel";
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#1d1a16";
+        ctx.fillRect(screen.x - 8, screen.y - 10, selected ? 18 : 16, selected ? 22 : 20);
+        ctx.fillStyle = "#F7F3EB";
+        ctx.font = "700 10px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("P", screen.x, screen.y);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawDeviceMark(device, ghost) {
+    const at = devicePoint(house, device);
+    const screen = worldToScreen(at.x, at.y);
+    const selected = overlay?.selection?.type === "device" && overlay.selection.id === device.id;
+    ctx.beginPath();
+    ctx.globalAlpha = ghost ? 0.7 : 1;
+    ctx.fillStyle = "#F7F3EB";
+    ctx.strokeStyle = device.volts === 240 ? "#8A5A12" : "#1F6F8B";
+    ctx.lineWidth = selected ? 3 : 1.5;
+    ctx.setLineDash(ghost ? [3, 3] : []);
+    ctx.arc(screen.x, screen.y, selected ? 9 : 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#1d1a16";
+    ctx.font = "700 8px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const letter = device.kind === "gfci" || device.kind === "wr-receptacle"
+      ? "G"
+      : device.volts === 240
+        ? "240"
+        : device.kind.startsWith("switch")
+          ? "S"
+          : device.kind === "light" || device.kind === "wall-light"
+            ? "L"
+            : device.kind === "fan"
+              ? "F"
+              : device.kind === "smoke"
+                ? "A"
+                : "R";
+    ctx.fillText(letter, screen.x, screen.y);
   }
 
   function drawOverlay() {

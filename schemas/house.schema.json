@@ -24,7 +24,7 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 2,
-      "description": "2 adds assemblyId on walls and a placeholder header on each opening. 3 adds an optional cost block for DIY finish and bid overrides. Older files still open."
+      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. Older files still open."
     },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -71,7 +71,12 @@
       "type": "array",
       "items": { "type": "string" }
     },
-    "cost": { "$ref": "#/$defs/cost" }
+    "cost": { "$ref": "#/$defs/cost" },
+    "electrical": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional. Devices, the panel, and per-wall wiring method. Schema 2 and 3 files omit it."
+    }
   },
   "$defs": {
     "point2": {

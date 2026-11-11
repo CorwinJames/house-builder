@@ -1,4 +1,5 @@
 import { costReport, formatMoney, materialsCsv, materialsDocument } from "../cost/list.js";
+import { buildElectrical } from "../electrical/design.js";
 
 const GROUPS = [
   ["hempcrete", "Hempcrete"],
@@ -6,6 +7,7 @@ const GROUPS = [
   ["framing", "Framing"],
   ["openings", "Doors and windows"],
   ["finishes", "Finishes"],
+  ["electrical", "Electrical"],
   ["labor", "Labor"],
   ["allowances", "Allowances, not in the total"],
 ];
@@ -71,7 +73,8 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy }) {
     dialog.querySelector("#cost-summary").innerHTML = `
       <p><strong>${phase === "phase1" ? "Phase 1" : "Full house"} ${formatMoney(report.pricedTotal)}</strong></p>
       <p class="fine">Phase 1 ${formatMoney(report.phase1Total)} · Full house ${formatMoney(report.fullTotal)} · ${report.unpricedCount} price needed</p>
-      <p class="fine">Foundation, slab, and roof are listed and left out of the total. Electrical and plumbing are later stages.</p>`;
+      <p class="fine">Foundation, slab, and roof are listed and left out of the total. Plumbing is a later stage. Electrical lines with no published price stay out of the total.</p>`;
+    dialog.querySelector("#cost-load").innerHTML = loadHtml(house, phase);
     dialog.querySelector("#cost-focus").innerHTML = focused
       ? `<h3>This ${selection.type}</h3>${linesHtml(focused.lines)}<p class="fine">${formatMoney(focused.pricedTotal)} priced on this ${selection.type}. ${focused.unpricedCount} still need a price.</p>`
       : "";
@@ -96,6 +99,26 @@ export function selectionCostHtml(house, selection) {
     rates: house.cost?.rates || [],
   });
   return `<div class="mini-cost"><h3>Cost</h3><p>${formatMoney(report.pricedTotal)} priced · ${report.unpricedCount} unpriced</p>${linesHtml(report.lines.slice(0, 8))}</div>`;
+}
+
+function loadHtml(house, phase) {
+  const design = buildElectrical(house, { phase });
+  const load = design.load;
+  if (!design.panel && !design.devices.length) {
+    return `<section><h3>Service load</h3><p class="fine">Place a panel or a device to see the Article 220 steps, the recommended service, and each circuit.</p></section>`;
+  }
+  const spaces = design.circuits.reduce((sum, circuit) => sum + circuit.breakerPoles, 0);
+  const steps = load.steps.map((step) => `<li><strong>${escapeHtml(step.label)}</strong> ${escapeHtml(step.detail)} · ${step.va.toLocaleString()} VA<p class="fine">${escapeHtml(step.section)}</p></li>`).join("");
+  const circuits = design.circuits.map((circuit) => `<li>Circuit ${circuit.number} ${escapeHtml(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.volts} V drop (${circuit.voltageDrop.percent}%)${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}</li>`).join("");
+  const gaps = (design.gaps || []).map((gap) => `<li class="warn-line">${escapeHtml(gap.message)} ${escapeHtml(gap.section)}. <a href="${escapeAttr(gap.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></li>`).join("");
+  return `<section>
+    <h3>Service load</h3>
+    <p><strong>Recommended service ${load.service}A</strong> from ${load.amps}A calculated (${load.va.toLocaleString()} VA). ${spaces} breaker spaces used.</p>
+    <p class="fine">${escapeHtml(load.adoption)} <a href="${escapeAttr(load.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>
+    <ol class="cost-lines">${steps}</ol>
+    ${gaps ? `<ul class="cost-lines">${gaps}</ul>` : ""}
+    ${circuits ? `<h3>Circuits</h3><ul class="cost-lines">${circuits}</ul><p class="fine">Voltage drop is 2 × 12.9 × amps × feet to the far device ÷ circular mils, from NEC Chapter 9 Table 8 copper, and it assumes the whole circuit current goes that far. Confirm the table. The cable length includes a vertical drop at every device. Eight devices per general circuit is an assumption, not a code maximum. The route is Manhattan distance from the panel plus a vertical drop from a 10 ft plate.</p>` : ""}
+  </section>`;
 }
 
 function linesHtml(lines) {
