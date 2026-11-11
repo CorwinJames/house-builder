@@ -832,7 +832,7 @@ export function createPlanView(canvas, initialHouse) {
     if (design.building?.length) {
       drawRun(design.building.points, "#3F2918", true, "building", `${design.building.size} in building drain · ${design.building.slope.inchesPerFoot} in/ft · drop ${design.building.slope.inches} in`);
     }
-    const mark = (x, y, letter, id) => {
+    const mark = (x, y, letter, id, name = "") => {
       const screen = worldToScreen(x, y);
       const on = active === id || (selectedId && id.endsWith(selectedId));
       ctx.beginPath();
@@ -847,6 +847,11 @@ export function createPlanView(canvas, initialHouse) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(letter, screen.x, screen.y);
+      if (name) {
+        ctx.font = "700 12px Outfit, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(name, screen.x + 14, screen.y - 14);
+      }
     };
     const letters = { toilet: "T", lavatory: "L", "kitchen-sink": "S", dishwasher: "D", shower: "H", tub: "B", washer: "W", "laundry-sink": "Y", "hose-bibb": "HB", "water-heater": "WH" };
     for (const fixture of design.fixtures) {
@@ -855,7 +860,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     for (const fixture of house.plumbing.fixtures || []) {
       if (!fixture.ghost || !isPhaseVisible(fixture.phase, state)) continue;
-      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`, fixture.name || "Fixture");
     }
     if (design.entry) mark(design.entry.x, design.entry.y, "E", "entry");
     if (design.septic) mark(design.septic.x, design.septic.y, "ST", "septic");
@@ -1018,7 +1023,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawDeviceMark(device, ghost) {
-    if (state?.issuesOnly && !(state.issueDeviceIds || []).includes(device.id) && overlay?.selection?.id !== device.id) return;
+    if (!ghost && state?.issuesOnly && !(state.issueDeviceIds || []).includes(device.id) && overlay?.selection?.id !== device.id) return;
     const at = devicePoint(house, device);
     const screen = worldToScreen(at.x, at.y);
     const selected = overlay?.selection?.type === "device" && overlay.selection.id === device.id;
@@ -1050,6 +1055,11 @@ export function createPlanView(canvas, initialHouse) {
                 ? "A"
                 : "R";
     ctx.fillText(letter, screen.x, screen.y);
+    if (ghost) {
+      ctx.font = "700 12px Outfit, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(device.name || "Outlet", screen.x + 14, screen.y - 14);
+    }
   }
 
   function drawMarkers() {
@@ -1240,6 +1250,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
     for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
+    for (const ghost of overlay.suggestMarks || []) drawPlaceGhost(ghost, true);
     if (overlay.ghostOpening) {
       const ghost = overlay.ghostOpening;
       const wall = house.walls.find((item) => item.id === ghost.wallId);
@@ -1258,8 +1269,9 @@ export function createPlanView(canvas, initialHouse) {
   function drawPlaceGhost(ghost, suggested) {
     const screen = worldToScreen(ghost.x, ghost.y);
     ctx.save();
-    ctx.strokeStyle = suggested ? "#2F5D45" : "#1F6F8B";
-    ctx.fillStyle = suggested ? "rgba(47, 93, 69, 0.16)" : "rgba(31, 111, 139, 0.22)";
+    const bad = ghost.ok === false;
+    ctx.strokeStyle = bad ? "#9C341F" : suggested ? "#2F5D45" : "#1F6F8B";
+    ctx.fillStyle = bad ? "rgba(156, 52, 31, 0.18)" : suggested ? "rgba(47, 93, 69, 0.16)" : "rgba(31, 111, 139, 0.22)";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
     if (ghost.width && ghost.depth) {
@@ -1281,10 +1293,11 @@ export function createPlanView(canvas, initialHouse) {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.font = "700 12px Outfit, sans-serif";
-    ctx.fillStyle = "#1d3d2e";
+    ctx.fillStyle = bad ? "#9C341F" : "#1d3d2e";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(ghost.label || "", screen.x + 16, screen.y - 16);
+    if (ghost.reason) ctx.fillText(ghost.reason, screen.x + 16, screen.y + 2);
     ctx.restore();
   }
 
@@ -1437,7 +1450,8 @@ export function createPlanView(canvas, initialHouse) {
     return best;
   }
 
-  canvas.addEventListener("pointerleave", () => {
+  canvas.addEventListener("pointerleave", (event) => {
+    buildHooks?.hover?.(event, null);
     if (!hoverCircuitId && !hoverPipeId) return;
     hoverCircuitId = null;
     hoverPipeId = null;

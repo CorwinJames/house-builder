@@ -4,6 +4,7 @@ import { ASSEMBLY_3D, FINISH_3D } from "../theme.js";
 import { formatFeet } from "../lib/format.js";
 import { openingsFor, wallLength, wallPieces } from "../lib/geom.js";
 import { LAYER_IDS, wallLayerId } from "../layers.js";
+import { planToScene, sceneToPlan } from "../build/space.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
@@ -289,11 +290,10 @@ export function createView3d(canvas, initialHouse) {
     raycaster.setFromCamera(ndc, camera);
     const groundHit = new THREE.Vector3();
     const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
-    const ground = hitGround ? { x: groundHit.x, y: -groundHit.z } : null;
+    const ground = hitGround ? sceneToPlan(groundHit.x, groundHit.y, groundHit.z) : null;
     const hits = raycaster.intersectObjects(scene.children, true);
-    const meshHit = hits.find((item) => item.object.userData?.wallId || item.object.userData?.plan);
-    const surface = meshHit?.object.userData?.plan
-      || (meshHit ? { x: meshHit.point.x, y: -meshHit.point.z } : null);
+    const meshHit = hits.find((item) => item.object.userData?.pickSurface || item.object.userData?.wallId);
+    const surface = meshHit ? sceneToPlan(meshHit.point.x, meshHit.point.y, meshHit.point.z) : null;
     return { ground, surface, pick: meshHit?.object.userData?.pick || null };
   }
 
@@ -379,6 +379,9 @@ export function createView3d(canvas, initialHouse) {
   }
   canvas.addEventListener("pointerup", endEditPointer);
   canvas.addEventListener("pointercancel", endEditPointer);
+  canvas.addEventListener("pointerleave", (event) => {
+    if (editing) buildHooks?.hover?.(event, null);
+  });
   canvas.addEventListener("wheel", (event) => {
     if (!editing) return;
     event.preventDefault();
@@ -429,6 +432,27 @@ export function createView3d(canvas, initialHouse) {
       selection = next;
       selectedId = next?.type === "wall" ? next.id : selectedId;
       paintSelection();
+    },
+    frameHouse() {
+      const points = (house.walls || []).flatMap((wall) => [wall.start, wall.end]);
+      if (!points.length) return;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const point of points) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      }
+      const cx = (minX + maxX) / 2;
+      const cz = -((minY + maxY) / 2);
+      const span = Math.max(18, Math.hypot(maxX - minX, maxY - minY));
+      controls.target.set(cx, 4, cz);
+      camera.position.set(cx - span * 0.85, span * 0.7, cz + span * 0.95);
+      controls.update();
+      onChange(readCamera());
     },
     frameParcel() {
       const ring = house.site?.parcel?.ring;
@@ -490,6 +514,7 @@ function failedView(message) {
     setBuildHooks() {},
     setOverlay() {},
     setSelection() {},
+    frameHouse() {},
     frameParcel() {},
     dispose() {},
   };
@@ -621,40 +646,57 @@ function tag(mesh, type, id, x, y) {
 
 function addPlacedItems(house, buckets) {
   for (const device of house.electrical?.devices || []) {
+    const at = planToScene(device, device.mount === "ceiling" ? 9.2 : (device.height || 1.5));
     const mesh = marker(
-      device.x,
-      device.mount === "ceiling" ? 9.2 : (device.height || 1.5),
-      -device.y,
-      new THREE.SphereGeometry(0.45, 16, 12),
+      at.x,
+      at.y,
+      at.z,
+      new THREE.SphereGeometry(device.ghost ? 0.7 : 0.45, 16, 12),
       device.volts === 240 ? 0xc4654a : 0x2f5d45,
-      device.ghost ? 0.45 : 1,
+      device.ghost ? 0.55 : 1,
     );
     buckets.electrical.add(tag(mesh, "device", device.id, device.x, device.y));
+    if (device.ghost) {
+      const label = makeSprite(device.name || "Outlet", false, { priority: 4, px: 28 });
+      const labelAt = planToScene(device, 3.2);
+      label.position.set(labelAt.x, labelAt.y, labelAt.z);
+      buckets.electrical.add(label);
+    }
   }
   if (house.electrical?.panel) {
     const panel = house.electrical.panel;
-    const mesh = marker(panel.x, panel.height || 5, -panel.y, new THREE.BoxGeometry(0.7, 1.4, 0.25), 0x243024);
+    const at = planToScene(panel, panel.height || 5);
+    const mesh = marker(at.x, at.y, at.z, new THREE.BoxGeometry(0.7, 1.4, 0.25), 0x243024);
     buckets.electrical.add(tag(mesh, "panel", "panel", panel.x, panel.y));
   }
   for (const fixture of house.plumbing?.fixtures || []) {
+    const at = planToScene(fixture, 0.7);
     const mesh = marker(
-      fixture.x,
-      0.7,
-      -fixture.y,
+      at.x,
+      at.y,
+      at.z,
       new THREE.BoxGeometry(1.5, 1.2, 1.3),
       0x1f6f8b,
-      fixture.ghost ? 0.45 : 1,
+      fixture.ghost ? 0.55 : 1,
     );
     buckets.plumbing.add(tag(mesh, "fixture", fixture.id, fixture.x, fixture.y));
+    if (fixture.ghost) {
+      const label = makeSprite(fixture.name || "Fixture", false, { priority: 4, px: 28 });
+      const labelAt = planToScene(fixture, 2.6);
+      label.position.set(labelAt.x, labelAt.y, labelAt.z);
+      buckets.plumbing.add(label);
+    }
   }
   if (house.plumbing?.entry) {
     const entry = house.plumbing.entry;
-    const mesh = marker(entry.x, 0.4, -entry.y, new THREE.CylinderGeometry(0.28, 0.28, 0.8, 12), 0x1f6f8b);
+    const at = planToScene(entry, 0.4);
+    const mesh = marker(at.x, at.y, at.z, new THREE.CylinderGeometry(0.28, 0.28, 0.8, 12), 0x1f6f8b);
     buckets.plumbing.add(tag(mesh, "entry", "entry", entry.x, entry.y));
   }
   const well = house.site?.well;
   if (well) {
-    const mesh = marker(well.x, 0.8, -well.y, new THREE.CylinderGeometry(0.7, 0.7, 1.6, 16), 0x1f6f8b);
+    const wellAt = planToScene(well, 0.8);
+    const mesh = marker(wellAt.x, wellAt.y, wellAt.z, new THREE.CylinderGeometry(0.7, 0.7, 1.6, 16), 0x1f6f8b);
     const label = makeSprite("Well", false, { priority: 3, px: 32 });
     label.position.set(well.x, 3.2, -well.y);
     buckets.site.add(label);
@@ -662,7 +704,8 @@ function addPlacedItems(house, buckets) {
   }
   const tank = house.site?.septic?.tank;
   if (tank) {
-    const mesh = marker(tank.x, 1.1, -tank.y, new THREE.BoxGeometry(5, 2.2, 8), 0x2f5d45);
+    const tankAt = planToScene(tank, 1.1);
+    const mesh = marker(tankAt.x, tankAt.y, tankAt.z, new THREE.BoxGeometry(5, 2.2, 8), 0x2f5d45);
     const label = makeSprite("Tank", false, { priority: 3, px: 32 });
     label.position.set(tank.x, 3.4, -tank.y);
     buckets.site.add(label);
@@ -728,15 +771,18 @@ function syncGhost(group, house, overlay) {
       group.add(mesh);
     }
   }
-  const ghosts = [overlay.placeGhost, ...(overlay.siteGhosts || [])].filter(Boolean);
+  const ghosts = [overlay.placeGhost, ...(overlay.siteGhosts || []), ...(overlay.suggestMarks || [])].filter(Boolean);
   for (const ghost of ghosts) {
+    const color = ghost.ok === false ? 0xc44536 : 0x1f6f8b;
+    const at = planToScene(ghost, ghost.width ? 0.2 : 1);
     if (ghost.width && ghost.depth) {
-      group.add(marker(ghost.x, 0.2, -ghost.y, new THREE.BoxGeometry(ghost.width, 0.2, ghost.depth), 0x1f6f8b, 0.35));
+      group.add(marker(at.x, at.y, at.z, new THREE.BoxGeometry(ghost.width, 0.2, ghost.depth), color, 0.35));
     } else {
-      group.add(marker(ghost.x, 1, -ghost.y, new THREE.SphereGeometry(1.1, 16, 12), 0x1f6f8b, 0.55));
+      group.add(marker(at.x, at.y, at.z, new THREE.SphereGeometry(1.1, 16, 12), color, 0.55));
     }
-    const label = makeSprite(ghost.label || "Place", false, { priority: 4, px: 32 });
-    label.position.set(ghost.x, 3.6, -ghost.y);
+    const label = makeSprite(ghost.reason || ghost.label || "Place", ghost.ok === false, { priority: 4, px: 32 });
+    const labelAt = planToScene(ghost, 3.6);
+    label.position.set(labelAt.x, labelAt.y, labelAt.z);
     group.add(label);
   }
 }
@@ -774,6 +820,7 @@ function roomFloor(room, materials) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.y = 0.03;
   mesh.receiveShadow = true;
+  mesh.userData.pickSurface = true;
   return mesh;
 }
 

@@ -780,12 +780,33 @@ button:focus-visible {
 }
 
 .statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
   padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 0.82rem;
-  background: rgba(247, 243, 235, 0.92);
+  background: rgba(247, 243, 235, 0.96);
 }
+.coach { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--ink); font-weight: 650; }
+.coach p { margin: 0; }
+.coach strong { font-weight: 750; }
+.coach-skip, .app-toast button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 750;
+  text-decoration: underline;
+  min-height: 32px;
+  padding: 0 4px;
+}
+#action-history { font-weight: 650; }
+#action-history summary { cursor: pointer; }
+#history-list { margin: 6px 0 0; padding-left: 18px; font-weight: 600; color: var(--muted); }
+#status-meta { margin: 0; }
 
 .hint {
   position: fixed;
@@ -881,6 +902,7 @@ button:focus-visible {
   background: var(--moss);
   color: #f6f1e8;
   border-color: var(--moss);
+  box-shadow: 0 0 0 3px #f3d2c6;
 }
 
 .chip { display: inline-flex; align-items: center; gap: 6px; }

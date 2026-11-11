@@ -22,6 +22,7 @@ import {
   translateWall,
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
+import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { snapOpeningOffset } from "../build/openings.js";
 import { projectOntoWall, snapDrawingPoint, snapPointToGrid, snapToGrid } from "../build/snap.js";
 import { evaluateRules, warningTargets } from "../rules/index.js";
@@ -55,6 +56,7 @@ import {
   hitElectrical,
   laborAssumption,
   panelFromClick,
+  suggestPanel,
   suggestPlacements,
   wallMethod,
 } from "../electrical/design.js";
@@ -128,6 +130,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let hoverWorld = null;
   let advancedOn = false;
   let suggestKind = null;
+  let suggestNote = "";
+  let panelGhost = null;
+  let lastPreview = null;
+  const history = [];
+  let coachKey = "";
 
   const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
@@ -228,7 +235,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       event.preventDefault();
       eraseSelection();
     } else if (event.key === "Escape") {
-      selection = null;
+      event.preventDefault();
+      gesture = null;
+      hoverWorld = null;
+      hoverPlace = null;
+      lastPreview = null;
+      if (tool !== "select") {
+        tool = "select";
+        optionsOpen = false;
+        announce("Select tool. Esc canceled the last tool.", false);
+      } else selection = null;
       publish();
     }
   });
@@ -422,36 +438,67 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       armPan();
       return true;
     }
-    if (tool === "electrical") {
+    if (tool === "electrical" || tool === "plumbing") {
+      const preview = previewPlacement(house, world, {
+        system: tool,
+        kind: tool === "electrical" ? deviceKind : fixtureKind,
+        supply: pumpSupply,
+      });
+      lastPreview = preview;
+      if (!preview.ok) {
+        announce(preview.reason, false);
+        publish();
+        return true;
+      }
       const next = cloneHouse(house);
-      if (deviceKind === "panel") {
-        next.electrical.panel = panelFromClick(next, world);
+      if (tool === "electrical" && deviceKind === "panel") {
+        next.electrical.panel = {
+          id: "panel-main",
+          x: preview.x,
+          y: preview.y,
+          wallId: preview.wallId,
+          offset: preview.offset,
+          height: 5,
+          phase: preview.phase || "phase1",
+        };
         selection = { type: "panel", id: "panel" };
-      } else {
-        const device = deviceFromClick(next, world, deviceKind, { supply: pumpSupply });
+        panelGhost = null;
+      } else if (tool === "electrical") {
+        const device = deviceFromClick(next, { x: preview.x, y: preview.y }, deviceKind, { supply: pumpSupply });
+        device.x = preview.x;
+        device.y = preview.y;
+        device.wallId = preview.wallId;
+        device.offset = preview.offset;
         next.electrical.devices.push(device);
         selection = { type: "device", id: device.id };
+      } else if (fixtureKind === "entry") {
+        next.plumbing.entry = {
+          id: "water-entry",
+          x: preview.x,
+          y: preview.y,
+          wallId: preview.wallId,
+          offset: preview.offset,
+          phase: preview.phase || "phase1",
+        };
+        selection = { type: "entry", id: "entry" };
+      } else {
+        const fixture = fixtureFromClick(next, { x: preview.x, y: preview.y }, fixtureKind);
+        fixture.x = preview.x;
+        fixture.y = preview.y;
+        fixture.wallId = preview.wallId;
+        fixture.offset = preview.offset;
+        next.plumbing.fixtures.push(fixture);
+        selection = { type: "fixture", id: fixture.id };
       }
       commit(next);
+      announce(preview.placed);
       return true;
     }
     if (tool === "site") {
       const placed = placeSite(house, world, siteKind);
       selection = placed.selection;
       commit(placed.house);
-      return true;
-    }
-    if (tool === "plumbing") {
-      const next = cloneHouse(house);
-      if (fixtureKind === "entry") {
-        next.plumbing.entry = entryFromClick(next, world);
-        selection = { type: "entry", id: "entry" };
-      } else {
-        const fixture = fixtureFromClick(next, world, fixtureKind);
-        next.plumbing.fixtures.push(fixture);
-        selection = { type: "fixture", id: fixture.id };
-      }
-      commit(next);
+      announce(`Placed ${siteKind.replaceAll("-", " ")}.`);
       return true;
     }
     if (tool === "door" || tool === "window") {
@@ -551,20 +598,39 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (current.kind === "wall" && current.moved && current.end) {
       const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
       const added = addWall(house, current.start, current.end, chosen);
-      if (added.house !== house) commit(syncRooms(added.house));
-      else warnings = added.warnings;
+      if (added.house !== house) {
+        commit(syncRooms(added.house));
+        announce("Drew a wall.");
+      } else {
+        warnings = added.warnings;
+        announce(added.warnings?.[0]?.message || "That wall wasn't drawn.", false);
+      }
     } else if (current.kind === "room" && current.moved && current.end) {
       const added = addRoomRectangle(house, current.start, current.end, assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID);
-      if (added.house !== house) commit(syncRooms(added.house));
-      else warnings = added.warnings;
+      if (added.house !== house) {
+        const firstWalls = !(current.snapshot?.walls || []).length;
+        commit(syncRooms(added.house));
+        if (firstWalls) model.frameHouse?.();
+        announce("Drew a room.");
+      } else {
+        warnings = added.warnings;
+        announce(added.warnings?.[0]?.message || "Drag a room at least 2 feet on each side.", false);
+      }
     } else if (current.kind === "opening" && current.place?.ok) {
       const placed = placeOpening(house, current.place.wall.id, catalogItem(), current.place.offset);
       if (placed.createdId) {
         selection = { type: "opening", id: placed.createdId };
         commit(placed.house);
-      } else warnings = placed.warnings;
+        announce(`Placed a ${catalogItem().type === "window" ? "window" : "door"}.`);
+      } else {
+        warnings = placed.warnings;
+        announce(placed.warnings?.[0]?.message || "That spot can't take the opening.", false);
+      }
+    } else if (current.kind === "opening") {
+      announce(current.place ? "Slide onto a clear stretch of wall." : "Click a wall to place the opening.", false);
     } else if ((current.kind === "endpoint" || current.kind === "select") && current.moved) {
       commit(syncRooms(house), current.snapshot);
+      announce("Moved it.");
     }
     publish();
   }
@@ -580,10 +646,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       return ghost;
     }
-    if (tool === "plumbing") {
-      return { kind: fixtureKind, label: fixtureKind.replaceAll("-", " "), x: point.x, y: point.y };
+    if (tool === "electrical" || tool === "plumbing") {
+      return previewPlacement(house, point, {
+        system: tool,
+        kind: tool === "electrical" ? deviceKind : fixtureKind,
+        supply: pumpSupply,
+      });
     }
-    return { kind: deviceKind, label: deviceKind.replaceAll("-", " "), x: point.x, y: point.y };
+    return null;
   }
 
   function relocate(snapshot, hit, world) {
@@ -595,15 +665,49 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (hit.type === "fixture") {
       const current = next.plumbing?.fixtures?.find((item) => item.id === hit.id);
       if (!current) return next;
-      Object.assign(current, fixtureFromClick(next, world, current.kind), { id: current.id, ghost: false });
+      const preview = previewPlacement(next, world, { system: "plumbing", kind: current.kind });
+      if (!preview.ok) return snapshot;
+      Object.assign(current, fixtureFromClick(next, { x: preview.x, y: preview.y }, current.kind), {
+        id: current.id,
+        ghost: false,
+        x: preview.x,
+        y: preview.y,
+        wallId: preview.wallId,
+        offset: preview.offset,
+      });
     } else if (hit.type === "device") {
       const current = next.electrical?.devices?.find((item) => item.id === hit.id);
       if (!current) return next;
-      Object.assign(current, deviceFromClick(next, world, current.kind, { supply: current.supply }), { id: current.id, ghost: false });
+      const preview = previewPlacement(next, world, { system: "electrical", kind: current.kind, supply: current.supply });
+      if (!preview.ok) return snapshot;
+      Object.assign(current, deviceFromClick(next, { x: preview.x, y: preview.y }, current.kind, { supply: current.supply }), {
+        id: current.id,
+        ghost: false,
+        x: preview.x,
+        y: preview.y,
+        wallId: preview.wallId,
+        offset: preview.offset,
+      });
     } else if (hit.type === "panel" && next.electrical?.panel) {
-      next.electrical.panel = { ...next.electrical.panel, ...panelFromClick(next, world), id: next.electrical.panel.id };
+      const preview = previewPlacement(next, world, { system: "electrical", kind: "panel" });
+      if (!preview.ok) return snapshot;
+      next.electrical.panel = {
+        ...next.electrical.panel,
+        x: preview.x,
+        y: preview.y,
+        wallId: preview.wallId,
+        offset: preview.offset,
+      };
     } else if (hit.type === "entry") {
-      next.plumbing.entry = { ...(next.plumbing.entry || {}), ...entryFromClick(next, world) };
+      const preview = previewPlacement(next, world, { system: "plumbing", kind: "entry" });
+      if (!preview.ok) return snapshot;
+      next.plumbing.entry = {
+        ...(next.plumbing.entry || {}),
+        x: preview.x,
+        y: preview.y,
+        wallId: preview.wallId,
+        offset: preview.offset,
+      };
     }
     return next;
   }
@@ -637,10 +741,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function onHover(event, world, extra) {
     if (mode !== "build" || gesture) return;
-    const point = pointFor(tool, world, extra);
-    if (!point) return;
+    const point = world ? pointFor(tool, world, extra) : null;
+    if (!point) {
+      hoverWorld = null;
+      hoverPlace = null;
+      lastPreview = null;
+      const overlay = makeOverlay();
+      plan.setOverlay(overlay);
+      model.setOverlay?.(overlay);
+      paintCoach();
+      return;
+    }
     hoverPlace = tool === "door" || tool === "window" ? openingSpot(point) : null;
     hoverWorld = tool === "site" || tool === "electrical" || tool === "plumbing" ? point : null;
+    lastPreview = hoverWorld && (tool === "electrical" || tool === "plumbing") ? placeGhostAt(hoverWorld) : null;
+    paintCoach();
     const overlay = makeOverlay();
     plan.setOverlay(overlay);
     model.setOverlay?.(overlay);
@@ -705,16 +820,28 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     onDocument?.("edit");
   }
 
+  function syncSuggestOverlay() {
+    const electricalGhosts = (house.electrical?.devices || []).some((item) => item.ghost);
+    const plumbingGhosts = (house.plumbing?.fixtures || []).some((item) => item.ghost);
+    if (!electricalGhosts) panelGhost = null;
+    if (!electricalGhosts && !plumbingGhosts) {
+      suggestKind = null;
+      suggestNote = "";
+    }
+  }
+
   function undo() {
     if (!past.length) return;
     future.push(house);
     house = past.pop();
     selection = null;
+    syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
     onDocument?.("edit");
+    announce("Undid the last action.", false);
   }
 
   function redo() {
@@ -722,47 +849,64 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     past.push(house);
     house = future.pop();
     selection = null;
+    syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
     onDocument?.("edit");
+    announce("Redid the last action.", false);
   }
 
   function eraseSelection(hit = selection) {
-    if (!hit) return;
+    if (hit && typeof hit.preventDefault === "function") hit = selection;
+    if (!hit?.type) return;
+    let label = "";
     if (hit.type === "device") {
       const next = cloneHouse(house);
       next.electrical.devices = next.electrical.devices.filter((item) => item.id !== hit.id);
+      label = "device";
       commit(next);
     } else if (hit.type === "panel") {
       const next = cloneHouse(house);
       next.electrical.panel = null;
+      label = "breaker panel";
       commit(next);
     } else if (hit.type === "fixture") {
       const next = cloneHouse(house);
       next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => item.id !== hit.id);
+      label = "fixture";
       commit(next);
     } else if (hit.type === "entry") {
       const next = cloneHouse(house);
       next.plumbing.entry = null;
+      label = "water entry";
       commit(next);
     } else if (hit.type === "well") {
       const next = cloneHouse(house);
       next.site.well = null;
+      label = "well";
       commit(next);
     } else if (hit.type === "septic" || hit.type === "drainfield" || hit.type === "reserve") {
       const next = cloneHouse(house);
       next.site.septic = null;
+      label = "septic";
       commit(next);
-    } else if (hit.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
-    else if (hit.type === "opening") commit(deleteOpening(house, hit.id));
-    else if (hit.type === "room") {
+    } else if (hit.type === "wall") {
+      label = "wall";
+      commit(syncRooms(deleteWall(house, hit.id)));
+    } else if (hit.type === "opening") {
+      label = "opening";
+      commit(deleteOpening(house, hit.id));
+    } else if (hit.type === "room") {
       const next = cloneHouse(house);
       next.rooms = next.rooms.filter((room) => room.id !== hit.id);
+      label = "room";
       commit(next);
     }
+    if (!label) return;
     selection = null;
+    announce(`Deleted ${label}.`);
     publish();
   }
 
@@ -803,6 +947,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         y1: gesture.end.y,
       } : null,
       placeGhost: hoverWorld && !gesture ? placeGhostAt(hoverWorld) : null,
+      suggestMarks: panelGhost ? [panelGhost] : [],
       siteGhosts,
       ghostOpening: (gesture?.kind === "opening" && gesture.place) || hoverPlace ? {
         wallId: (gesture?.place || hoverPlace).wall.id,
@@ -853,6 +998,100 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     model.setSelection?.(mode === "build" ? selection : null);
     model.setSelected?.(mode === "build" && selection?.type === "wall" ? selection.id : null);
     plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing"].includes(tool) ? "crosshair" : "");
+    paintCoach();
+  }
+
+  function nextInstruction() {
+    if (mode !== "build") return "View mode. Switch to Build to draw and place.";
+    const orbitNote = getViewState().view !== "plan" && document.body.dataset.orbit === "true"
+      && ["electrical", "plumbing", "door", "window", "wall", "room", "site"].includes(tool)
+      ? " In 3D, press Edit so a click places instead of orbiting."
+      : "";
+    if (lastPreview && !lastPreview.ok && (tool === "electrical" || tool === "plumbing")) return `${toolName()} ${lastPreview.reason}${orbitNote}`;
+    if (tool === "electrical") {
+      if (deviceKind === "panel") return `Power tool. Click a wall to place the breaker panel.${orbitNote}`;
+      const name = deviceSpec(deviceKind, pumpSupply).name.toLowerCase();
+      const where = deviceSpec(deviceKind, pumpSupply).mount === "ceiling" ? "inside a room" : "a wall";
+      return `Power tool. Click ${where} to place the ${name}.${orbitNote}`;
+    }
+    if (tool === "plumbing") {
+      if (fixtureKind === "entry") return `Water tool. Click a wall to place the water entry.${orbitNote}`;
+      return `Water tool. Click a wall to place the ${fixtureSpec(fixtureKind).name.toLowerCase()}.${orbitNote}`;
+    }
+    const lines = {
+      select: "Select tool. Click a wall, room, or fixture to open its card.",
+      wall: "Wall tool. Drag to draw a wall.",
+      room: "Room tool. Drag a rectangle.",
+      door: "Door tool. Click a wall to place a door.",
+      window: "Window tool. Click a wall to place a window.",
+      erase: "Delete tool. Click something to remove it.",
+      site: "Site tool. Click the lot to place the item under the pointer.",
+    };
+    return `${lines[tool] || "Build mode."}${orbitNote}`;
+  }
+
+  function toolName() {
+    if (tool === "electrical") return "Power tool.";
+    if (tool === "plumbing") return "Water tool.";
+    return "";
+  }
+
+  function guideStep() {
+    if (house.sample || getViewState().guideSkipped || mode !== "build") return "";
+    const rooms = (house.rooms || []).filter((room) => (room.polygon || []).length >= 3 && !room.outdoor);
+    const door = (house.openings || []).some((item) => item.type === "door");
+    const panel = !!house.electrical?.panel;
+    const outlet = (house.electrical?.devices || []).some((item) => !item.ghost && ["receptacle", "gfci", "wr-receptacle"].includes(item.kind));
+    const sink = (house.plumbing?.fixtures || []).some((item) => !item.ghost && item.kind === "kitchen-sink");
+    if (!rooms.length) return "Step 1 of 5. Draw a room.";
+    if (!door) return "Step 2 of 5. Add a door.";
+    if (!panel) return "Step 3 of 5. Place the breaker panel.";
+    if (!outlet) return "Step 4 of 5. Add an outlet.";
+    if (!sink) return "Step 5 of 5. Add a kitchen sink.";
+    return "";
+  }
+
+  function paintCoach() {
+    const line = document.querySelector("#coach-line");
+    const list = document.querySelector("#history-list");
+    if (!line) return;
+    const guide = guideStep();
+    const next = nextInstruction();
+    const key = `${guide}|${next}|${history.join("\n")}`;
+    if (key === coachKey) return;
+    coachKey = key;
+    line.replaceChildren();
+    if (guide) {
+      const strong = document.createElement("strong");
+      strong.textContent = guide;
+      const skip = document.createElement("button");
+      skip.type = "button";
+      skip.className = "coach-skip";
+      skip.textContent = "Skip guide";
+      skip.addEventListener("click", () => {
+        patchViewState({ guideSkipped: true });
+        coachKey = "";
+        paintCoach();
+      });
+      line.append(strong, " ", skip, " ");
+    }
+    line.append(document.createTextNode(next));
+    if (!list) return;
+    list.replaceChildren();
+    for (const item of history) {
+      const row = document.createElement("li");
+      row.textContent = item;
+      list.append(row);
+    }
+  }
+
+  function announce(text, undo = true) {
+    if (!text) return;
+    history.unshift(text);
+    if (history.length > 12) history.length = 12;
+    coachKey = "";
+    document.dispatchEvent(new CustomEvent("app-toast", { detail: { text, undo } }));
+    paintCoach();
   }
 
   function paintToolOptions() {
@@ -865,7 +1104,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -1082,30 +1321,110 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function startSuggest(kind) {
     suggestKind = kind;
-    const next = cloneHouse(house);
-    if (kind === "electrical") {
-      next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost);
-      next.electrical.devices.push(...suggestPlacements(next));
-    } else {
-      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost);
-      next.plumbing.fixtures.push(...suggestFixtures(next));
+    optionsOpen = true;
+    optionsKey = "";
+    const note = suggestionNote(house);
+    if (note) {
+      suggestNote = note;
+      panelGhost = null;
+      announce(note, false);
+      publish();
+      return;
     }
-    commit(next);
+    const next = cloneHouse(house);
+    let committed = false;
+    let shown = 0;
+    if (kind === "electrical") {
+      const ghosts = suggestPlacements(next);
+      next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost);
+      next.electrical.devices.push(...ghosts);
+      const rawPanel = suggestPanel(next);
+      const panelPreview = rawPanel ? previewPlacement(next, rawPanel, { system: "electrical", kind: "panel" }) : null;
+      panelGhost = panelPreview?.ok ? { ...panelPreview, kind: "panel" } : null;
+      shown = ghosts.length + (panelGhost ? 1 : 0);
+      suggestNote = shown ? "" : "Nothing new to suggest. These rooms already have outlets.";
+      if (ghosts.length) {
+        commit(next);
+        committed = true;
+      }
+    } else {
+      const ghosts = suggestFixtures(next);
+      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost);
+      next.plumbing.fixtures.push(...ghosts);
+      panelGhost = null;
+      shown = ghosts.length;
+      suggestNote = shown ? "" : "Nothing new to suggest. Name the room Kitchen, Bath, or Laundry, or place a sink on a wall.";
+      if (ghosts.length) {
+        commit(next);
+        committed = true;
+      }
+    }
+    announce(suggestNote || `Showing ${shown} suggestions. Accept the ones you want.`, committed);
     publish();
+  }
+
+  function acceptPanelGhost(announceIt = true) {
+    if (!panelGhost) return;
+    const next = cloneHouse(house);
+    next.electrical.panel = {
+      id: "panel-main",
+      x: panelGhost.x,
+      y: panelGhost.y,
+      wallId: panelGhost.wallId,
+      offset: panelGhost.offset,
+      height: 5,
+      phase: panelGhost.phase || "phase1",
+    };
+    panelGhost = null;
+    selection = { type: "panel", id: "panel" };
+    commit(next);
+    if (announceIt) announce("Placed breaker panel from the suggestion.");
+  }
+
+  function acceptAllSuggestions() {
+    const next = cloneHouse(house);
+    if (suggestKind === "electrical") {
+      next.electrical.devices = next.electrical.devices.map((item) => (item.ghost ? { ...item, ghost: false } : item));
+      if (panelGhost) {
+        next.electrical.panel = {
+          id: "panel-main",
+          x: panelGhost.x,
+          y: panelGhost.y,
+          wallId: panelGhost.wallId,
+          offset: panelGhost.offset,
+          height: 5,
+          phase: panelGhost.phase || "phase1",
+        };
+        panelGhost = null;
+      }
+    } else {
+      next.plumbing.fixtures = next.plumbing.fixtures.map((item) => (item.ghost ? { ...item, ghost: false } : item));
+    }
+    suggestKind = null;
+    suggestNote = "";
+    commit(next);
+    announce("Accepted the suggestions.");
   }
 
   function suggestHtml() {
     const items = suggestKind === "electrical"
       ? (house.electrical?.devices || []).filter((item) => item.ghost)
-      : (house.plumbing?.fixtures || []).filter((item) => item.ghost);
+      : suggestKind === "plumbing"
+        ? (house.plumbing?.fixtures || []).filter((item) => item.ghost)
+        : [];
     const groups = groupByRoom(items, house.rooms);
-    if (!groups.length) return `<p class="fine">Nothing new to suggest in the empty rooms.</p>`;
+    const panelRow = panelGhost
+      ? `<div class="suggest-row"><span>Breaker panel</span><button type="button" class="hud-pill" data-accept-panel>Accept</button><button type="button" class="hud-pill" data-skip-panel>Skip</button></div>`
+      : "";
+    if (!groups.length && !panelRow) return `<p class="fine">${escapeAttr(suggestNote || "Nothing new to suggest.")}</p>`;
     return `<div class="suggest-list">
-      <div class="suggest-head"><strong>Preview</strong><button type="button" class="hud-pill pill-primary" id="accept-all-suggest">Accept all</button></div>
+      <div class="suggest-head"><strong>Suggestions</strong><button type="button" class="hud-pill pill-primary" data-accept-all>Accept all</button></div>
+      ${panelRow}
       ${groups.map((group) => `
       <div class="suggest-row"><span>${escapeAttr(group.name)} · ${group.count}</span>
         <button type="button" class="hud-pill" data-accept-room="${escapeAttr(group.id)}">Accept</button>
         <button type="button" class="hud-pill" data-skip-room="${escapeAttr(group.id)}">Skip</button></div>`).join("")}
+      ${suggestNote ? `<p class="fine">${escapeAttr(suggestNote)}</p>` : ""}
     </div>`;
   }
 
@@ -1116,10 +1435,19 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     box.querySelectorAll("[data-skip-room]").forEach((button) => {
       button.addEventListener("click", () => skipSuggestRoom(button.dataset.skipRoom));
     });
-    box.querySelector("#accept-all-suggest")?.addEventListener("click", () => {
-      if (suggestKind === "electrical") acceptGhosts();
-      else acceptFixtures();
-      suggestKind = null;
+    box.querySelectorAll("[data-accept-all]").forEach((button) => {
+      button.addEventListener("click", acceptAllSuggestions);
+    });
+    box.querySelectorAll("[data-accept-panel]").forEach((button) => {
+      button.addEventListener("click", () => acceptPanelGhost());
+    });
+    box.querySelectorAll("[data-skip-panel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        panelGhost = null;
+        optionsKey = "";
+        announce("Skipped the breaker panel.", false);
+        publish();
+      });
     });
   }
 
@@ -1247,6 +1575,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         <p class="fine">${escapeAttr(design.load.adoption)}</p>
         <label>Height, feet <input id="device-height" type="number" min="0" max="10" step="0.25" value="${panel.height || 5}" /></label>
         <button type="button" id="suggest-outlets">Suggest placements</button>
+        ${suggestKind === "electrical" || suggestNote ? suggestHtml() : ""}
         <button type="button" id="edit-delete">Delete panel</button>`;
       inspector.querySelector("#device-height").addEventListener("change", (event) => {
         const next = cloneHouse(house);
@@ -1256,6 +1585,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       });
       inspector.querySelector("#suggest-outlets").addEventListener("click", () => startSuggest("electrical"));
       inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+      bindSuggest(inspector);
       return;
     }
     const device = (house.electrical?.devices || []).find((item) => item.id === selection.id);
@@ -1489,6 +1819,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}" ${proportion.match?.ratio?.id === ratio.id ? "selected" : ""}>${ratio.name}</option>`).join("");
       inspector.innerHTML = `
         ${gameHead(room.name || "Room", warnings.filter((item) => item.target?.id === room.id))}
+        <button type="button" id="suggest-room-power">Suggest outlets</button>
+        <button type="button" id="suggest-room-water">Suggest a sink</button>
+        ${suggestKind || suggestNote ? suggestHtml() : ""}
         ${statTiles([
           { icon: "▦", value: `${formatArea(polygonArea(room.polygon))} sq ft`, label: "Area" },
           { icon: "↔", value: formatFeetFine(proportion.width).construction, label: "Width" },
@@ -1513,6 +1846,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         if (result.house !== house) commit(result.house);
         publish();
       });
+      inspector.querySelector("#suggest-room-power").addEventListener("click", () => startSuggest("electrical"));
+      inspector.querySelector("#suggest-room-water").addEventListener("click", () => startSuggest("plumbing"));
+      bindSuggest(inspector);
       inspector.querySelector("#edit-name").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         next.rooms.find((item) => item.id === room.id).name = event.target.value.trim() || "Room";
@@ -1679,10 +2015,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     past.length = 0;
     future.length = 0;
     siteGhosts = [];
+    panelGhost = null;
+    suggestNote = "";
+    suggestKind = null;
+    lastPreview = null;
     hoverWorld = null;
     hoverPlace = null;
     gesture = null;
     selection = null;
+    if (!doc.sample && !(doc.rooms || []).length) patchViewState({ guideSkipped: false });
     house = decorateHouse(doc);
     fromSave = false;
     try {

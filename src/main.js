@@ -138,7 +138,16 @@ app.innerHTML = `
         </section>
       </div>
     </div>
-    <footer class="statusbar" id="status"></footer>
+    <footer class="statusbar" id="status">
+      <div class="coach">
+        <p id="coach-line">Build mode. Pick a tool.</p>
+        <details id="action-history">
+          <summary>Recent</summary>
+          <ol id="history-list"></ol>
+        </details>
+      </div>
+      <p id="status-meta"></p>
+    </footer>
   </div>
   <div id="budget-toast" class="budget-toast" hidden></div>
   <div id="app-toast" class="app-toast" hidden></div>
@@ -317,7 +326,8 @@ function syncControls() {
     button.setAttribute("aria-pressed", String(!!state.layers[button.dataset.layer]));
   }
   document.querySelector("#stage").dataset.view = view;
-  document.querySelector("#status").textContent = statusText();
+  const meta = document.querySelector("#status-meta");
+  if (meta) meta.textContent = statusText();
   document.querySelector("#hint").hidden = !!state.hintDismissed;
   const showPanel = panelOpen && !wide();
   document.querySelector("#layer-panel").classList.toggle("open", showPanel);
@@ -357,6 +367,7 @@ let orbit3d = true;
 let cutaway3d = false;
 function sync3d() {
   const editing = editor?.mode() === "build" && !orbit3d;
+  document.body.dataset.orbit = String(!editing);
   model.setEditing?.(editing);
   model.setCutaway?.(cutaway3d);
   document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing));
@@ -511,10 +522,20 @@ document.addEventListener("budget-delta", (event) => {
 });
 document.addEventListener("app-toast", (event) => {
   const toast = document.querySelector("#app-toast");
-  toast.textContent = event.detail.text;
+  toast.replaceChildren(document.createTextNode(event.detail.text || ""));
+  if (event.detail.undo) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Undo";
+    button.addEventListener("click", () => {
+      document.querySelector("#undo")?.click();
+      toast.hidden = true;
+    });
+    toast.append(" ", button);
+  }
   toast.hidden = false;
   window.clearTimeout(toast._timer);
-  toast._timer = window.setTimeout(() => { toast.hidden = true; }, 2200);
+  toast._timer = window.setTimeout(() => { toast.hidden = true; }, event.detail.undo ? 4200 : 2400);
 });
 
 document.addEventListener("keydown", (event) => {
