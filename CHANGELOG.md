@@ -1,5 +1,9 @@
 # Changelog
 
+## Stage 2.1 — build UI cleanup
+
+The header is thin. View and Build are their own switch. Phase, plan/3D, layers, and File (export, import, reset) stay with the view. Build tools sit on the plan. Wall types show only for Wall and Room. Door and Window show only their own sizes, with width, height, sill, and a live preview. Undo and redo are small plan buttons, plus Ctrl/Cmd+Z and Shift+Z. Drag empty space, Space, or the middle or right button to pan. Ratio tick labels are a few pills that do not overlap.
+
 ## Stage 2 — drag to build
 
 You can change the sample. Build mode has Select, Wall, Room, Door, Window, Delete, Pan, Undo, and Redo.

@@ -4,7 +4,7 @@ import { snapToGrid, snapAngle, snapDrawingPoint } from "../src/build/snap.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
-import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID } from "../src/build/catalog.js";
+import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID, catalogForTool } from "../src/build/catalog.js";
 import { evaluateRules } from "../src/rules/index.js";
 import { polygonArea } from "../src/lib/geom.js";
 
@@ -38,6 +38,16 @@ check("rammed earth is suggested only for a south-facing exterior wall", () => {
   assert.equal(suggestAssemblyId(...southWall, hemp, false, at31), hemp);
   assert.equal(suggestAssemblyId(...southWall, INTERIOR_ID, false, south), INTERIOR_ID);
   assert.equal(suggestAssemblyId(...southWall, hemp, true, south), hemp);
+});
+
+check("door and window catalogs stay separate", () => {
+  const doors = catalogForTool("door");
+  const windows = catalogForTool("window");
+  assert.ok(doors.length > 0);
+  assert.ok(windows.length > 0);
+  assert.ok(doors.every((item) => item.type === "door"));
+  assert.ok(windows.every((item) => item.type === "window"));
+  assert.equal(catalogForTool("wall").length, 0);
 });
 
 check("grid snaps to 6 inches", () => {

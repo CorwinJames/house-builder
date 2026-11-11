@@ -3,6 +3,7 @@ import Ajv from "ajv/dist/2020.js";
 import {
   assemblies,
   assemblyById,
+  catalogForTool,
   DEFAULT_EXTERIOR_ID,
   openingItems,
   suggestAssemblyId,
@@ -16,6 +17,7 @@ import {
   deleteWall,
   moveEndpointGroup,
   placeOpening,
+  resizeOpening,
   setWallAssembly,
   translateWall,
 } from "../build/walls.js";
@@ -40,14 +42,13 @@ const TOOLS = [
   { id: "door", label: "Door" },
   { id: "window", label: "Window" },
   { id: "erase", label: "Delete" },
-  { id: "pan", label: "Pan" },
 ];
 
 const TUTORIAL = [
-  "Drag on the plan to draw a wall. It snaps to the 6 inch grid, to other walls, and to 45 degree angles. The length shows as you drag.",
-  "Room draws a rectangle of walls. The south side suggests rammed earth, like the sample. Pick another material in the palette if you want.",
-  "Choose a door or window, then drag it along a wall. It snaps, and it won't sit on a corner or on another opening.",
-  "Select a wall and drag the round handles. Connected walls follow. Undo and Redo are on this bar. Your edits save on this device.",
+  "Drag on the plan to draw a wall. It snaps to the grid, to other walls, and to 45 degree angles.",
+  "Room draws a rectangle of walls. The south side suggests rammed earth. The other sides suggest hempcrete.",
+  "Door shows only doors. Window shows only windows. Set the size, then drag along a wall.",
+  "Select a wall and drag the round handles, or drag empty space to slide the plan. Undo is on the plan, or Ctrl Z.",
 ];
 
 export function attachEditor({ plan, model, sample, getViewState, patchViewState, onChange }) {
@@ -69,53 +70,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let warnings = [];
   let tutorialStep = 0;
   let longTimer = 0;
+  let spaceHeld = false;
+  let hoverPlace = null;
+  let optionsKey = "";
+  const draftSize = {};
 
-  const bar = document.querySelector("#build-bar");
+  const hud = document.querySelector("#build-hud");
   const inspector = document.querySelector("#inspector");
   const tutorial = document.querySelector("#build-tutorial");
-  bar.innerHTML = `
-    <div class="tool-row" id="tool-row"></div>
-    <div class="palette-row" id="palette-row"></div>
-    <div class="build-extra">
-      <label>Grid
-        <select id="grid-size">
-          <option value="0.25">3 in</option>
-          <option value="0.5" selected>6 in</option>
-          <option value="1">12 in</option>
-        </select>
-      </label>
-      <button type="button" id="undo" disabled>Undo</button>
-      <button type="button" id="redo" disabled>Redo</button>
-      <button type="button" id="export-json">Export</button>
-      <button type="button" id="import-json">Import</button>
-      <button type="button" id="reset-sample">Reset</button>
-      <input id="import-file" type="file" accept="application/json,.json" hidden />
-    </div>
-    <div class="build-extra" id="proportion-row">
-      <div class="seg" id="snap-mode">
-        <button type="button" data-snap="grid">Grid</button>
-        <button type="button" data-snap="ratio">Ratio</button>
-      </div>
-      <label>Ratio <select id="project-ratio"></select></label>
-      <label>Module <input id="module-length" type="number" min="0.5" step="0.5" /> ft</label>
-      <button type="button" id="guides-toggle">Guides</button>
-      <button type="button" id="snap-footprint">Snap footprint to φ</button>
-    </div>
-    <p class="assembly-note" id="assembly-note"></p>
-    <p class="warn-line" id="warn-line"></p>
-  `;
   document.querySelector("#tool-row").innerHTML = TOOLS.map((item) => (
     `<button type="button" class="tool" data-tool="${item.id}">${item.label}</button>`
-  )).join("");
-  document.querySelector("#palette-row").innerHTML = `
-    <div class="swatch-row" id="assembly-palette"></div>
-    <div class="swatch-row" id="opening-palette"></div>
-  `;
-  document.querySelector("#assembly-palette").innerHTML = assemblies.map((item) => (
-    `<button type="button" class="chip" data-assembly="${item.id}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`
-  )).join("");
-  document.querySelector("#opening-palette").innerHTML = openingItems.map((item) => (
-    `<button type="button" class="chip" data-opening="${item.id}">${item.name}</button>`
   )).join("");
 
   plan.setBuildHooks({
@@ -153,61 +117,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     tool = button.dataset.tool;
     publish();
   });
-  document.querySelector("#assembly-palette").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-assembly]");
-    if (!button) return;
-    assemblyId = button.dataset.assembly;
-    assemblyExplicit = true;
-    if (tool === "select" && selection?.type === "wall") {
-      commit(syncRooms(setWallAssembly(house, selection.id, assemblyId)));
-    }
-    publish();
-  });
-  document.querySelector("#opening-palette").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-opening]");
-    if (!button) return;
-    catalogId = button.dataset.opening;
-    const item = openingItems.find((entry) => entry.id === catalogId);
-    tool = item.type === "window" ? "window" : "door";
-    publish();
-  });
-  document.querySelector("#grid-size").addEventListener("change", (event) => {
-    grid = Number(event.target.value);
-  });
-  document.querySelector("#project-ratio").innerHTML = ratioLibrary.map((ratio) => (
-    `<option value="${ratio.id}">${ratio.name}</option>`
-  )).join("") + `<option value="custom">Custom</option>`;
-  document.querySelector("#snap-mode").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-snap]");
-    if (!button) return;
-    snapMode = button.dataset.snap;
-    publish();
-  });
-  document.querySelector("#project-ratio").addEventListener("change", (event) => {
-    const next = cloneHouse(house);
-    next.proportion = { ...(next.proportion || { module: 8 }), ratioId: event.target.value };
-    if (event.target.value === "custom" && !(next.customRatios || []).length) {
-      next.customRatios = [{ id: "custom-1", name: "Custom", value: 1.5 }];
-    }
-    commit(next);
-    publish();
-  });
-  document.querySelector("#module-length").addEventListener("change", (event) => {
-    const module = Number(event.target.value);
-    if (!(module > 0)) return;
-    const next = cloneHouse(house);
-    next.proportion = { ...(next.proportion || { ratioId: "golden" }), module };
-    commit(next);
-    publish();
-  });
-  document.querySelector("#guides-toggle").addEventListener("click", () => {
-    guidesOn = !guidesOn;
-    publish();
-  });
-  document.querySelector("#snap-footprint").addEventListener("click", () => {
-    commit(solveConstraints(house, { includeFootprint: true }).house);
-    publish();
-  });
+  hud.addEventListener("click", onHudClick);
+  hud.addEventListener("change", onHudChange);
+  hud.addEventListener("input", onHudInput);
   document.querySelector("#undo").addEventListener("click", undo);
   document.querySelector("#redo").addEventListener("click", redo);
   document.querySelector("#export-json").addEventListener("click", exportJson);
@@ -237,10 +149,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   document.addEventListener("keydown", (event) => {
     if (event.target.matches("input, textarea, select")) return;
     const meta = event.metaKey || event.ctrlKey;
+    if (event.code === "Space") {
+      spaceHeld = true;
+      event.preventDefault();
+      return;
+    }
     if (meta && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();
+    } else if (!meta && event.shiftKey && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      redo();
     } else if (meta && event.key.toLowerCase() === "y") {
       event.preventDefault();
       redo();
@@ -251,6 +171,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       selection = null;
       publish();
     }
+  });
+  document.addEventListener("keyup", (event) => {
+    if (event.code === "Space") spaceHeld = false;
+  });
+  document.querySelector("#plan-canvas").addEventListener("pointermove", (event) => {
+    if (mode !== "build" || gesture || (tool !== "door" && tool !== "window")) {
+      if (hoverPlace) {
+        hoverPlace = null;
+        plan.setOverlay(makeOverlay());
+      }
+      return;
+    }
+    if (event.buttons) return;
+    hoverPlace = openingSpot(plan.clientToWorld(event.clientX, event.clientY));
+    plan.setOverlay(makeOverlay());
   });
 
   refreshWarnings();
@@ -309,7 +244,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function catalogItem() {
-    return openingItems.find((item) => item.id === catalogId) || openingItems[0];
+    let base = openingItems.find((item) => item.id === catalogId) || openingItems[0];
+    if ((tool === "door" || tool === "window") && base.type !== tool) {
+      base = openingItems.find((item) => item.type === tool) || base;
+      catalogId = base.id;
+    }
+    const sized = draftSize[base.type] || {};
+    return { ...base, ...sized, type: base.type };
   }
 
   function visibleWall(wall) {
@@ -363,7 +304,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function onDown(event, world) {
-    if (mode !== "build" || tool === "pan") return false;
+    if (mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
     window.clearTimeout(longTimer);
     const armPan = () => {
       longTimer = window.setTimeout(() => {
@@ -373,8 +314,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     };
     if (tool === "select") {
       const hit = hitTest(world);
-      if (!hit) selection = null;
-      else if (hit.type === "endpoint") selection = { type: "wall", id: hit.wallId };
+      if (!hit) {
+        selection = null;
+        publish();
+        return false;
+      }
+      if (hit.type === "endpoint") selection = { type: "wall", id: hit.wallId };
       else selection = { type: hit.type, id: hit.id };
       gesture = { kind: hit?.type === "endpoint" ? "endpoint" : "select", hit, origin: world, moved: false, snapshot: cloneHouse(house) };
       armPan();
@@ -622,50 +567,183 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         x1: gesture.end.x,
         y1: gesture.end.y,
       } : null,
-      ghostOpening: gesture?.kind === "opening" && gesture.place ? {
-        wallId: gesture.place.wall.id,
-        offset: gesture.place.offset,
-        width: gesture.place.width,
-        ok: gesture.place.ok,
+      ghostOpening: (gesture?.kind === "opening" && gesture.place) || hoverPlace ? {
+        wallId: (gesture?.place || hoverPlace).wall.id,
+        offset: (gesture?.place || hoverPlace).offset,
+        width: catalogItem().width,
+        ok: (gesture?.place || hoverPlace).ok,
       } : null,
     };
   }
 
   function publish() {
-    bar.hidden = mode !== "build";
+    hud.hidden = mode !== "build";
     document.querySelector("#mode-seg").querySelectorAll("button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
     });
     document.querySelectorAll("#tool-row button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
     });
-    document.querySelectorAll("#assembly-palette button").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.assembly === assemblyId));
-    });
-    document.querySelectorAll("#opening-palette button").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.opening === catalogId));
-    });
-    document.querySelectorAll("#snap-mode button").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.snap === snapMode));
-    });
-    const ratioSelect = document.querySelector("#project-ratio");
-    if (ratioSelect && document.activeElement !== ratioSelect) ratioSelect.value = house.proportion?.ratioId || "golden";
-    const moduleInput = document.querySelector("#module-length");
-    if (moduleInput && document.activeElement !== moduleInput) moduleInput.value = String(house.proportion?.module || 8);
-    document.querySelector("#guides-toggle")?.setAttribute("aria-pressed", String(guidesOn));
     document.querySelector("#undo").disabled = past.length === 0;
     document.querySelector("#redo").disabled = future.length === 0;
-    const active = assemblyById[assemblyId];
-    document.querySelector("#assembly-note").textContent = active?.note || "";
-    document.querySelector("#opening-palette").hidden = tool !== "door" && tool !== "window";
-    document.querySelector("#assembly-palette").hidden = tool === "door" || tool === "window";
-    document.querySelector("#warn-line").textContent = warnings[0]?.message || "";
+    paintToolOptions();
     paintInspector();
     paintTutorial();
-    const chip = document.querySelector(".sample-chip");
-    if (chip) chip.textContent = fromSave ? "Your edits · saved on this device" : "Sample layout · not a final design";
     plan.setOverlay(mode === "build" ? makeOverlay() : null);
     model.setSelected?.(mode === "build" && selection?.type === "wall" ? selection.id : null);
+  }
+
+  function paintToolOptions() {
+    const box = document.querySelector("#tool-options");
+    if (tool === "door" || tool === "window") catalogItem();
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}`;
+    if (key === optionsKey && box.childElementCount) {
+      box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
+      return;
+    }
+    optionsKey = key;
+    if (tool === "wall" || tool === "room") {
+      const note = assemblyById[assemblyId]?.note || "";
+      box.innerHTML = `
+        <div class="swatch-row">${assemblies.map((item) => `<button type="button" class="chip" data-assembly="${item.id}" aria-pressed="${item.id === assemblyId}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`).join("")}</div>
+        <div class="option-line">
+          <div class="seg" id="snap-mode">
+            <button type="button" data-snap="grid" aria-pressed="${snapMode === "grid"}">Grid</button>
+            <button type="button" data-snap="ratio" aria-pressed="${snapMode === "ratio"}">Ratio</button>
+          </div>
+          <label>Grid <select id="grid-size"><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
+          <label>Ratio <select id="project-ratio">${ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("")}</select></label>
+          <label>Module <input id="module-length" type="number" min="0.5" step="0.5" value="${house.proportion?.module || 8}" /> ft</label>
+          <button type="button" id="guides-toggle" aria-pressed="${guidesOn}">Guides</button>
+          <button type="button" id="snap-footprint">Snap footprint to φ</button>
+        </div>
+        <p class="fine">${note}</p>
+        <p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+      box.querySelector("#grid-size").value = String(grid);
+      box.querySelector("#project-ratio").value = house.proportion?.ratioId || "golden";
+      return;
+    }
+    if (tool === "door" || tool === "window" || selection?.type === "opening") {
+      let kind = tool === "window" ? "window" : "door";
+      let selectedOpening = null;
+      if (selection?.type === "opening") {
+        const found = house.openings.find((item) => item.id === selection.id);
+        if (tool !== "door" && tool !== "window") {
+          selectedOpening = found;
+          kind = found?.type === "window" ? "window" : "door";
+        } else if (found?.type === tool) {
+          selectedOpening = found;
+          kind = tool;
+        }
+      }
+      const draft = selectedOpening || { ...catalogItem(), ...(draftSize[kind] || {}) };
+      const choices = catalogForTool(kind);
+      box.innerHTML = `
+        <div class="swatch-row">${choices.map((item) => `<button type="button" class="chip" data-opening="${item.id}" aria-pressed="${item.id === (selectedOpening ? "" : catalogId)}">${item.name}</button>`).join("")}</div>
+        <div class="option-line">
+          <label>Width <input id="open-width" type="number" min="1" max="16" step="0.5" value="${draft.width}" /> ft</label>
+          <label>Height <input id="open-height" type="number" min="1" max="10" step="0.1" value="${draft.height}" /> ft</label>
+          ${kind === "window" ? `<label>Sill <input id="open-sill" type="number" min="0" max="8" step="0.1" value="${draft.sill || 0}" /> ft</label>` : ""}
+        </div>
+        <div class="opening-preview" aria-hidden="true"><span style="width:${Math.min(80, draft.width * 8)}%"></span></div>
+        <p class="fine">${selectedOpening ? `Selected ${kind}. Header ${selectedOpening.header?.label || "placeholder"}. ${selectedOpening.header?.note || ""}` : "Drag along a wall. The opening snaps and stays off the corners."}</p>
+        <p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+      return;
+    }
+    box.innerHTML = `<p class="fine">Drag empty space to move the plan. Drag a wall handle to resize it.</p><p class="warn-line" data-warn>${warnings[0]?.message || ""}</p>`;
+  }
+
+  function onHudClick(event) {
+    const assembly = event.target.closest("button[data-assembly]");
+    if (assembly) {
+      assemblyId = assembly.dataset.assembly;
+      assemblyExplicit = true;
+      optionsKey = "";
+      if (selection?.type === "wall") commit(syncRooms(setWallAssembly(house, selection.id, assemblyId)));
+      publish();
+      return;
+    }
+    const opening = event.target.closest("button[data-opening]");
+    if (opening) {
+      catalogId = opening.dataset.opening;
+      const item = openingItems.find((entry) => entry.id === catalogId);
+      tool = item.type === "window" ? "window" : "door";
+      draftSize[item.type] = { width: item.width, height: item.height, sill: item.sill || 0 };
+      optionsKey = "";
+      publish();
+      return;
+    }
+    const snap = event.target.closest("button[data-snap]");
+    if (snap) {
+      snapMode = snap.dataset.snap;
+      optionsKey = "";
+      publish();
+      return;
+    }
+    if (event.target.id === "guides-toggle") {
+      guidesOn = !guidesOn;
+      optionsKey = "";
+      publish();
+    } else if (event.target.id === "snap-footprint") {
+      commit(solveConstraints(house, { includeFootprint: true }).house);
+      publish();
+    }
+  }
+
+  function readOpeningFields() {
+    const width = Number(document.querySelector("#open-width")?.value);
+    const height = Number(document.querySelector("#open-height")?.value);
+    const sillField = document.querySelector("#open-sill");
+    const sill = sillField ? Number(sillField.value) : 0;
+    if (!(width > 0) || !(height > 0)) return null;
+    return { width, height, sill };
+  }
+
+  function onHudChange(event) {
+    if (event.target.id === "grid-size") grid = Number(event.target.value);
+    if (event.target.id === "project-ratio") {
+      const next = cloneHouse(house);
+      next.proportion = { ...(next.proportion || { module: 8 }), ratioId: event.target.value };
+      commit(next);
+    }
+    if (event.target.id === "module-length") {
+      const module = Number(event.target.value);
+      if (module > 0) {
+        const next = cloneHouse(house);
+        next.proportion = { ...(next.proportion || { ratioId: "golden" }), module };
+        commit(next);
+      }
+    }
+    if (event.target.id === "open-width" || event.target.id === "open-height" || event.target.id === "open-sill") {
+      applyOpeningFields();
+    }
+    publish();
+  }
+
+  function onHudInput(event) {
+    if (event.target.id !== "open-width" && event.target.id !== "open-height" && event.target.id !== "open-sill") return;
+    const fields = readOpeningFields();
+    if (!fields) return;
+    const kind = tool === "window" || (selection?.type === "opening" && house.openings.find((item) => item.id === selection.id)?.type === "window")
+      ? "window"
+      : "door";
+    draftSize[kind] = fields;
+    const preview = document.querySelector(".opening-preview span");
+    if (preview) preview.style.width = `${Math.min(80, fields.width * 8)}%`;
+    if (hoverPlace) plan.setOverlay(makeOverlay());
+  }
+
+  function applyOpeningFields() {
+    const fields = readOpeningFields();
+    if (!fields) return;
+    if (selection?.type === "opening") {
+      const result = resizeOpening(house, selection.id, fields);
+      if (result.warnings.length) warnings = result.warnings;
+      else commit(result.house);
+      return;
+    }
+    const kind = tool === "window" ? "window" : "door";
+    draftSize[kind] = fields;
   }
 
   function paintInspector() {
@@ -769,14 +847,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         publish();
       });
     } else if (selection.type === "opening") {
-      const opening = house.openings.find((item) => item.id === selection.id);
-      if (!opening) { inspector.hidden = true; return; }
-      inspector.innerHTML = `
-        <h2>${opening.type === "window" ? "Window" : "Door"} · ${formatFeet(opening.width)}</h2>
-        <p>Header ${opening.header?.label || "placeholder"}</p>
-        <p class="fine">${opening.header?.note || ""}</p>
-        <button type="button" id="edit-delete">Delete opening</button>
-      `;
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
     }
     inspector.querySelector("#edit-delete")?.addEventListener("click", eraseSelection);
   }

@@ -189,6 +189,25 @@ export function ratioSeries(module, ratio, otherLengths = [], symbol = "φ") {
   return marks.sort((a, b) => a.length - b.length);
 }
 
+/**
+ * Keep a few tick labels that do not sit on top of each other in screen space.
+ * The active length is preferred, then the next nearest marks that clear minGap.
+ */
+export function pickReadableTicks(ticks, activeLength, screenOf, minGap = 76, limit = 4) {
+  if (!ticks?.length) return [];
+  const ranked = [...ticks].sort(
+    (a, b) => Math.abs(a.length - activeLength) - Math.abs(b.length - activeLength),
+  );
+  const placed = [];
+  for (const tick of ranked) {
+    if (placed.length >= limit) break;
+    const pos = screenOf(tick);
+    const clear = placed.every((item) => Math.hypot(item.pos.x - pos.x, item.pos.y - pos.y) >= minGap);
+    if (clear) placed.push({ ...tick, pos });
+  }
+  return placed.sort((a, b) => a.length - b.length);
+}
+
 export function nearestMark(length, marks) {
   let best = marks[0];
   let bestDiff = Infinity;

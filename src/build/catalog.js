@@ -7,6 +7,13 @@ export const assemblyById = Object.fromEntries(assemblies.map((item) => [item.id
 export const headersTable = headersFile;
 export const openingItems = openingCatalog.items;
 
+/** Door tool lists doors only. Window tool lists windows only. */
+export function catalogForTool(tool) {
+  if (tool === "door") return openingItems.filter((item) => item.type === "door");
+  if (tool === "window") return openingItems.filter((item) => item.type === "window");
+  return [];
+}
+
 export const DEFAULT_EXTERIOR_ID = assemblies.find((item) => item.defaultExterior)?.id || assemblies[0].id;
 export const RAMMED_EARTH_ID = "rammed-earth-exterior";
 export const INTERIOR_ID = "interior-partition";

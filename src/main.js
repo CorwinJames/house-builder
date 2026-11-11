@@ -24,17 +24,14 @@ app.innerHTML = `
           <path d="M6 18 L18 8 L30 18" fill="none" stroke="#2F5D45" stroke-width="2"/>
           <rect x="15" y="21" width="6" height="8" fill="#F7F3EB"/>
         </svg>
-        <div>
-          <p class="eyebrow">James &amp; Sophie · Jefferson County, WA</p>
-          <h1>House Builder</h1>
-        </div>
+        <h1>House Builder</h1>
       </div>
       <p class="sample-chip">Sample layout · not a final design</p>
+      <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
+        <button type="button" data-mode="view">View</button>
+        <button type="button" data-mode="build">Build</button>
+      </div>
       <div class="controls">
-        <div class="seg" id="mode-seg" role="group" aria-label="View or build">
-          <button type="button" data-mode="view">View</button>
-          <button type="button" data-mode="build">Build</button>
-        </div>
         <div class="seg" id="phase-seg" role="group" aria-label="Which phase to show">
           <button type="button" data-phase="phase1">Phase 1</button>
           <button type="button" data-phase="full">Full house</button>
@@ -45,8 +42,16 @@ app.innerHTML = `
           <button type="button" data-view="model">3D</button>
         </div>
         <button type="button" class="layers-btn" id="layers-btn" aria-expanded="false">Layers</button>
+        <details class="file-menu" id="file-menu">
+          <summary>File</summary>
+          <div class="file-menu-panel">
+            <button type="button" id="export-json">Export JSON</button>
+            <button type="button" id="import-json">Import JSON</button>
+            <button type="button" id="reset-sample">Reset to sample</button>
+          </div>
+        </details>
+        <input id="import-file" type="file" accept="application/json,.json" hidden />
       </div>
-      <div id="build-bar" class="build-bar" hidden></div>
     </header>
     <div class="workspace">
       <aside class="layer-panel" id="layer-panel">
@@ -67,7 +72,16 @@ app.innerHTML = `
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
           <canvas id="plan-canvas"></canvas>
-          <div class="hud"><span>Plan · north up</span><button type="button" id="fit-plan">Fit</button></div>
+          <div class="hud">
+            <span>Plan · north up</span>
+            <button type="button" id="fit-plan">Fit</button>
+            <button type="button" id="undo" disabled>Undo</button>
+            <button type="button" id="redo" disabled>Redo</button>
+          </div>
+          <div id="build-hud" class="build-hud" hidden>
+            <div id="tool-options" class="tool-options"></div>
+            <div id="tool-row" class="tool-row"></div>
+          </div>
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
@@ -100,6 +114,7 @@ layerList.innerHTML = LAYER_DEFS.map((layer, index) => {
 
 const planCanvas = document.querySelector("#plan-canvas");
 const modelCanvas = document.querySelector("#model-canvas");
+planCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
 const plan = createPlanView(planCanvas, house);
 const model = createView3d(modelCanvas, house);
 let editor;

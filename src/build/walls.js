@@ -304,6 +304,35 @@ export function deleteWall(house, wallId) {
   return next;
 }
 
+export function resizeOpening(house, openingId, patch) {
+  const next = cloneHouse(house);
+  const opening = next.openings.find((item) => item.id === openingId);
+  if (!opening) return { house, warnings: [] };
+  if (patch.width != null) opening.width = patch.width;
+  if (patch.height != null) opening.height = patch.height;
+  if (patch.sill != null) opening.sill = patch.sill;
+  if (patch.type) opening.type = patch.type;
+  if (patch.style !== undefined) opening.style = patch.style || undefined;
+  if (!opening.style) delete opening.style;
+  opening.header = headerForSpan(opening.width);
+  const wall = next.walls.find((item) => item.id === opening.wallId);
+  const fit = wall ? openingFits(wall, next.openings, opening.offset, opening.width, opening.id) : { ok: false, reason: "lost" };
+  if (!fit.ok) {
+    return {
+      house,
+      warnings: [{
+        id: `resize-${openingId}`,
+        severity: "warn",
+        message: fit.reason === "corner"
+          ? "That size would sit too close to a corner."
+          : "That size overlaps another opening.",
+        target: { type: "opening", id: openingId },
+      }],
+    };
+  }
+  return { house: next, warnings: [] };
+}
+
 export function deleteOpening(house, openingId) {
   const next = cloneHouse(house);
   next.openings = next.openings.filter((opening) => opening.id !== openingId);
