@@ -19,8 +19,7 @@ export function gameHead(title, issues) {
 export function statTiles(tiles) {
   return `<div class="stat-row">${tiles.filter(Boolean).map((tile) => `
     <div class="stat-tile">
-      <span class="stat-icon" aria-hidden="true">${tile.icon}</span>
-      <span class="stat-value">${escapeHtml(tile.value)}</span>
+      <span class="stat-top"><span class="stat-icon" aria-hidden="true">${tile.icon}</span><span class="stat-value">${escapeHtml(tile.value)}</span></span>
       <span class="stat-label">${escapeHtml(tile.label)}</span>
     </div>`).join("")}</div>`;
 }
@@ -40,6 +39,10 @@ export function techBlock(html) {
 
 export function quietDelete(label) {
   return `<button type="button" class="btn-quiet" id="edit-delete">${escapeHtml(label)}</button>`;
+}
+
+export function fallCard(title, detail, ok) {
+  return `<div class="fall-card ${ok ? "ok" : "bad"}"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p></div>`;
 }
 
 export function budgetPhrase(before, after) {

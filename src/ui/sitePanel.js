@@ -1,5 +1,5 @@
 import { SEPTIC_KINDS, WELL_KINDS, buildSite } from "../site/design.js";
-import { gameHead, quietDelete, statTiles, techBlock } from "./gamecard.js";
+import { fallCard, gameHead, quietDelete, statTiles, techBlock } from "./gamecard.js";
 
 export const SITE_KINDS = [
   { id: "well", label: "Well" },
@@ -72,15 +72,18 @@ export function siteInspectorHtml(house, selection) {
         ? "Gravity reaches"
         : `Short ${round(gravity.shortInches)} in`;
     const issues = gravity.ok || gravity.pumped ? [] : [{ severity: "warning", title: headline, why: "" }];
+    const fall = gravity.pumped
+      ? fallCard("Pump system", "Gravity fall is not the limit for this kind.", true)
+      : fallCard(headline, `Needs ${round(gravity.needInches)} in · ground falls ${round(gravity.groundInches)} in`, gravity.ok);
     return `
       ${gameHead("Septic", issues)}
+      ${fall}
       ${statTiles([
         { icon: "↓", value: `${round(gravity.stubInches)} in`, label: "Stub drop" },
         { icon: "↔", value: `${round(gravity.runFt)} ft`, label: "To tank" },
-        { icon: "↘", value: `${round(gravity.groundInches)} in`, label: "Ground fall" },
         { icon: "▦", value: `${Math.round(view.primarySqFt)} sf`, label: "Field" },
+        { icon: "R", value: `${Math.round(view.reserveSqFt)} sf`, label: "Reserve" },
       ])}
-      <p>${headline}</p>
       <label>Kind <select id="septic-kind">${SEPTIC_KINDS.map((item) => `<option value="${item.id}" ${item.id === septic?.kind ? "selected" : ""}>${item.label}</option>`).join("")}</select></label>
       ${techBlock(`<p>${view.bedrooms} bedrooms · ${view.flow} gal/day. Primary ${Math.round(view.primarySqFt)} sq ft. Reserve ${Math.round(view.reserveSqFt)} sq ft. Rate ${septic?.loadingRate || 0.2} gal/sq ft/day · confirm Table VIII. Price needed.</p>`)}
       ${quietDelete("Delete septic")}`;

@@ -86,6 +86,7 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy, setPhase
     const pricedLines = report.lines.filter((line) => !line.priceNeeded && !line.allowance);
     const pricedCount = pricedLines.length;
     const itemCount = report.lines.filter((line) => !line.allowance).length || 1;
+    dialog.querySelector("#cost-phase-label").textContent = phase === "phase1" ? "Phase 1" : "Full house";
     dialog.querySelector("#cost-total").textContent = formatMoney(report.pricedTotal);
     for (const button of dialog.querySelectorAll("#cost-phase button")) {
       button.setAttribute("aria-pressed", String(button.dataset.phase === phase));
@@ -162,10 +163,18 @@ function wallCost(house, wallId) {
 function methodDiff(base, alt) {
   if (!base || !alt) return "";
   const delta = Math.round((alt.pricedTotal - base.pricedTotal) * 100) / 100;
-  const money = delta === 0 ? "same priced total" : `${delta > 0 ? "+" : "−"}${formatMoney(Math.abs(delta))} priced`;
+  if (delta === 0 && alt.unpricedCount === base.unpricedCount) return "Same price";
+  const money = delta === 0 ? "Same price" : `${delta > 0 ? "+" : "−"}${formatMoney(Math.abs(delta))} vs current`;
   const unpriced = alt.unpricedCount - base.unpricedCount;
-  const extra = unpriced > 0 ? " · more price-needed lines" : unpriced < 0 ? " · fewer price-needed lines" : "";
+  const extra = unpriced > 0 ? " · more price needed" : unpriced < 0 ? " · fewer price needed" : "";
   return `${money}${extra}`;
+}
+
+function choiceButton(attrs, label, selected, delta) {
+  return `<button type="button" class="method-choice" ${attrs} aria-pressed="${selected}">
+    <span class="method-title">${selected ? "✓ " : ""}${escapeHtml(label)}</span>
+    ${selected ? `<span class="now-chip">This house now</span>` : `<span class="delta-chip">${escapeHtml(delta)}</span>`}
+  </button>`;
 }
 
 function pricedShare(house, fixtureId) {
@@ -194,16 +203,18 @@ export function fixtureCostHtml(house, fixture) {
   const link = linkedElectrical(house, fixture);
   const well = fixture.kind === "water-heater" ? null : linkedWell(house);
   return `
-    <div class="method-list">${methods.map((item) => `
-      <button type="button" class="method-choice" data-supply="${item.id}" aria-pressed="${item.id === currentMethod}">
-        <span>${item.label}</span>
-        <span class="fine">${item.id === currentMethod ? "This house now" : escapeHtml(`For this fixture, ${methodDiff(current, item.report)}`)}</span>
-      </button>`).join("")}</div>
-    ${heaters.length ? `<div class="method-list">${heaters.map((item) => `
-      <button type="button" class="method-choice" data-heater="${item.id}" aria-pressed="${fixture.heaterType === item.id}">
-        <span>${item.label}</span>
-        <span class="fine">${fixture.heaterType === item.id ? "This heater now" : escapeHtml(`For this fixture, ${methodDiff(heaters.find((row) => row.id === fixture.heaterType)?.report || item.report, item.report)}`)}</span>
-      </button>`).join("")}</div>` : ""}
+    <div class="method-list">${methods.map((item) => choiceButton(
+      `data-supply="${item.id}"`,
+      item.label,
+      item.id === currentMethod,
+      methodDiff(current, item.report),
+    )).join("")}</div>
+    ${heaters.length ? `<div class="method-list">${heaters.map((item) => choiceButton(
+      `data-heater="${item.id}"`,
+      item.label,
+      fixture.heaterType === item.id,
+      methodDiff(heaters.find((row) => row.id === fixture.heaterType)?.report || item.report, item.report),
+    )).join("")}</div>` : ""}
     <details class="tech">
       <summary>Technical details</summary>
       ${heaters.length ? `<p class="fine">${link ? `Tied to the stage 5 ${link.kind} circuit.` : "No matching 240V circuit yet. Place a water heater or heat pump in Electrical."}</p>` : ""}
@@ -242,11 +253,12 @@ export function deviceCostHtml(house, device) {
   }) : [];
   const currentId = wall ? wallMethod(house, wall) : "";
   const current = methods.find((item) => item.id === currentId)?.report;
-  const choices = methods.map((item) => `
-    <button type="button" class="method-choice" data-method="${item.id}" aria-pressed="${item.id === currentId}">
-      <span>${escapeHtml(item.label)}</span>
-      <span class="fine">${item.id === currentId ? "This wall now" : escapeHtml(`For this wall, ${methodDiff(current, item.report)}`)}</span>
-    </button>`).join("");
+  const choices = methods.map((item) => choiceButton(
+    `data-method="${item.id}"`,
+    item.label,
+    item.id === currentId,
+    methodDiff(current, item.report),
+  )).join("");
   return `
     ${wall ? `<div class="method-list">${choices}</div>` : ""}
     <details class="tech">
@@ -296,7 +308,7 @@ function linesHtml(lines) {
       <span class="cost-name">${escapeHtml(line.name)}</span>
       <span>${formatQty(line.quantity)} ${escapeHtml(line.unit)}</span>
       ${line.priceNeeded ? `<span class="price-needed">Price needed</span>` : `<span>${formatMoney(line.lineTotal)}</span>`}
-      ${line.url ? `<a href="${escapeAttr(line.url)}" target="_blank" rel="noreferrer">${escapeHtml(line.sourceName)}</a>` : (line.priceNeeded ? `<span></span>` : `<span class="fine">${escapeHtml(line.sourceName || "")}</span>`)}
+      ${line.url && !line.priceNeeded ? `<a href="${escapeAttr(line.url)}" target="_blank" rel="noreferrer">${escapeHtml(line.sourceName)}</a>` : `<span></span>`}
     </li>`).join("")}</ul>`;
 }
 

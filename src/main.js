@@ -38,6 +38,7 @@ app.innerHTML = `
       <button type="button" id="warn-chip" class="warn-chip" title="Code checks">
         <span id="warn-count">0</span>
       </button>
+      <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false">Menu</button>
       <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
         <button type="button" data-mode="view">View</button>
         <button type="button" data-mode="build">Build</button>
@@ -96,11 +97,14 @@ app.innerHTML = `
           <div class="swatch-row"><span class="swatch later"></span> Later wings, dashed</div>
         </div>
         </details>
+        <details id="site-fold" class="site-fold">
+          <summary>Lot</summary>
+          <div id="site-card"></div>
+        </details>
       </aside>
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
           <canvas id="plan-canvas"></canvas>
-          <div id="site-card" class="site-card" hidden></div>
           <div class="hud">
             <span>Plan · north up</span>
             <button type="button" id="fit-plan">Fit</button>
@@ -109,12 +113,13 @@ app.innerHTML = `
           </div>
           <div id="build-hud" class="build-hud" hidden>
             <div id="build-tutorial" class="tool-hint" hidden></div>
-            <div id="tool-options" class="tool-options"></div>
+            <div id="tool-options" class="tool-options" hidden></div>
             <div class="tool-dock">
-              <button type="button" id="options-toggle" class="options-toggle" aria-expanded="true" aria-controls="tool-options">Options</button>
-              <button type="button" id="issues-toggle" aria-pressed="false">Issues only</button>
-              <button type="button" id="labor-open">Labor</button>
               <div id="tool-row" class="tool-row"></div>
+              <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
+              <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>
+              <button type="button" id="labor-open" class="hud-pill">Labor</button>
+              <button type="button" id="details-open" class="hud-pill phone-only">Details</button>
             </div>
           </div>
         </section>
@@ -154,6 +159,7 @@ app.innerHTML = `
         <h2>Costs</h2>
         <button type="button" data-close>Close</button>
       </header>
+      <p class="fine" id="cost-phase-label">Full house</p>
       <p id="cost-total" class="cost-total">—</p>
       <div class="seg" id="cost-phase" role="group" aria-label="Which phase to price">
         <button type="button" data-phase="phase1">Phase 1</button>
@@ -308,10 +314,11 @@ function publish() {
   costs?.paint();
   warningsUi?.paint();
   const siteCard = document.querySelector("#site-card");
-  if (siteCard && editor) {
+  const siteFold = document.querySelector("#site-fold");
+  if (siteCard && siteFold && editor) {
     const show = state.layers.site !== false;
     const html = show ? siteCardHtml(editor.house()) : "";
-    siteCard.hidden = !html;
+    siteFold.hidden = !html;
     if (html && siteCard.dataset.html !== html) {
       const open = siteCard.querySelector("details")?.open;
       siteCard.innerHTML = html;
@@ -348,11 +355,16 @@ layerList.addEventListener("click", (event) => {
   publish();
 });
 
-document.addEventListener("house-selection", (event) => {
-  if (event.detail.showing && !wide()) {
-    panelOpen = true;
-    syncControls();
-  }
+document.addEventListener("house-selection", () => {
+  syncControls();
+});
+document.querySelector("#menu-btn").addEventListener("click", () => {
+  const open = document.querySelector(".topbar").classList.toggle("menu-open");
+  document.querySelector("#menu-btn").setAttribute("aria-expanded", String(open));
+});
+document.querySelector("#details-open").addEventListener("click", () => {
+  panelOpen = true;
+  syncControls();
 });
 document.querySelector("#layers-btn").addEventListener("click", () => {
   panelOpen = true;

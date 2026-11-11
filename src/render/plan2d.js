@@ -75,7 +75,8 @@ export function createPlanView(canvas, initialHouse) {
     const { w, h } = size();
     if (w < 20 || h < 20) return;
     const future = state ? isFutureShown(state) : true;
-    const siteView = state?.layers?.site !== false ? buildSite(house) : null;
+    const siteMode = state?.focus === "site";
+    const siteView = siteMode && state?.layers?.site !== false ? buildSite(house) : null;
     const bounds = siteView?.bounds
       ? {
           x0: siteView.bounds.x0 - 20,
@@ -84,10 +85,10 @@ export function createPlanView(canvas, initialHouse) {
           y1: siteView.bounds.y1 + 20,
         }
       : future
-        ? { x0: -12, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 6 }
+        ? { x0: -6, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 8 }
         : {
-            x0: house.phases.phase1.bounds.x0 - 10,
-            y0: house.phases.phase1.bounds.y0 - 8,
+            x0: house.phases.phase1.bounds.x0 - 6,
+            y0: house.phases.phase1.bounds.y0 - 6,
             x1: house.phases.phase1.bounds.x1 + 6,
             y1: house.phases.phase1.bounds.y1 + 6,
           };
@@ -95,7 +96,7 @@ export function createPlanView(canvas, initialHouse) {
     camera.cy = (bounds.y0 + bounds.y1) / 2;
     camera.pxPerFt = Math.max(
       2,
-      Math.min((w - 28) / (bounds.x1 - bounds.x0), (h - 28) / (bounds.y1 - bounds.y0)),
+      Math.min((w - 48) / (bounds.x1 - bounds.x0), (h - 120) / (bounds.y1 - bounds.y0)),
     );
     cameraReady = true;
     if (notify) onChange({ ...camera });
