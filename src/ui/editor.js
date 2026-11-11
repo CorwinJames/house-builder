@@ -1001,11 +1001,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const groups = groupByRoom(items, house.rooms);
     if (!groups.length) return `<p class="fine">Nothing new to suggest in the empty rooms.</p>`;
     return `<div class="suggest-list">
-      <div class="suggest-head"><strong>Preview</strong><button type="button" id="accept-all-suggest">Accept all</button></div>
+      <div class="suggest-head"><strong>Preview</strong><button type="button" class="hud-pill pill-primary" id="accept-all-suggest">Accept all</button></div>
       ${groups.map((group) => `
       <div class="suggest-row"><span>${escapeAttr(group.name)} · ${group.count}</span>
-        <button type="button" data-accept-room="${escapeAttr(group.id)}">Accept</button>
-        <button type="button" data-skip-room="${escapeAttr(group.id)}">Skip</button></div>`).join("")}
+        <button type="button" class="hud-pill" data-accept-room="${escapeAttr(group.id)}">Accept</button>
+        <button type="button" class="hud-pill" data-skip-room="${escapeAttr(group.id)}">Skip</button></div>`).join("")}
     </div>`;
   }
 
@@ -1050,8 +1050,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const spec = fixtureKind === "entry" ? null : fixtureSpec(fixtureKind);
     box.innerHTML = `
       <div class="option-line">
-        <label>Place <select id="fixture-kind">${options}</select></label>
-        <button type="button" id="suggest-fixtures">Suggest placements</button>
+        <label>Place <select id="fixture-kind" class="pill-select">${options}</select></label>
+        <button type="button" class="hud-pill" id="suggest-fixtures">Suggest placements</button>
       </div>
       <p class="fine">${escapeAttr(spec?.name || "Click the water entry, where the main shutoff goes.")} Pipe stays out of hempcrete and rammed earth. An exterior wall can take a furred chase. A plumber and the inspector need to confirm that.</p>
       ${suggestKind === "plumbing" ? suggestHtml() : ""}`;
@@ -1091,9 +1091,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const spec = deviceKind === "panel" ? null : deviceSpec(deviceKind, pumpSupply);
     box.innerHTML = `
       <div class="option-line">
-        <label>Place <select id="device-kind">${options}</select></label>
-        ${deviceKind === "well-pump" ? `<label>Supply <select id="pump-supply"><option value="240" ${pumpSupply === "240" ? "selected" : ""}>240V</option><option value="120" ${pumpSupply === "120" ? "selected" : ""}>120V</option></select></label>` : ""}
-        <button type="button" id="suggest-outlets">Suggest placements</button>
+        <label>Place <select id="device-kind" class="pill-select">${options}</select></label>
+        ${deviceKind === "well-pump" ? `<label>Supply <select id="pump-supply" class="pill-select"><option value="240" ${pumpSupply === "240" ? "selected" : ""}>240V</option><option value="120" ${pumpSupply === "120" ? "selected" : ""}>120V</option></select></label>` : ""}
+        <button type="button" class="hud-pill" id="suggest-outlets">Suggest placements</button>
       </div>
       <p class="fine">${escapeAttr(spec?.note || spec?.name || "Click where the main panel should go. There is one panel.")} Hempcrete and rammed earth default to conduit so the cable is not buried in the wall. An electrician and the inspector need to confirm that.</p>
       ${suggestKind === "electrical" ? suggestHtml() : ""}`;
