@@ -487,11 +487,13 @@ export function createPlanView(canvas, initialHouse) {
     ctx.font = "600 12px Outfit, 'Segoe UI', sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    const shortest = Math.min(...dims.map((dim) => Math.abs(dim.dist)));
+    if (shortest * camera.pxPerFt < 28) {
+      const bump = 28 / camera.pxPerFt - shortest;
+      for (const dim of dims) dim.dist += Math.sign(dim.dist || 1) * bump;
+    }
+    const drawing = drawingScreenBox(dims);
     for (const dim of dims) {
-      const minPx = dim.id.startsWith("all-") ? 58 : 30;
-      if (Math.abs(dim.dist) * camera.pxPerFt < minPx) {
-        dim.dist = Math.sign(dim.dist || 1) * (minPx / camera.pxPerFt);
-      }
       const seg = offsetSegment(dim);
       const ext = 0.7;
       const a = { x: seg.x0, y: seg.y0 };
@@ -524,18 +526,17 @@ export function createPlanView(canvas, initialHouse) {
       if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
       const detail = formatFeetFine(seg.len);
       const label = detail.construction;
-      const note = dim.id === "all-width" ? footprintCaption() : (detail.fudged ? `exact ${detail.exact}` : "");
+      const note = dimensionNote(dim, detail);
       const boxW = Math.max(ctx.measureText(label).width, note ? ctx.measureText(note).width : 0) + 12;
       const boxH = note ? 28 : 16;
       const awayX = mid.x - origin.x;
       const awayY = mid.y - origin.y;
       const away = Math.hypot(awayX, awayY) || 1;
-      const houseScreen = footprintScreenBox();
       const clearOfHouse = {
-        x: houseScreen.x - 6,
-        y: houseScreen.y - 6,
-        w: houseScreen.w + 12,
-        h: houseScreen.h + 12,
+        x: drawing.x - 6,
+        y: drawing.y - 6,
+        w: drawing.w + 12,
+        h: drawing.h + 12,
       };
       let shift = 0;
       let box = { x: mid.x - boxW / 2, y: mid.y - boxH / 2, w: boxW, h: boxH };
@@ -1377,17 +1378,35 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
-  function footprintScreenBox() {
-    const southWest = worldToScreen(0, 0);
-    const northEast = worldToScreen(house.footprint.width, house.footprint.depth);
-    const x = Math.min(southWest.x, northEast.x);
-    const y = Math.min(southWest.y, northEast.y);
-    return {
-      x,
-      y,
-      w: Math.abs(northEast.x - southWest.x),
-      h: Math.abs(northEast.y - southWest.y),
-    };
+  function drawingScreenBox(dims) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const dim of dims) {
+      for (const point of [
+        [dim.x0, dim.y0],
+        [dim.x1, dim.y1],
+      ]) {
+        const screen = worldToScreen(point[0], point[1]);
+        x0 = Math.min(x0, screen.x);
+        y0 = Math.min(y0, screen.y);
+        x1 = Math.max(x1, screen.x);
+        y1 = Math.max(y1, screen.y);
+      }
+    }
+    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 0, h: 0 };
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  function dimensionNote(dim, detail) {
+    const parts = [];
+    if (dim.face === "inside" || dim.face === "outside") parts.push(dim.face);
+    if (dim.caption) {
+      const caption = footprintCaption();
+      if (caption) parts.push(caption);
+    } else if (detail.fudged) parts.push(`exact ${detail.exact}`);
+    return parts.join(" · ");
   }
 
   function footprintCaption() {
@@ -1402,7 +1421,8 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawConstraintBadges() {
     const caption = footprintCaption();
-    const captionOnDimension = !!state?.layers.dimensions && isFutureShown(state);
+    const captionOnDimension = !!state?.layers.dimensions
+      && planDimensions(house, isFutureShown(state)).some((dim) => dim.caption);
     if (caption && !captionOnDimension) {
       const point = worldToScreen(house.footprint.width / 2, -10.5);
       ctx.save();
