@@ -5,6 +5,10 @@ import sample from "../data/sample-house.json" with { type: "json" };
 import { decorateHouse } from "../src/build/walls.js";
 import { furnitureFootprint, roomGroundLine } from "../src/build/annotations.js";
 import { headerForSpan } from "../src/build/catalog.js";
+import { areaReport, wallServesHeated } from "../src/build/areas.js";
+import { planDimensions } from "../src/render/dimensions.js";
+import { roofFootprints } from "../src/render/roof.js";
+import { groupImportedFindings } from "../src/ui/warnings.js";
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const validate = ajv.compile(schema);
@@ -136,6 +140,73 @@ if (!validate(migrated)) {
 const older = decorateHouse({ ...madeUpHouse(), schemaVersion: 6, furniture: undefined, planLabels: undefined, siteFeatures: undefined });
 if (older.schemaVersion !== 7) fail("version 6 should migrate to 7");
 if (older.furniture.length !== 0 || older.planLabels.length !== 0) fail("missing lists should become empty");
+
+function square(id, name, x, y, w, h, extra) {
+  return {
+    id,
+    levelId: "main",
+    name,
+    phase: "phase1",
+    polygon: [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }],
+    finish: "wood",
+    ...extra,
+  };
+}
+
+const separated = madeUpHouse();
+separated.rooms = [
+  square("room-1", "Music room", 0, 0, 10, 10, { areaKind: "heated", building: "main", conditioned: true }),
+  square("room-tv", "TV", 0, 6, 4, 4, { areaKind: "heated", building: "main", conditioned: true }),
+  square("room-court", "Terrace", 20, 0, 30, 10, { areaKind: "covered", building: "site", outdoor: true, conditioned: false }),
+  square("room-study", "Massing study", 80, 80, 20, 20, { areaKind: "study", building: "site", outdoor: true, conditioned: false }),
+  square("room-studio", "North studio", 40, 40, 12, 12, { areaKind: "heated", building: "studio", conditioned: true }),
+];
+separated.walls.push({
+  id: "wall-garden",
+  levelId: "main",
+  start: { x: 20, y: 0 },
+  end: { x: 50, y: 0 },
+  assembly: "hempcrete",
+  assemblyId: "hempcrete-exterior",
+  thickness: 1,
+  height: 10,
+  phase: "phase1",
+  role: "exterior",
+});
+if (!validate(separated)) {
+  for (const error of validate.errors) fail(`separated ${error.instancePath || "/"} ${error.message}`);
+}
+const areas = areaReport(separated, 0.5);
+if (Math.abs(areas.heated - 100) > 4) fail(`heated area ${areas.heated} should stay near 100, not double-count the overlap`);
+if (areas.covered < 250) fail(`covered outdoor ${areas.covered} should include the terrace`);
+if (areas.studio < 120) fail(`studio ${areas.studio} should be its own figure`);
+const dims = planDimensions(separated, true);
+const houseWidth = dims.find((dim) => dim.face === "house" && dim.y0 === dim.y1);
+const siteWidth = dims.find((dim) => dim.face === "site" && dim.y0 === dim.y1);
+if (!houseWidth || Math.abs(Math.abs(houseWidth.x1 - houseWidth.x0) - 10) > 0.2) {
+  fail(`house dimension ${houseWidth && Math.abs(houseWidth.x1 - houseWidth.x0)}`);
+}
+if (!siteWidth || Math.abs(siteWidth.x1 - siteWidth.x0) < 40) fail("site dimension should include the terrace");
+if (Math.abs(siteWidth.x1 - siteWidth.x0) > 70) fail("site dimension should leave the study out");
+if (!wallServesHeated(separated, separated.walls[0])) fail("the house wall should stay priced");
+const garden = separated.walls.find((wall) => wall.id === "wall-garden");
+if (wallServesHeated(separated, garden)) fail("a terrace wall should not be priced");
+const roofs = roofFootprints(separated, true);
+if (roofs.length !== 2) fail(`expected a house roof and a studio roof, got ${roofs.length}`);
+if (roofs.some((box) => box.x1 - box.x0 > 20)) fail("a roof should stay on one building");
+
+const repeated = [
+  { id: "a", title: "Music room needs an egress window", severity: "warning", point: { x: 1, y: 1 } },
+  { id: "b", title: "Bedroom needs an egress window", severity: "warning", point: { x: 2, y: 2 } },
+  { id: "c", title: "Kitchen needs an exhaust fan", severity: "warning" },
+  { id: "d", title: "Bath needs an exhaust fan", severity: "warning" },
+  { id: "e", title: "Hall needs a smoke alarm", severity: "warning" },
+  { id: "f", title: "Bedroom needs a smoke alarm", severity: "warning" },
+];
+const grouped = groupImportedFindings({ sample: false }, repeated);
+if (grouped.length !== 3) fail(`grouped warnings ${grouped.length}`);
+if (!grouped.some((item) => item.title === "Windows not drawn yet")) fail("windows should be one item");
+if (groupImportedFindings({ sample: true }, repeated).length !== repeated.length) fail("the sample keeps one warning per room");
 
 if (errors.length) {
   console.error(errors.join("\n"));

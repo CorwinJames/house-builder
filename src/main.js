@@ -5,7 +5,7 @@ import { formatArea } from "./lib/format.js";
 import { loadViewState, saveViewState } from "./state/viewState.js";
 import { createPlanView } from "./render/plan2d.js";
 import { createView3d } from "./render/view3d.js";
-import { polygonArea } from "./lib/geom.js";
+import { areaReport } from "./build/areas.js";
 import { footprintMatch } from "./build/constraints.js";
 import { attachEditor } from "./ui/editor.js";
 import { attachAccount } from "./ui/account.js";
@@ -305,13 +305,7 @@ function effectiveView() {
 
 function statusText() {
   const doc = editor.house();
-  let phase1 = 0;
-  let all = 0;
-  for (const room of doc.rooms) {
-    const area = polygonArea(room.polygon);
-    all += area;
-    if (room.phase === "phase1") phase1 += area;
-  }
+  const areas = areaReport(doc);
   const stubs = LAYER_DEFS.filter((layer) => layer.stub && state.layers[layer.id]).map((layer) => layer.label);
   const stubNote = stubs.length ? ` · ${stubs.join(", ")}: nothing in this layer yet` : "";
   const futureNote = state.phase === "full" && !state.layers.future ? " · Future wings layer is off" : "";
@@ -325,7 +319,8 @@ function statusText() {
       ? ` · Footprint ${foot.badge} exact`
       : ` · Footprint ${foot.badge} ${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(2)}%`;
   }
-  return `${phaseNote} · Phase 1 rooms ${formatArea(phase1)} sq ft · All rooms ${formatArea(all)} sq ft${footNote}${futureNote}${stubNote}`;
+  const studio = areas.studio >= 1 ? ` · Studio ${formatArea(areas.studio)} sq ft` : "";
+  return `${phaseNote} · Phase 1 heated ${formatArea(areas.phase1Heated)} sq ft · Heated ${formatArea(areas.heated)} sq ft · Covered outdoor ${formatArea(areas.covered)} sq ft${studio}${footNote}${futureNote}${stubNote}`;
 }
 
 function syncControls() {

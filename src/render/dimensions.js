@@ -1,5 +1,7 @@
 /** Dimension strings shared by the plan and the 3D view. Distances are feet. */
 
+import { areaKind, separatesSite } from "../build/areas.js";
+
 const SAME_FT = 0.15;
 const GAP_FT = 2.4;
 const STEP_FT = 2.6;
@@ -105,7 +107,51 @@ function vertical(id, box, dist, face) {
  * When the exterior wall faces are a different size, both are returned,
  * labeled "inside" and "outside". The stored footprint is never measured.
  */
+function roomsBox(house, futureShown, accept) {
+  const points = [];
+  for (const room of house.rooms || []) {
+    if (!futureShown && room.phase === "future") continue;
+    if (!accept(room)) continue;
+    for (const point of room.polygon || []) points.push(point);
+  }
+  return boxOf(points);
+}
+
+/**
+ * A traced plan gets two pairs: the main house, and the whole site.
+ * The studio building is on the site, not in the house pair.
+ */
+function separatedDimensions(house, futureShown) {
+  const houseBox = roomsBox(
+    house,
+    futureShown,
+    (room) => areaKind(room) === "heated" && (room.building || "main") === "main",
+  );
+  const site = roomsBox(house, futureShown, (room) => areaKind(room) !== "study");
+  const featurePoints = [];
+  if (site) {
+    featurePoints.push({ x: site.x0, y: site.y0 }, { x: site.x1, y: site.y1 });
+  }
+  for (const feature of house.siteFeatures || []) {
+    if (feature && Number.isFinite(feature.x) && Number.isFinite(feature.y)) {
+      featurePoints.push({ x: feature.x, y: feature.y });
+    }
+  }
+  const siteBox = boxOf(featurePoints);
+  const dims = [];
+  if (houseBox) {
+    dims.push(horizontal("house-width", houseBox, GAP_FT, "house"));
+    dims.push(vertical("house-depth", houseBox, -GAP_FT, "house"));
+  }
+  if (siteBox) {
+    dims.push(horizontal("site-width", siteBox, GAP_FT + STEP_FT * 2, "site"));
+    dims.push(vertical("site-depth", siteBox, -(GAP_FT + STEP_FT * 2), "site"));
+  }
+  return dims;
+}
+
 export function planDimensions(house, futureShown) {
+  if (separatesSite(house)) return separatedDimensions(house, futureShown);
   const walls = visibleWalls(house, futureShown);
   const inside = insideBox(house, futureShown);
   const outside = exteriorFaceBox(walls);

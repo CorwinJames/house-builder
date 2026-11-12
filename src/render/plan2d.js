@@ -19,6 +19,7 @@ import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
+import { areaKind } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
@@ -614,14 +615,6 @@ export function createPlanView(canvas, initialHouse) {
       ctx.strokeStyle = "#3F342C";
       ctx.lineWidth = 1;
       ctx.stroke();
-      const screen = worldToScreen(item.x, item.y);
-      const span = Math.max(item.width || 2, item.depth || 2) * camera.pxPerFt;
-      if (span < 28) continue;
-      ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
-      ctx.fillStyle = INK;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(item.name, screen.x, screen.y);
     }
     for (const feature of house.siteFeatures || []) {
       const screen = worldToScreen(feature.x, feature.y);
@@ -646,21 +639,48 @@ export function createPlanView(canvas, initialHouse) {
         ctx.fillStyle = feature.kind === "tree" ? "#2F5D45" : "#6E5C48";
         ctx.fill();
       }
-      ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
-      ctx.fillStyle = INK;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      ctx.fillText(feature.name, screen.x, screen.y - radius - 2);
-    }
-    ctx.font = "600 12px Outfit, 'Segoe UI', sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    for (const label of house.planLabels || []) {
-      const screen = worldToScreen(label.x, label.y);
-      ctx.fillStyle = "#8A5A2B";
-      ctx.fillText(label.text, screen.x, screen.y);
     }
     ctx.restore();
+  }
+
+  function drawAnnotationLabels() {
+    if (!state?.layers.labels) return;
+    const important = (text) => text === "ERV" || String(text).includes("天井") || /north facing/i.test(text);
+    const labels = [...(house.planLabels || [])].sort((a, b) => Number(important(b.text)) - Number(important(a.text)));
+    for (const label of labels) {
+      const screen = worldToScreen(label.x, label.y);
+      drawFadedLabel(label.text, screen.x, screen.y, important(label.text) ? 12 : 18, "#8A5A2B");
+    }
+    for (const feature of house.siteFeatures || []) {
+      const screen = worldToScreen(feature.x, feature.y);
+      const radius = Math.max(7, Math.min(22, (feature.size || 6) * camera.pxPerFt * 0.35));
+      drawFadedLabel(feature.name, screen.x, screen.y - radius - 10, feature.kind === "wind" ? 12 : 16, INK);
+    }
+    for (const item of house.furniture || []) {
+      if (!markVisible(item.roomId)) continue;
+      const span = Math.max(item.width || 2, item.depth || 2) * camera.pxPerFt;
+      if (span < 36) continue;
+      const screen = worldToScreen(item.x, item.y);
+      drawFadedLabel(item.name, screen.x, screen.y, 20, INK);
+    }
+  }
+
+  function drawFadedLabel(text, x, y, minZoom, color) {
+    const zoom = camera.pxPerFt || 0;
+    if (zoom < minZoom) return;
+    ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
+    const width = ctx.measureText(text).width + 8;
+    const box = { x: x - width / 2, y: y - 8, w: width, h: 16 };
+    if (labelBoxes.some((item) => rectsOverlap(item, box))) return;
+    const fade = Math.min(1, (zoom - minZoom) / 8);
+    ctx.save();
+    ctx.globalAlpha = 0.28 + 0.72 * fade;
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x, y);
+    ctx.restore();
+    labelBoxes.push(box);
   }
 
   function markVisible(roomId) {
@@ -685,6 +705,8 @@ export function createPlanView(canvas, initialHouse) {
     ctx.textBaseline = "middle";
     for (const room of house.rooms) {
       if (!isPhaseVisible(room.phase, state)) continue;
+      const kind = areaKind(room);
+      if (kind !== "heated" && (camera.pxPerFt || 0) < 14) continue;
       const xs = room.polygon.map((point) => point.x);
       const ys = room.polygon.map((point) => point.y);
       const boxW = (Math.max(...xs) - Math.min(...xs)) * camera.pxPerFt;
@@ -711,15 +733,20 @@ export function createPlanView(canvas, initialHouse) {
         nameBox = { ...nameBox, y: nameY - nameSize * 0.7 };
         guard += 1;
       }
+      if (labelBoxes.some((item) => rectsOverlap(item, nameBox)) && room.phase !== "phase1") continue;
+      const nameFade = kind === "heated" ? 1 : Math.min(1, ((camera.pxPerFt || 0) - 14) / 8);
+      ctx.save();
+      ctx.globalAlpha = 0.4 + 0.6 * nameFade;
       labelBoxes.push(nameBox);
       ctx.fillText(room.name, s.x, nameY);
+      ctx.restore();
       const ground = roomGroundLine(room);
-      if (ground && boxH >= 48) {
+      if (ground && boxH >= 48 && kind === "heated") {
         ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
         ctx.fillStyle = "#8A5A2B";
         ctx.fillText(ground, s.x, nameY + nameSize);
       }
-      if (boxW < 78 || boxH < 78) continue;
+      if (kind !== "heated" || boxW < 78 || boxH < 78) continue;
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
       const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
       const areaText = `${estimated ? "about " : ""}${formatArea(polygonArea(room.polygon))} sq ft`;
@@ -848,6 +875,7 @@ export function createPlanView(canvas, initialHouse) {
     drawOverlay();
     drawDimensions();
     drawLabels();
+    drawAnnotationLabels();
     drawConstraintBadges();
     drawGuides();
     drawCompass();
@@ -1199,11 +1227,12 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawMarkers() {
     badgeHits = [];
-    if (!markers.length) {
+    if (!markers.length || (camera.pxPerFt || 0) < 12) {
       badgeNote = null;
+      canvas.dataset.badges = "[]";
       return;
     }
-    const zoomedOut = (camera.pxPerFt || 8) < 8;
+    const zoomedOut = false;
     const buckets = new Map();
     for (const marker of markers) {
       if (!marker.point) continue;
@@ -1493,7 +1522,7 @@ export function createPlanView(canvas, initialHouse) {
 
   function dimensionNote(dim, detail) {
     const parts = [];
-    if (dim.face === "inside" || dim.face === "outside") parts.push(dim.face);
+    if (dim.face === "inside" || dim.face === "outside" || dim.face === "house" || dim.face === "site") parts.push(dim.face);
     if (dim.caption) {
       const caption = footprintCaption();
       if (caption) parts.push(caption);
