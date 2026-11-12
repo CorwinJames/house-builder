@@ -18,7 +18,8 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
-import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint, plainPlaceLabel } from "../electrical/design.js";
+import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
+import { plainPlaceLabel } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
 

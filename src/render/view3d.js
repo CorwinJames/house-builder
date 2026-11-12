@@ -284,6 +284,7 @@ export function createView3d(canvas, initialHouse) {
     roofPivot.visible = show;
     roofPivot.traverse((obj) => {
       if (obj.isSprite) {
+        obj.userData.roofLabel = true;
         obj.visible = !ghost;
         return;
       }
@@ -1110,7 +1111,6 @@ function buildRoof(house, futureShown) {
   const group = new THREE.Group();
   group.add(mesh);
   const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
-  label.userData.roofLabel = true;
   const midX = (footprint.x0 + footprint.x1) / 2;
   const midY = (footprint.y0 + footprint.y1) / 2;
   const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
