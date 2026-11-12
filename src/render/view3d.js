@@ -7,7 +7,9 @@ import { LAYER_IDS, wallLayerId } from "../layers.js";
 import { planToScene, sceneToPlan } from "../build/space.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
-import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
+import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
+import { roomGroundLine } from "../build/annotations.js";
+import { areaKind } from "../build/areas.js";
 
 /**
  * 3D model. Plan +x (east) is Three.js +X, plan +y (north) is Three.js −Z,
@@ -793,7 +795,8 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
     const parent = room.phase === "future" ? futureBuckets.finishes : buckets.finishes;
     parent.add(roomFloor(room, materials));
     const labels = room.phase === "future" ? futureBuckets.labels : buckets.labels;
-    labels.add(roomLabel(room));
+    const label = roomLabel(room);
+    if (label) labels.add(label);
   }
   for (const wall of house.walls) {
     const layer = wallLayerId(wall);
@@ -806,6 +809,7 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
   addPlacedItems(house, buckets);
+  addAnnotations(house, buckets.labels);
 }
 
 function roomFloor(room, materials) {
@@ -825,13 +829,76 @@ function roomFloor(room, materials) {
 }
 
 function roomLabel(room) {
+  if (areaKind(room) !== "heated") return null;
   const at = room.labelAt || centroid(room.polygon);
-  const sprite = makeSprite(room.name, room.phase === "future", {
-    priority: room.phase === "future" ? 1 : 3,
-    px: 34,
+  const ground = roomGroundLine(room);
+  const sprite = makeSprite(ground ? `${room.name}\n${ground}` : room.name, room.phase === "future", {
+    priority: room.phase === "future" ? 2 : 4,
+    px: ground ? 48 : 34,
   });
   sprite.position.set(at.x, 8.4, -at.y);
   return sprite;
+}
+
+function addAnnotations(house, parent) {
+  const furnMaterial = new THREE.MeshStandardMaterial({ color: 0xd9cfc2, roughness: 0.8, transparent: true, opacity: 0.85 });
+  for (const item of house.furniture || []) {
+    const width = item.width || 2;
+    const depth = item.depth || 2;
+    const height = item.kind === "car" ? 4.5 : item.kind === "counter" ? 3 : 2;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), furnMaterial.clone());
+    const color = item.kind === "bed" ? 0xb7d4ea : item.kind === "appliance" ? 0xf0b7c4 : item.kind === "counter" ? 0xf3e2b8 : 0xd9cfc2;
+    mesh.material.color.setHex(color);
+    mesh.position.set(item.x, height / 2, -item.y);
+    mesh.rotation.y = ((item.rotation || 0) * Math.PI) / 180;
+    mesh.castShadow = true;
+    parent.add(mesh);
+  }
+  for (const feature of house.siteFeatures || []) {
+    let mesh;
+    if (feature.kind === "tree") {
+      mesh = new THREE.Mesh(
+        new THREE.ConeGeometry((feature.size || 6) * 0.25, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2f5d45, roughness: 0.9 }),
+      );
+      mesh.position.set(feature.x, 4, -feature.y);
+    } else if (feature.kind === "pond") {
+      mesh = new THREE.Mesh(
+        new THREE.CircleGeometry((feature.size || 8) * 0.45, 20),
+        new THREE.MeshStandardMaterial({ color: 0x2f6f8b, roughness: 0.4, transparent: true, opacity: 0.7 }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(feature.x, 0.08, -feature.y);
+    } else if (feature.kind === "pavilion") {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 7, 8),
+        new THREE.MeshStandardMaterial({ color: 0xa85b3c, roughness: 0.85, transparent: true, opacity: 0.45 }),
+      );
+      mesh.position.set(feature.x, 3.5, -feature.y);
+    } else {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 12, 8),
+        new THREE.MeshStandardMaterial({ color: feature.kind === "wind" ? 0x1f6f8b : 0x6e5c48 }),
+      );
+      mesh.position.set(feature.x, 1.2, -feature.y);
+    }
+    parent.add(mesh);
+    if (feature.kind === "tree" || feature.kind === "garden" || feature.kind === "other") continue;
+    const label = makeSprite(feature.name, false, { priority: 1, px: 30 });
+    label.position.set(feature.x, feature.kind === "pavilion" ? 8 : 4, -feature.y);
+    parent.add(label);
+  }
+  for (const label of house.planLabels || []) {
+    if (!keptPlanLabel(label.text)) continue;
+    const sprite = makeSprite(label.text, false, { priority: 2, px: 32 });
+    sprite.position.set(label.x, 5.2, -label.y);
+    parent.add(sprite);
+  }
+}
+
+function keptPlanLabel(text) {
+  const line = String(text || "");
+  return line === "ERV" || line.includes("天井") || /north facing/i.test(line);
 }
 
 function centroid(polygon) {
@@ -938,7 +1005,9 @@ function addDimensions(house, futureShown, parent) {
       new THREE.Vector3(seg.x1, y, -seg.y1),
     ]);
     parent.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x2a241b })));
-    const text = dim.face ? `${formatFeet(seg.len)} ${dim.face}` : formatFeet(seg.len);
+    const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
+    const feet = `${estimated ? "est. " : ""}${formatFeet(seg.len)}`;
+    const text = dim.face ? `${feet} ${dim.face}` : feet;
     const label = makeSprite(text, false, { priority: 0, px: 26 });
     label.position.set((seg.x0 + seg.x1) / 2, 1.4, -((seg.y0 + seg.y1) / 2));
     parent.add(label);
@@ -961,30 +1030,38 @@ function buildSlab(house, futureShown) {
 }
 
 function buildRoof(house, futureShown) {
-  const footprint = roofFootprint(house, futureShown);
-  const geometry = createHipAndGableGeometry({
-    ...footprint,
-    plate: house.roof.plateHeight,
-    pitch: house.roof.pitchRiseOverRun,
-  });
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({
-      color: 0x8c4634,
-      roughness: 0.86,
-      side: THREE.DoubleSide,
-    }),
-  );
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   const group = new THREE.Group();
-  group.add(mesh);
-  const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
-  const midX = (footprint.x0 + footprint.x1) / 2;
-  const midY = (footprint.y0 + footprint.y1) / 2;
-  const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
-  label.position.set(midX, house.roof.plateHeight + rise + 3.2, -midY);
-  group.add(label);
+  const footprints = roofFootprints(house, futureShown);
+  let largest = null;
+  for (const footprint of footprints) {
+    const geometry = createHipAndGableGeometry({
+      ...footprint,
+      plate: house.roof.plateHeight,
+      pitch: house.roof.pitchRiseOverRun,
+    });
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshStandardMaterial({
+        color: 0x8c4634,
+        roughness: 0.86,
+        side: THREE.DoubleSide,
+      }),
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    const span = (footprint.x1 - footprint.x0) * (footprint.y1 - footprint.y0);
+    if (!largest || span > largest.span) largest = { footprint, span };
+  }
+  if (largest) {
+    const footprint = largest.footprint;
+    const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
+    const midX = (footprint.x0 + footprint.x1) / 2;
+    const midY = (footprint.y0 + footprint.y1) / 2;
+    const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
+    label.position.set(midX, house.roof.plateHeight + rise + 3.2, -midY);
+    group.add(label);
+  }
   return group;
 }
 
@@ -992,11 +1069,12 @@ function makeSprite(text, muted = false, options = {}) {
   const canvas = document.createElement("canvas");
   const g = canvas.getContext("2d");
   const fontPx = 64;
-  const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
+  const lines = String(text || "").split("\n").filter((line) => line.length).slice(0, 3);
+  const shown = lines.length ? lines : [""];
   g.font = `600 ${fontPx}px Georgia, serif`;
-  const textW = Math.ceil(g.measureText(shown).width);
+  const textW = Math.max(...shown.map((line) => Math.ceil(g.measureText(line).width)), 40);
   canvas.width = Math.max(160, textW + 72);
-  canvas.height = 96;
+  canvas.height = fontPx * shown.length + 48;
   g.font = `600 ${fontPx}px Georgia, serif`;
   g.clearRect(0, 0, canvas.width, canvas.height);
   roundRect(g, 4, 4, canvas.width - 8, canvas.height - 8, 28);
@@ -1008,7 +1086,9 @@ function makeSprite(text, muted = false, options = {}) {
   g.fillStyle = muted ? "#6F6458" : "#2A241B";
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(shown, canvas.width / 2, canvas.height / 2);
+  shown.forEach((line, index) => {
+    g.fillText(line, canvas.width / 2, 24 + fontPx * (index + 0.5));
+  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(

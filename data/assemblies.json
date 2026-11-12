@@ -44,6 +44,45 @@
       "note": "placeholder: needs engineer/code verification. 18 inch solid rammed-earth wall, the sample's south walls. No studs. No code citation."
     },
     {
+      "id": "hempcrete-interior",
+      "name": "Hempcrete interior",
+      "short": "Hempcrete",
+      "renderAssembly": "hempcrete",
+      "role": "interior",
+      "thickness": 1,
+      "swatch": "#C6B489",
+      "layers": [
+        { "name": "lime plaster", "thickness": 0.125 },
+        { "name": "hempcrete", "thickness": 0.75 },
+        { "name": "lime plaster", "thickness": 0.125 }
+      ],
+      "framing": {
+        "stud": "2x6",
+        "studThickness": 0.125,
+        "studDepth": 0.458,
+        "spacing": 2,
+        "spacingNote": "24 inches on center",
+        "embedded": true
+      },
+      "source": null,
+      "note": "placeholder: needs engineer/code verification. Same 12 inch hempcrete build as the exterior wall, used where a drawing shows hempcrete on an interior wall. Not a cited assembly."
+    },
+    {
+      "id": "rammed-earth-interior",
+      "name": "Rammed earth interior",
+      "short": "Rammed earth",
+      "renderAssembly": "rammed-earth",
+      "role": "interior",
+      "thickness": 1.5,
+      "swatch": "#A85B3C",
+      "layers": [
+        { "name": "rammed earth", "thickness": 1.5 }
+      ],
+      "framing": null,
+      "source": null,
+      "note": "placeholder: needs engineer/code verification. 18 inch rammed earth where a thick bar sits between rooms. Not a cited assembly."
+    },
+    {
       "id": "interior-partition",
       "name": "Interior partition",
       "short": "Partition",

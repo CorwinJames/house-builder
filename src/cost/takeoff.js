@@ -4,6 +4,7 @@ import { electricalBom } from "../electrical/design.js";
 import { plumbingBom } from "../plumbing/design.js";
 import { siteBom } from "../site/design.js";
 import { openingsFor, polygonArea, wallLength } from "../lib/geom.js";
+import { areaReport, countsAsHeated, separatesSite, unionArea, wallServesHeated } from "../build/areas.js";
 
 const wasteById = Object.fromEntries(assumptions.waste.map((item) => [item.id, item.factor]));
 
@@ -135,6 +136,7 @@ export function takeoff(house, options = {}) {
   let headerTwoBySix = 0;
 
   for (const wall of walls) {
+    if (!wallServesHeated(house, wall)) continue;
     const wallOpenings = openings.filter((opening) => opening.wallId === wall.id);
     const hempVol = hempcreteVolume(wall, wallOpenings);
     const rammedVol = rammedVolume(wall, wallOpenings);
@@ -251,10 +253,19 @@ export function takeoff(house, options = {}) {
   add({ id: "window-unit", category: "openings", quantity: windows, unit: "each", kind: "material", basis: "One line per window opening." });
 
   const floors = { wood: 0, tile: 0, stone: 0, concrete: 0 };
-  for (const room of rooms) {
-    if (room.outdoor) continue;
-    const area = polygonArea(room.polygon || []);
-    if (floors[room.finish] !== undefined) floors[room.finish] += area;
+  if (separatesSite(house)) {
+    const byFinish = { wood: [], tile: [], stone: [], concrete: [] };
+    for (const room of rooms) {
+      if (!countsAsHeated(room) || !byFinish[room.finish]) continue;
+      byFinish[room.finish].push(room.polygon);
+    }
+    for (const finish of Object.keys(floors)) floors[finish] = unionArea(byFinish[finish], 1);
+  } else {
+    for (const room of rooms) {
+      if (room.outdoor || !countsAsHeated(room)) continue;
+      const area = polygonArea(room.polygon || []);
+      if (floors[room.finish] !== undefined) floors[room.finish] += area;
+    }
   }
   add({ id: "flooring", category: "finishes", quantity: round(floors.wood), unit: "square foot", kind: "material", diy: true, basis: "Wood-finish rooms, shoelace area." });
   add({ id: "tile", category: "finishes", quantity: round(floors.tile), unit: "square foot", kind: "material", diy: true, basis: "Tile-finish rooms, shoelace area." });
@@ -267,7 +278,11 @@ export function takeoff(house, options = {}) {
   add(laborRow("tile", floors.tile, options.rates));
 
   if (!options.wallId && !options.roomId) {
-    const footprint = (house.footprint?.width || 0) * (house.footprint?.depth || 0);
+    const separated = separatesSite(house);
+    const heatedBuildings = separated ? areaReport(house, 1) : null;
+    const footprint = separated
+      ? heatedBuildings.heated + heatedBuildings.studio
+      : (house.footprint?.width || 0) * (house.footprint?.depth || 0);
     for (const id of ["allowance-foundation", "allowance-slab", "allowance-roof"]) {
       add({
         id,
@@ -276,7 +291,9 @@ export function takeoff(house, options = {}) {
         unit: "square foot",
         kind: "material",
         allowance: true,
-        basis: "Full footprint only. Not in the total.",
+        basis: separated
+          ? "Heated floor of the buildings only. Outdoor areas, site, and studies are not included. Not in the total."
+          : "Full footprint only. Not in the total.",
       });
     }
     rows.push(...electricalBom(house, options.phase || "full"));

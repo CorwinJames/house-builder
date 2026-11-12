@@ -1960,6 +1960,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           { icon: "↕", value: formatFeetFine(proportion.depth).construction, label: "Depth" },
         ])}
         <p>${proportion.phrase}</p>
+        ${room.groundLevel ? `<p>Ground note: ${escapeHtml(room.groundLevel)}. This is a label from the drawing, not a measured floor height.</p>` : ""}
+        ${room.note ? `<p>${escapeHtml(room.note)}</p>` : ""}
         <label>Make proportional <select id="make-ratio">${ratioOptions}</select></label>
         <button type="button" id="make-proportional">Make proportional</button>
         <label>Name <input id="edit-name" value="${escapeAttr(room.name)}" /></label>
@@ -2067,6 +2069,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         refreshWarnings();
         pushViews();
         publish();
+        plan.fit();
+        model.frameHouse?.();
         onDocument?.("import");
       } catch {
         warnings = [{ id: "import", severity: "warn", message: "That file isn't JSON this app can read.", target: null }];
@@ -2233,4 +2237,8 @@ function inside(point, polygon) {
 
 function escapeAttr(value) {
   return String(value).replace(/"/g, "&quot;");
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

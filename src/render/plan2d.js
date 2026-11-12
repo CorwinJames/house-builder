@@ -18,6 +18,8 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
+import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
+import { areaKind } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
@@ -525,7 +527,8 @@ export function createPlanView(canvas, initialHouse) {
       let ang = Math.atan2(sb.y - sa.y, sb.x - sa.x);
       if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
       const detail = formatFeetFine(seg.len);
-      const label = detail.construction;
+      const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
+      const label = estimated ? `est. ${detail.construction}` : detail.construction;
       const note = dimensionNote(dim, detail);
       const boxW = Math.max(ctx.measureText(label).width, note ? ctx.measureText(note).width : 0) + 12;
       const boxH = note ? 28 : 16;
@@ -598,6 +601,103 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  function drawAnnotations() {
+    ctx.save();
+    ctx.lineJoin = "round";
+    for (const item of house.furniture || []) {
+      if (!markVisible(item.roomId)) continue;
+      const footprint = furnitureFootprint(item);
+      trace(footprint);
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = furnitureFill(item.kind);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#3F342C";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    for (const feature of house.siteFeatures || []) {
+      const screen = worldToScreen(feature.x, feature.y);
+      const radius = Math.max(7, Math.min(22, (feature.size || 6) * camera.pxPerFt * 0.35));
+      ctx.beginPath();
+      if (feature.kind === "pond") {
+        ctx.ellipse(screen.x, screen.y, radius * 1.4, radius * 0.8, 0, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(47, 111, 139, 0.45)";
+        ctx.fill();
+      } else if (feature.kind === "pavilion") {
+        ctx.strokeStyle = "#6E3A28";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(screen.x - radius, screen.y - radius, radius * 2, radius * 2);
+      } else if (feature.kind === "wind") {
+        ctx.strokeStyle = "#1F6F8B";
+        ctx.lineWidth = 1.5;
+        ctx.moveTo(screen.x - 10, screen.y);
+        ctx.lineTo(screen.x + 10, screen.y);
+        ctx.stroke();
+      } else {
+        ctx.arc(screen.x, screen.y, radius * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = feature.kind === "tree" ? "#2F5D45" : "#6E5C48";
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawAnnotationLabels() {
+    if (!state?.layers.labels) return;
+    const important = (text) => text === "ERV" || String(text).includes("天井") || /north facing/i.test(text);
+    const labels = [...(house.planLabels || [])].sort((a, b) => Number(important(b.text)) - Number(important(a.text)));
+    for (const label of labels) {
+      const screen = worldToScreen(label.x, label.y);
+      drawFadedLabel(label.text, screen.x, screen.y, important(label.text) ? 12 : 18, "#8A5A2B");
+    }
+    for (const feature of house.siteFeatures || []) {
+      const screen = worldToScreen(feature.x, feature.y);
+      const radius = Math.max(7, Math.min(22, (feature.size || 6) * camera.pxPerFt * 0.35));
+      drawFadedLabel(feature.name, screen.x, screen.y - radius - 10, feature.kind === "wind" ? 12 : 16, INK);
+    }
+    for (const item of house.furniture || []) {
+      if (!markVisible(item.roomId)) continue;
+      const span = Math.max(item.width || 2, item.depth || 2) * camera.pxPerFt;
+      if (span < 36) continue;
+      const screen = worldToScreen(item.x, item.y);
+      drawFadedLabel(item.name, screen.x, screen.y, 20, INK);
+    }
+  }
+
+  function drawFadedLabel(text, x, y, minZoom, color) {
+    const zoom = camera.pxPerFt || 0;
+    if (zoom < minZoom) return;
+    ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
+    const width = ctx.measureText(text).width + 8;
+    const box = { x: x - width / 2, y: y - 8, w: width, h: 16 };
+    if (labelBoxes.some((item) => rectsOverlap(item, box))) return;
+    const fade = Math.min(1, (zoom - minZoom) / 8);
+    ctx.save();
+    ctx.globalAlpha = 0.28 + 0.72 * fade;
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, x, y);
+    ctx.restore();
+    labelBoxes.push(box);
+  }
+
+  function markVisible(roomId) {
+    if (!roomId) return true;
+    const room = house.rooms.find((item) => item.id === roomId);
+    return !room || isPhaseVisible(room.phase, state);
+  }
+
+  function furnitureFill(kind) {
+    if (kind === "bed") return "#B7D4EA";
+    if (kind === "counter") return "#F3E2B8";
+    if (kind === "appliance") return "#F0B7C4";
+    if (kind === "car") return "#9AA89A";
+    if (kind === "table") return "#E4C09A";
+    return "#E7DDD0";
+  }
+
   function drawLabels() {
     if (!state?.layers.labels) return;
     ctx.save();
@@ -605,6 +705,8 @@ export function createPlanView(canvas, initialHouse) {
     ctx.textBaseline = "middle";
     for (const room of house.rooms) {
       if (!isPhaseVisible(room.phase, state)) continue;
+      const kind = areaKind(room);
+      if (kind !== "heated" && (camera.pxPerFt || 0) < 14) continue;
       const xs = room.polygon.map((point) => point.x);
       const ys = room.polygon.map((point) => point.y);
       const boxW = (Math.max(...xs) - Math.min(...xs)) * camera.pxPerFt;
@@ -631,11 +733,23 @@ export function createPlanView(canvas, initialHouse) {
         nameBox = { ...nameBox, y: nameY - nameSize * 0.7 };
         guard += 1;
       }
+      if (labelBoxes.some((item) => rectsOverlap(item, nameBox)) && room.phase !== "phase1") continue;
+      const nameFade = kind === "heated" ? 1 : Math.min(1, ((camera.pxPerFt || 0) - 14) / 8);
+      ctx.save();
+      ctx.globalAlpha = 0.4 + 0.6 * nameFade;
       labelBoxes.push(nameBox);
       ctx.fillText(room.name, s.x, nameY);
-      if (boxW < 78 || boxH < 78) continue;
+      ctx.restore();
+      const ground = roomGroundLine(room);
+      if (ground && boxH >= 48 && kind === "heated") {
+        ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
+        ctx.fillStyle = "#8A5A2B";
+        ctx.fillText(ground, s.x, nameY + nameSize);
+      }
+      if (kind !== "heated" || boxW < 78 || boxH < 78) continue;
       ctx.font = `500 ${Math.max(10, nameSize - 3)}px Outfit, 'Segoe UI', sans-serif`;
-      const areaText = `${formatArea(polygonArea(room.polygon))} sq ft`;
+      const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
+      const areaText = `${estimated ? "about " : ""}${formatArea(polygonArea(room.polygon))} sq ft`;
       const areaW = ctx.measureText(areaText).width + 8;
       const areaBox = { x: s.x - areaW / 2, y: s.y + nameSize * 0.55 - nameSize * 0.6, w: areaW, h: nameSize };
       if (insideRoom(areaBox) && !labelBoxes.some((item) => rectsOverlap(item, areaBox))) {
@@ -701,14 +815,18 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawWatermark() {
-    if (!house.sample) return;
     const { w, h } = size();
+    const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
+    if (!house.sample && !estimated) return;
     ctx.save();
     ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
-    ctx.fillStyle = "rgba(90, 74, 58, 0.72)";
+    ctx.fillStyle = "rgba(90, 74, 58, 0.82)";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillText("SAMPLE LAYOUT — not a final design", w / 2, h - 8);
+    const line = house.sample
+      ? "SAMPLE LAYOUT — not a final design"
+      : "scale estimated from drawing, confirm one real measurement. Windows are not drawn.";
+    ctx.fillText(line, w / 2, h - 8);
     ctx.restore();
   }
 
@@ -752,10 +870,12 @@ export function createPlanView(canvas, initialHouse) {
     }
     drawElectrical();
     drawPlumbing();
+    drawAnnotations();
     drawSitePieces();
     drawOverlay();
     drawDimensions();
     drawLabels();
+    drawAnnotationLabels();
     drawConstraintBadges();
     drawGuides();
     drawCompass();
@@ -1107,11 +1227,12 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawMarkers() {
     badgeHits = [];
-    if (!markers.length) {
+    if (!markers.length || (camera.pxPerFt || 0) < 12) {
       badgeNote = null;
+      canvas.dataset.badges = "[]";
       return;
     }
-    const zoomedOut = (camera.pxPerFt || 8) < 8;
+    const zoomedOut = false;
     const buckets = new Map();
     for (const marker of markers) {
       if (!marker.point) continue;
@@ -1401,7 +1522,7 @@ export function createPlanView(canvas, initialHouse) {
 
   function dimensionNote(dim, detail) {
     const parts = [];
-    if (dim.face === "inside" || dim.face === "outside") parts.push(dim.face);
+    if (dim.face === "inside" || dim.face === "outside" || dim.face === "house" || dim.face === "site") parts.push(dim.face);
     if (dim.caption) {
       const caption = footprintCaption();
       if (caption) parts.push(caption);
