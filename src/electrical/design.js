@@ -81,9 +81,9 @@ const DEVICE_DEFAULTS = {
 export const CIRCUIT_COLORS = ["#C23B22", "#1F6F8B", "#2F6B3A", "#8A5A12", "#5C3D8A", "#0E6B5C", "#9C341F", "#3D4C7A", "#6B4A2A", "#245C4A"];
 
 export const PLACE_OPTIONS = [
-  { id: "receptacle", group: "120V", label: "Standard receptacle" },
-  { id: "gfci", group: "120V", label: "GFCI receptacle" },
-  { id: "wr-receptacle", group: "120V", label: "Weather-resistant receptacle" },
+  { id: "receptacle", group: "120V", label: "Outlet" },
+  { id: "gfci", group: "120V", label: "Outlet near water (GFCI)" },
+  { id: "wr-receptacle", group: "120V", label: "Outdoor outlet" },
   { id: "range", group: "240V", label: "Range" },
   { id: "dryer", group: "240V", label: "Dryer" },
   { id: "ev", group: "240V", label: "EV charger" },
@@ -98,6 +98,23 @@ export const PLACE_OPTIONS = [
   { id: "smoke", group: "Controls", label: "Smoke / CO alarm" },
   { id: "panel", group: "Panel", label: "Main panel" },
 ];
+
+export function plainPlaceLabel(kind) {
+  return PLACE_OPTIONS.find((item) => item.id === kind)?.label || kind || "Item";
+}
+
+/** Builder wording. The circuit name and wire gauge stay in the export. */
+export function plainCircuitLine(circuit) {
+  const count = circuit?.deviceIds?.length || 0;
+  const percent = circuit?.voltageDrop?.percent;
+  const drop = Number.isFinite(percent) ? `${percent}%` : "not calculated";
+  const name = circuit?.name || "";
+  const outlets = /receptacle|bathroom|kitchen|laundry/i.test(name);
+  const head = outlets ? `Outlets on this circuit: ${count}` : `${name || "This circuit"}: ${count}`;
+  return `${head}. Wire voltage drop ${drop} (under 5% is fine)`;
+}
+
+export const DROP_WHY = "A long wire loses a little voltage on the way to the outlet. Under 5% is the usual guide. Over that, lights can dim and motors can run hot.";
 
 export function deviceSpec(kind, supply = "240") {
   if (APPLIANCES[kind]) {
@@ -225,7 +242,7 @@ export function suggestRoom(house, room) {
 
 function ghostDevice(house, room, { kind, x, y, height, role }) {
   const spec = deviceSpec(kind);
-  const near = nearestWall(house, { x, y }, 2.5);
+  const near = nearestWall(house, { x, y }, 8);
   return {
     id: nextId("ghost"),
     kind,
@@ -245,16 +262,32 @@ function ghostDevice(house, room, { kind, x, y, height, role }) {
   };
 }
 
+const OUTLET_KINDS = new Set(["receptacle", "gfci", "wr-receptacle"]);
+
 export function suggestPlacements(house) {
-  const existing = new Set((house.electrical?.devices || []).filter((item) => !item.ghost).map((item) => `${item.roomId}:${item.roomRole || ""}`));
   const ghosts = [];
+  const notes = [];
   for (const room of house.rooms || []) {
-    if (room.outdoor) continue;
-    const role = roleFor(room);
-    if (existing.has(`${room.id}:${role}`)) continue;
-    if ((house.electrical?.devices || []).some((item) => !item.ghost && item.roomId === room.id && (item.kind === "receptacle" || item.kind === "gfci"))) continue;
-    ghosts.push(...suggestRoom(house, room));
+    const name = room.name || "This room";
+    if (room.outdoor || roleFor(room) === "outdoor") {
+      notes.push(`${name} is outside, so it does not get these wall outlets.`);
+      continue;
+    }
+    const hasOutlet = (house.electrical?.devices || []).some((item) => (
+      !item.ghost && item.roomId === room.id && OUTLET_KINDS.has(item.kind)
+    ));
+    if (hasOutlet) {
+      notes.push(`${name} already has outlets.`);
+      continue;
+    }
+    const offered = suggestRoom(house, room);
+    if (!offered.length) {
+      notes.push(`${name} has no wall long enough for an outlet.`);
+      continue;
+    }
+    ghosts.push(...offered);
   }
+  ghosts.note = ghosts.length ? "" : (notes.join(" ") || "Draw a room first.");
   return ghosts;
 }
 

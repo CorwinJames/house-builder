@@ -271,29 +271,46 @@ export function suggestRoom(house, room, kindsOverride = null) {
   return ghosts;
 }
 
+function fixtureKindsFor(role) {
+  if (role === "bath") return ["toilet", "lavatory", "shower"];
+  if (role === "kitchen") return ["kitchen-sink", "dishwasher"];
+  if (role === "laundry") return ["washer", "laundry-sink"];
+  return [];
+}
+
 export function suggestPlacements(house) {
   const ghosts = [];
+  const notes = [];
   const fixtures = house.plumbing?.fixtures || [];
   const hasKitchen = (house.rooms || []).some((room) => roleFor(room) === "kitchen");
-  const hasSink = fixtures.some((item) => !item.ghost && item.kind === "kitchen-sink");
+  const hasSink = fixtures.some((item) => !item.ghost && (item.kind === "kitchen-sink" || item.kind === "lavatory" || item.kind === "laundry-sink"));
   let offeredSink = false;
   for (const room of house.rooms || []) {
+    const name = room.name || "This room";
     if (room.outdoor) continue;
-    const already = fixtures.some((item) => !item.ghost && item.roomId === room.id);
-    if (already) continue;
+    const present = new Set(fixtures.filter((item) => !item.ghost && item.roomId === room.id).map((item) => item.kind));
     const role = roleFor(room);
+    const wanted = fixtureKindsFor(role).filter((kind) => !present.has(kind));
     if (role === "bath" || role === "kitchen" || role === "laundry") {
-      ghosts.push(...suggestRoom(house, room));
+      if (!wanted.length) {
+        notes.push(`${name} already has its fixtures.`);
+        continue;
+      }
+      const offered = suggestRoom(house, room, wanted);
+      if (!offered.length) notes.push(`${name} has no wall for a fixture.`);
+      else ghosts.push(...offered);
       continue;
     }
-    if (!hasKitchen && !hasSink && !offeredSink) {
+    if (!hasKitchen && !hasSink && !offeredSink && !present.has("kitchen-sink")) {
       const sink = suggestRoom(house, room, ["kitchen-sink"]);
       if (sink.length) {
         offeredSink = true;
         ghosts.push(...sink);
-      }
+      } else notes.push(`${name} has no wall for a sink.`);
     }
   }
+  if (!ghosts.length && !notes.length) notes.push("Name the room Kitchen, Bath, or Laundry, or place a sink on a wall.");
+  ghosts.note = ghosts.length ? "" : notes.join(" ");
   return ghosts;
 }
 

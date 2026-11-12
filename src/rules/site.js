@@ -26,7 +26,7 @@ const WELL = {
   url: SETBACKS.well.guide,
   adoptionUrl: SETBACKS.well.url,
   confirmSection: false,
-  checked: "2026-11-11",
+  checked: "2026-11-12",
 };
 
 const OSS = {
@@ -36,7 +36,7 @@ const OSS = {
   url: SETBACKS.septic.url,
   adoptionUrl: SETBACKS.septic.url,
   confirmSection: false,
-  checked: "2026-11-11",
+  checked: "2026-11-12",
 };
 
 function finding(partial) {
@@ -102,8 +102,8 @@ export function siteWarnings(house) {
         id: "site-well-field",
         ruleId: "wac.well-drainfield",
         code: "wac.well-drainfield",
-        title: "Well is close to the drainfield",
-        why: `The well is ${nearest.toFixed(0)} ft from a drainfield or reserve. A nonpublic well wants 100 ft.`,
+        title: "Well is close to the drain field",
+        why: `The well is ${nearest.toFixed(0)} ft from the drain field or its reserve area. WAC 246-272A-0210 Table IV requires 100 ft from a nonpublic well to the edge of the soil dispersal component and the reserve (checked 2026-11-12).`,
         severity: "blocker",
         citation: { ...WELL, section: "173-160-171 and Table IV" },
         target: { type: "well", id: well.id || "well" },

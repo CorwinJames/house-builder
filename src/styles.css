@@ -38,6 +38,7 @@ button:focus-visible {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -121,6 +122,8 @@ button:focus-visible {
   display: grid;
   gap: 4px;
   min-width: 220px;
+  max-height: min(70dvh, 420px);
+  overflow: auto;
   padding: 8px;
   background: var(--card);
   border: 1px solid var(--line);
@@ -526,11 +529,30 @@ button:focus-visible {
 .swatch.later { background: repeating-linear-gradient(135deg, #e7d7c0, #e7d7c0 3px, #b7a48c 3px, #b7a48c 4px); }
 
 .stage {
+  position: relative;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   padding: 10px;
+}
+
+.stage > * { min-width: 0; }
+
+.stage:has(#build-hud:not([hidden])) {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.stage:has(#build-hud:not([hidden])) > .build-hud {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: auto;
 }
 
 .stage[data-view="plan"],
@@ -590,6 +612,11 @@ button:focus-visible {
   color: #f6f1e8;
   border-color: transparent;
 }
+.viewport-model .hud button#roof-toggle[data-ghost="true"] {
+  background: repeating-linear-gradient(135deg, #d7e4d4, #d7e4d4 4px, #f4f7f2 4px, #f4f7f2 8px);
+  color: var(--ink);
+  border-color: var(--line);
+}
 
 .site-fold {
   margin: 0 10px 12px;
@@ -630,6 +657,9 @@ button:focus-visible {
   border-color: var(--moss);
 }
 .tool-options select.pill-select {
+  max-width: min(100%, 24rem);
+  min-width: 12rem;
+  width: auto;
   appearance: none;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -659,6 +689,8 @@ button:focus-visible {
   flex-direction: column;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   pointer-events: none;
 }
 
@@ -693,6 +725,8 @@ button:focus-visible {
 .tool-options {
   width: max-content;
   max-width: calc(100% - 8px);
+  max-height: min(42dvh, 320px);
+  overflow: auto;
   display: grid;
   gap: 4px;
   padding: 6px 8px;
@@ -730,9 +764,42 @@ button:focus-visible {
   line-height: 1.35;
 }
 
+.coach-dock, .tool-hint { pointer-events: auto; }
+
+.coach-dock {
+  width: min(720px, 100%);
+}
+
+.coach-dock .coach {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px 10px;
+  background: #f7f3eb;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.guide-card > summary,
+#action-history > summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.coach-dock #coach-line,
+.coach-dock .guide-steps {
+  width: 100%;
+  flex-basis: auto;
+}
+
 .option-line, .tool-options .swatch-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
@@ -744,9 +811,11 @@ button:focus-visible {
 }
 
 .option-line input,
-.option-line select {
+.option-line select,
+.inspector select {
   width: auto;
-  max-width: 9.5rem;
+  max-width: min(100%, 24rem);
+  min-width: 12rem;
   min-height: 32px;
   padding: 2px 8px;
   border: 1px solid var(--line);
@@ -754,7 +823,7 @@ button:focus-visible {
   background: #fff;
 }
 
-.option-line input[type="number"] { width: 5.6rem; padding-inline: 6px; }
+.option-line input[type="number"] { width: 5.6rem; min-width: 0; padding-inline: 6px; }
 
 .opening-preview {
   width: 72px;
@@ -1062,14 +1131,16 @@ button:focus-visible {
 }
 .issue-row {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 0;
   border-top: 1px solid var(--line);
 }
+.issue-row > div { min-width: 0; }
 .issue-row span { font-weight: 700; font-size: 0.85rem; }
-.issue-row button { min-height: 32px; flex: none; }
+.issue-row .fine { margin: 2px 0 0; }
+.issue-row button { min-height: 32px; align-self: flex-start; }
 #cost-nav { flex-wrap: wrap; max-width: 100%; overflow: visible; }
 #cost-nav button { white-space: nowrap; }
 .issue-card { border-radius: 12px; padding: 8px 10px; display: grid; gap: 4px; }
@@ -1178,6 +1249,8 @@ button:focus-visible {
     right: 8px;
     z-index: 30;
     width: auto;
+    max-height: calc(100dvh - 72px);
+    overflow: auto;
     margin: 0;
     padding: 10px;
     background: var(--card);
@@ -1223,8 +1296,13 @@ button:focus-visible {
     overflow: hidden;
     contain: size;
   }
-  .viewport-plan .build-hud {
+  .stage {
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .stage > .build-hud {
     position: static;
+    grid-column: 1;
     grid-row: 2;
     left: auto;
     right: auto;

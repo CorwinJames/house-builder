@@ -6,6 +6,7 @@ import {
   BRANCH_DROP_PERCENT,
   buildElectrical,
   devicePoint,
+  plainCircuitLine,
   RULES as NEC_RULES,
 } from "../electrical/design.js";
 import {
@@ -483,7 +484,7 @@ function egressDoor(house) {
     return [{
       id: "egress-door-missing",
       title: "No egress door",
-      fix: { id: "guide-door", label: "Add a door" },
+      fix: { id: "guide-door", label: "Add a door", explain: "Switch to the Door tool. Then click the wall where the door should go.", undo: "switching to the Door tool" },
       ...(room ? targetRoom(room) : { point: { x: 0, y: 0 }, phase: "phase1", target: { type: "house", id: "house" } }),
     }];
   }
@@ -542,7 +543,7 @@ function smokeRule(house) {
         id: `smoke-in-${room.id}`,
         title: `${room.name} needs a smoke alarm`,
         ...targetRoom(room),
-        fix: { id: "add-smoke", label: "Add a smoke alarm" },
+        fix: { id: "add-smoke", label: "Add a smoke alarm", explain: "Add a smoke alarm in this room so the check can see one.", result: "Added a smoke alarm in this room.", undo: "adding a smoke alarm" },
       });
     }
     const outside = alarms.some((alarm) => smokeNear(house, room, alarm));
@@ -616,7 +617,7 @@ function bathExhaust(house) {
       id: `bath-fan-${room.id}`,
       title: `${room.name} needs an exhaust fan`,
       ...targetRoom(room),
-      fix: { id: "add-fan", label: "Add an exhaust fan" },
+      fix: { id: "add-fan", label: "Add an exhaust fan", explain: "Add an exhaust fan in this bathroom.", result: "Added an exhaust fan in this bathroom.", undo: "adding an exhaust fan" },
     }];
   });
 }
@@ -635,7 +636,7 @@ function gfciRule(house, ctx) {
       target: { type: "device", id: device.id },
       point: at,
       phase: device.phase || "phase1",
-      fix: { id: "make-gfci", label: "Make it GFCI" },
+      fix: { id: "make-gfci", label: "Make it shut off near water", explain: "Change this outlet so it shuts off when it gets wet (GFCI).", result: "Changed this outlet so it shuts off near water.", undo: "changing the outlet" },
     });
   }
   for (const gap of ctx.electrical?.gaps || []) {
@@ -661,7 +662,8 @@ function afciRule(house, ctx) {
     const device = onCircuit[0];
     hits.push({
       id: `afci-${circuit.id}`,
-      title: `${circuit.name} needs AFCI`,
+      title: "This circuit needs a breaker that stops an electrical arc",
+      why: "An AFCI breaker watches for a spark in the wire. Bedrooms and similar rooms use one. Your electrician confirms the breaker.",
       target: device ? { type: "device", id: device.id } : { type: "room", id: room.id },
       point: device ? deviceAt(house, device) : centroid(room),
       phase: room.phase || "phase1",
@@ -702,7 +704,7 @@ function spacingRule(house) {
       why: kitchen
         ? `${NEC_RULES.kitchen.text} ${NEC_RULES.kitchen.note}`
         : NEC_RULES.spacing.text,
-      fix: { id: "guide-outlets", label: "Suggest outlets" },
+      fix: { id: "guide-outlets", label: "Suggest outlets", explain: "Suggest outlets for rooms that do not have one yet. Accept the ones you want.", undo: "suggesting outlets" },
       ...targetRoom(room),
     }];
   });
@@ -737,7 +739,8 @@ function voltageDrop(house, ctx) {
       || (ctx.electrical.devices || []).find((item) => circuit.deviceIds?.includes(item.id));
     return {
       id: `drop-${circuit.id}`,
-      title: `${circuit.name} drops ${circuit.voltageDrop.percent}%`,
+      title: plainCircuitLine(circuit),
+      why: "A long wire loses a little voltage on the way to the outlet. Under 5% is the usual guide. Over that, lights can dim and motors can run hot.",
       target: device ? { type: "device", id: device.id } : { type: "house", id: circuit.id },
       point: device ? deviceAt(house, device) : { x: 0, y: 0 },
       phase: device?.phase || "phase1",
@@ -822,7 +825,7 @@ function massWall(house) {
       target: { type: "fixture", id: fixture.id },
       point: { x: fixture.x, y: fixture.y },
       phase: fixture.phase || "phase1",
-      fix: { id: "add-chase", label: "Add a furred chase" },
+      fix: { id: "add-chase", label: "Add a channel for the wire", explain: "Add a thin framed channel on this wall so the wire is not buried in the hempcrete or rammed earth.", result: "Added a channel for the wire on this wall.", undo: "adding a channel for the wire" },
     }];
   });
 }
@@ -839,7 +842,7 @@ function wallInsulation(house) {
       target: { type: "wall", id: hemp[0].id },
       point: wallMid(hemp[0]),
       phase: hemp[0].phase || "phase1",
-      fix: { id: "show-wall", label: "Show this wall" },
+      fix: { id: "show-wall", label: "Show this wall", explain: "Move the view to this wall and select it." },
       why: `The hemp layer in the assembly is ${inches} in. Hemp and Block publishes R-2 per inch for a conventional binder and hurd mix, so this model uses R-${r}. Table R402.1.3 asks for wood-frame walls of R-20+5 or R-13+10. That comparison is an assumption, not a U-factor calculation. Source: ${HEMP_URL}`,
     });
   }
@@ -852,7 +855,7 @@ function wallInsulation(house) {
       target: { type: "wall", id: rammed[0].id },
       point: wallMid(rammed[0]),
       phase: rammed[0].phase || "phase1",
-      fix: { id: "show-wall", label: "Show this wall" },
+      fix: { id: "show-wall", label: "Show this wall", explain: "Move the view to this wall and select it." },
       why: "Table R402.1.3 sets the wood-frame wall target. This model has no published R-value for the rammed earth, so that wall is not compared to the table.",
     });
   }
@@ -870,7 +873,13 @@ function ceilingFloor(house) {
     title: "Ceiling and floor R are not set",
     ...targetRoom(room),
     target: { type: "house", id: "insulation" },
-    fix: { id: "record-insulation", label: "Record R-60 and R-30" },
+    fix: {
+      id: "record-insulation",
+      label: "Record R-60 and R-30",
+      explain: "Set the ceiling insulation to R-60 and the floor to R-30, the levels the energy code asks for.",
+      result: "Set the ceiling insulation to R-60 and the floor to R-30 on this house.",
+      undo: "setting the ceiling insulation to R-60 and the floor to R-30",
+    },
     why: "Table R402.1.3 asks for ceiling R-60 and floor R-30. The plan does not draw that insulation. Recording the two numbers clears this check. It does not prove the insulation is installed. A vaulted ceiling may use R-38 where the full depth crosses the top plate.",
   }];
 }
