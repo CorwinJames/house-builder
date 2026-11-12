@@ -8,6 +8,7 @@ import { planToScene, sceneToPlan } from "../build/space.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
+import { roomGroundLine } from "../build/annotations.js";
 
 /**
  * 3D model. Plan +x (east) is Three.js +X, plan +y (north) is Three.js −Z,
@@ -806,6 +807,7 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
   addPlacedItems(house, buckets);
+  addAnnotations(house, buckets.labels);
 }
 
 function roomFloor(room, materials) {
@@ -826,12 +828,67 @@ function roomFloor(room, materials) {
 
 function roomLabel(room) {
   const at = room.labelAt || centroid(room.polygon);
-  const sprite = makeSprite(room.name, room.phase === "future", {
+  const ground = roomGroundLine(room);
+  const sprite = makeSprite(ground ? `${room.name} · ${ground}` : room.name, room.phase === "future", {
     priority: room.phase === "future" ? 1 : 3,
     px: 34,
   });
   sprite.position.set(at.x, 8.4, -at.y);
   return sprite;
+}
+
+function addAnnotations(house, parent) {
+  const furnMaterial = new THREE.MeshStandardMaterial({ color: 0xd9cfc2, roughness: 0.8, transparent: true, opacity: 0.85 });
+  for (const item of house.furniture || []) {
+    const width = item.width || 2;
+    const depth = item.depth || 2;
+    const height = item.kind === "car" ? 4.5 : item.kind === "counter" ? 3 : 2;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), furnMaterial.clone());
+    const color = item.kind === "bed" ? 0xb7d4ea : item.kind === "appliance" ? 0xf0b7c4 : item.kind === "counter" ? 0xf3e2b8 : 0xd9cfc2;
+    mesh.material.color.setHex(color);
+    mesh.position.set(item.x, height / 2, -item.y);
+    mesh.rotation.y = ((item.rotation || 0) * Math.PI) / 180;
+    mesh.castShadow = true;
+    parent.add(mesh);
+  }
+  for (const feature of house.siteFeatures || []) {
+    let mesh;
+    if (feature.kind === "tree") {
+      mesh = new THREE.Mesh(
+        new THREE.ConeGeometry((feature.size || 6) * 0.25, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2f5d45, roughness: 0.9 }),
+      );
+      mesh.position.set(feature.x, 4, -feature.y);
+    } else if (feature.kind === "pond") {
+      mesh = new THREE.Mesh(
+        new THREE.CircleGeometry((feature.size || 8) * 0.45, 20),
+        new THREE.MeshStandardMaterial({ color: 0x2f6f8b, roughness: 0.4, transparent: true, opacity: 0.7 }),
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(feature.x, 0.08, -feature.y);
+    } else if (feature.kind === "pavilion") {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(8, 7, 8),
+        new THREE.MeshStandardMaterial({ color: 0xa85b3c, roughness: 0.85, transparent: true, opacity: 0.45 }),
+      );
+      mesh.position.set(feature.x, 3.5, -feature.y);
+    } else {
+      mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 12, 8),
+        new THREE.MeshStandardMaterial({ color: feature.kind === "wind" ? 0x1f6f8b : 0x6e5c48 }),
+      );
+      mesh.position.set(feature.x, 1.2, -feature.y);
+    }
+    parent.add(mesh);
+    const label = makeSprite(feature.name, false, { priority: 2, px: 26 });
+    label.position.set(feature.x, feature.kind === "tree" ? 9 : 4, -feature.y);
+    parent.add(label);
+  }
+  for (const label of house.planLabels || []) {
+    const sprite = makeSprite(label.text, false, { priority: 2, px: 28 });
+    sprite.position.set(label.x, 5.2, -label.y);
+    parent.add(sprite);
+  }
 }
 
 function centroid(polygon) {
@@ -938,7 +995,9 @@ function addDimensions(house, futureShown, parent) {
       new THREE.Vector3(seg.x1, y, -seg.y1),
     ]);
     parent.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x2a241b })));
-    const text = dim.face ? `${formatFeet(seg.len)} ${dim.face}` : formatFeet(seg.len);
+    const estimated = String(house.disclaimer || "").toLowerCase().includes("scale estimated");
+    const feet = `${estimated ? "est. " : ""}${formatFeet(seg.len)}`;
+    const text = dim.face ? `${feet} ${dim.face}` : feet;
     const label = makeSprite(text, false, { priority: 0, px: 26 });
     label.position.set((seg.x0 + seg.x1) / 2, 1.4, -((seg.y0 + seg.y1) / 2));
     parent.add(label);

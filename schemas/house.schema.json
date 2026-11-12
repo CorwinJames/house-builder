@@ -24,7 +24,7 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 2,
-      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. 5 adds optional plumbing fixtures. 6 adds an optional site block. Older files still open."
+      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. 5 adds optional plumbing fixtures. 6 adds an optional site block. 7 adds optional furniture, plan labels, site features, and a per-room ground-level note. Older files still open."
     },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -70,6 +70,21 @@
     "notes": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "furniture": {
+      "type": "array",
+      "description": "Optional drawn icons: beds, counters, appliances, and similar. Not a price.",
+      "items": { "$ref": "#/$defs/furniture" }
+    },
+    "planLabels": {
+      "type": "array",
+      "description": "Optional free-text notes placed on the plan.",
+      "items": { "$ref": "#/$defs/planLabel" }
+    },
+    "siteFeatures": {
+      "type": "array",
+      "description": "Optional trees, ponds, pavilions, wind notes, and similar marks. Not a parcel survey.",
+      "items": { "$ref": "#/$defs/siteFeature" }
     },
     "cost": { "$ref": "#/$defs/cost" },
     "electrical": {
@@ -221,7 +236,11 @@
         "conditioned": { "type": "boolean" },
         "outdoor": { "type": "boolean" },
         "labelAt": { "$ref": "#/$defs/point2" },
-        "note": { "type": "string" }
+        "note": { "type": "string" },
+        "groundLevel": {
+          "type": "string",
+          "description": "A note such as higher ground or lowest ground. Not a measured elevation."
+        }
       }
     },
     "opening": {
@@ -279,6 +298,50 @@
       "properties": {
         "ratioId": { "type": "string" },
         "module": { "type": "number", "exclusiveMinimum": 0, "description": "Base module in feet for the ratio snap series." }
+      }
+    },
+    "furniture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "rotation": { "type": "number", "description": "Degrees counter-clockwise from east." },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "depth": { "type": "number", "exclusiveMinimum": 0 },
+        "roomId": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "planLabel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "note": { "type": "string" }
+      }
+    },
+    "siteFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "x", "y"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["tree", "pond", "pavilion", "wind", "garden", "other"] },
+        "name": { "type": "string", "minLength": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "rotation": { "type": "number" },
+        "size": { "type": "number", "exclusiveMinimum": 0 },
+        "note": { "type": "string" }
       }
     },
     "header": {
