@@ -531,10 +531,28 @@ button:focus-visible {
 .stage {
   position: relative;
   min-height: 0;
+  min-width: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   padding: 10px;
+}
+
+.stage > * { min-width: 0; }
+
+.stage:has(#build-hud:not([hidden])) {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.stage:has(#build-hud:not([hidden])) > .build-hud {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  width: auto;
 }
 
 .stage[data-view="plan"],
@@ -593,6 +611,11 @@ button:focus-visible {
   background: var(--moss);
   color: #f6f1e8;
   border-color: transparent;
+}
+.viewport-model .hud button#roof-toggle[data-ghost="true"] {
+  background: repeating-linear-gradient(135deg, #d7e4d4, #d7e4d4 4px, #f4f7f2 4px, #f4f7f2 8px);
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .site-fold {
@@ -666,6 +689,8 @@ button:focus-visible {
   flex-direction: column;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   pointer-events: none;
 }
 
@@ -740,6 +765,37 @@ button:focus-visible {
 }
 
 .coach-dock, .tool-hint { pointer-events: auto; }
+
+.coach-dock {
+  width: min(720px, 100%);
+}
+
+.coach-dock .coach {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px 10px;
+  background: #f7f3eb;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.guide-card > summary,
+#action-history > summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.coach-dock #coach-line,
+.coach-dock .guide-steps {
+  width: 100%;
+  flex-basis: auto;
+}
 
 .option-line, .tool-options .swatch-row {
   display: flex;
@@ -1242,7 +1298,7 @@ button:focus-visible {
   }
   .stage {
     grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .stage > .build-hud {
     position: static;

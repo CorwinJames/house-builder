@@ -141,7 +141,10 @@ app.innerHTML = `
     </div>
     <footer class="statusbar" id="status">
       <div class="coach">
-        <div id="coach-line">Build mode. Pick a tool.</div>
+        <details id="guide-card" class="guide-card" open>
+          <summary>Guide</summary>
+          <div id="coach-line">Build mode. Pick a tool.</div>
+        </details>
         <details id="action-history">
           <summary>Recent</summary>
           <ol id="history-list"></ol>
@@ -352,11 +355,24 @@ function syncControls() {
   document.querySelector("#layers-btn").setAttribute("aria-expanded", String(showPanel));
 }
 
+let buildRoofHold = null;
+function syncBuildRoof() {
+  const building = editor?.mode() === "build";
+  if (building && buildRoofHold === null) {
+    buildRoofHold = state.roof !== false;
+    state.roof = false;
+  } else if (!building && buildRoofHold !== null) {
+    state.roof = buildRoofHold ? undefined : false;
+    buildRoofHold = null;
+  }
+}
+
 function publish() {
+  syncBuildRoof();
   saveViewState(state);
   syncControls();
   plan.setState(state);
-  model.setState(state);
+  model.setState({ ...state, building: editor?.mode() === "build" });
   costs?.paint();
   warningsUi?.paint();
   const siteCard = document.querySelector("#site-card");
@@ -374,10 +390,27 @@ function publish() {
     }
   }
   sync3d();
-  requestAnimationFrame(() => {
-    plan.resize();
-    model.resize();
-  });
+  plan.resize();
+  model.resize();
+  frameBuildIfNeeded();
+}
+
+let frameKey = "";
+function frameBuildIfNeeded() {
+  if (!editor) return;
+  const building = editor.mode() === "build";
+  const view = effectiveView();
+  const shows3d = view === "model" || view === "split";
+  const house = editor.house();
+  const key = `${building}:${shows3d}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}`;
+  const same = key === frameKey;
+  frameKey = key;
+  if (same || !building) return;
+  if (shows3d) {
+    model.resize?.();
+    model.frameHouse?.();
+  }
+  plan.fit?.();
 }
 
 let orbit3d = true;
@@ -390,6 +423,16 @@ function sync3d() {
   document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing));
   document.querySelector("#orbit-3d")?.setAttribute("aria-pressed", String(!editing));
   document.querySelector("#cutaway-3d")?.setAttribute("aria-pressed", String(cutaway3d));
+  const roofBtn = document.querySelector("#roof-toggle");
+  const building = editor?.mode() === "build";
+  if (roofBtn) {
+    const on = state.roof !== false;
+    roofBtn.setAttribute("aria-pressed", String(on));
+    roofBtn.dataset.ghost = String(building && on && !cutaway3d);
+    roofBtn.title = building && on && !cutaway3d
+      ? "The roof is see-through while you build. Click to hide it."
+      : "Show or hide the roof.";
+  }
   const label = document.querySelector("#model-mode-label");
   if (label) label.textContent = editing ? "3D · edit" : "3D · orbit";
 }
@@ -468,7 +511,10 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
     // A bad parcel file leaves the current lot in place.
   }
 });
-document.querySelector("#reset-3d").addEventListener("click", () => model.resetCamera());
+document.querySelector("#reset-3d").addEventListener("click", () => {
+  model.resetCamera();
+  plan.fit();
+});
 document.addEventListener("prefer-place", () => {
   orbit3d = false;
 });

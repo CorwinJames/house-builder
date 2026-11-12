@@ -64,10 +64,10 @@ export function createPlanView(canvas, initialHouse) {
       }
       return;
     }
-    const hud = viewport.querySelector(".build-hud");
-    const hudH = hud && !hud.hidden ? hud.offsetHeight : 0;
-    const w = viewport.clientWidth;
-    const h = Math.max(120, viewport.clientHeight - hudH);
+    frame.style.width = "100%";
+    canvas.style.width = "100%";
+    const w = Math.min(viewport.clientWidth, window.innerWidth);
+    const h = Math.max(120, Math.min(viewport.clientHeight, window.innerHeight));
     const nextW = `${w}px`;
     const nextH = `${h}px`;
     if (frame.style.width !== nextW) frame.style.width = nextW;
@@ -125,6 +125,15 @@ export function createPlanView(canvas, initialHouse) {
             x1: house.phases.phase1.bounds.x1 + 6,
             y1: house.phases.phase1.bounds.y1 + 6,
           };
+    for (const wall of house.walls || []) {
+      for (const point of [wall.start, wall.end]) {
+        if (!point) continue;
+        bounds.x0 = Math.min(bounds.x0, point.x - 6);
+        bounds.y0 = Math.min(bounds.y0, point.y - 6);
+        bounds.x1 = Math.max(bounds.x1, point.x + 6);
+        bounds.y1 = Math.max(bounds.y1, point.y + 6);
+      }
+    }
     camera.cx = (bounds.x0 + bounds.x1) / 2;
     camera.cy = (bounds.y0 + bounds.y1) / 2;
     camera.pxPerFt = Math.max(

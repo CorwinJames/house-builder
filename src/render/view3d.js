@@ -134,7 +134,7 @@ export function createView3d(canvas, initialHouse) {
         if (!node.visible) shown = false;
         node = node.parent;
       }
-      if (!shown) {
+      if (!shown || (state?.building && obj.userData.roofLabel)) {
         obj.visible = false;
         return;
       }
@@ -279,7 +279,20 @@ export function createView3d(canvas, initialHouse) {
   }
 
   function applyRoof() {
-    roofPivot.visible = state?.roof !== false && !cutaway;
+    const show = state?.roof !== false && !cutaway;
+    const ghost = show && !!state?.building;
+    roofPivot.visible = show;
+    roofPivot.traverse((obj) => {
+      if (obj.isSprite) {
+        obj.visible = !ghost;
+        return;
+      }
+      if (!obj.isMesh || !obj.material) return;
+      obj.material.transparent = ghost;
+      obj.material.opacity = ghost ? 0.22 : 1;
+      obj.material.depthWrite = !ghost;
+      obj.material.needsUpdate = true;
+    });
   }
 
   function planFromEvent(event) {
@@ -393,8 +406,50 @@ export function createView3d(canvas, initialHouse) {
   }, { passive: false });
 
   function resetCamera() {
-    camera.position.set(-24, 28, 46);
-    controls.target.set(34, 6, -14);
+    framePlan(true);
+  }
+
+  function planBox(includePad) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    const add = (point) => {
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      minX = Math.min(minX, point.x);
+      maxX = Math.max(maxX, point.x);
+      minY = Math.min(minY, point.y);
+      maxY = Math.max(maxY, point.y);
+    };
+    for (const wall of house.walls || []) {
+      add(wall.start);
+      add(wall.end);
+    }
+    for (const room of house.rooms || []) {
+      for (const point of room.polygon || []) add(point);
+    }
+    const drawn = Number.isFinite(minX);
+    if (includePad || !drawn) {
+      const pad = house.footprint || {};
+      add({ x: 0, y: 0 });
+      add({ x: Number(pad.width) || 36, y: Number(pad.depth) || 24 });
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { minX, maxX, minY, maxY };
+  }
+
+  function framePlan(whole) {
+    const box = planBox(whole);
+    if (!box) return;
+    const cx = (box.minX + box.maxX) / 2;
+    const cz = -((box.minY + box.maxY) / 2);
+    const span = Math.max(16, Math.hypot(box.maxX - box.minX, box.maxY - box.minY));
+    const aspect = Math.max(0.4, camera.aspect || 1);
+    const fit = Math.max(1, 0.9 / aspect);
+    const lookDown = !!state?.building;
+    controls.target.set(cx, lookDown ? 1.5 : 4, cz);
+    if (lookDown) camera.position.set(cx + span * 0.05 * fit, span * 1.35 * fit, cz + span * 0.16 * fit);
+    else camera.position.set(cx - span * 0.85 * fit, span * 0.72 * fit, cz + span * 0.95 * fit);
     controls.update();
     onChange(readCamera());
   }
@@ -436,25 +491,7 @@ export function createView3d(canvas, initialHouse) {
       paintSelection();
     },
     frameHouse() {
-      const points = (house.walls || []).flatMap((wall) => [wall.start, wall.end]);
-      if (!points.length) return;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-      for (const point of points) {
-        minX = Math.min(minX, point.x);
-        maxX = Math.max(maxX, point.x);
-        minY = Math.min(minY, point.y);
-        maxY = Math.max(maxY, point.y);
-      }
-      const cx = (minX + maxX) / 2;
-      const cz = -((minY + maxY) / 2);
-      const span = Math.max(18, Math.hypot(maxX - minX, maxY - minY));
-      controls.target.set(cx, 4, cz);
-      camera.position.set(cx - span * 0.85, span * 0.7, cz + span * 0.95);
-      controls.update();
-      onChange(readCamera());
+      framePlan(false);
     },
     focus(x, y) {
       const span = 22;
@@ -1073,6 +1110,7 @@ function buildRoof(house, futureShown) {
   const group = new THREE.Group();
   group.add(mesh);
   const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
+  label.userData.roofLabel = true;
   const midX = (footprint.x0 + footprint.x1) / 2;
   const midY = (footprint.y0 + footprint.y1) / 2;
   const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;

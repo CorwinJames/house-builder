@@ -1121,6 +1121,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const key = `${guideKey}|${next}|${history.join("\n")}`;
     if (key === coachKey) return;
     coachKey = key;
+    const summary = document.querySelector("#guide-card summary");
+    if (summary) summary.textContent = progress && !progress.complete ? `Guide · ${progress.next.next}` : "Guide";
     line.replaceChildren();
     if (progress?.complete) {
       const strong = document.createElement("strong");
