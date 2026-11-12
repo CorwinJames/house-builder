@@ -391,21 +391,30 @@ function publish() {
 }
 
 let frameKey = "";
+let frameTicket = 0;
+function frameShownModel() {
+  model.resize?.();
+  if (editor?.mode() === "build") model.frameHouse?.();
+  else model.frameWhole?.();
+}
 function frameBuildIfNeeded() {
   if (!editor) return;
   const building = editor.mode() === "build";
   const view = effectiveView();
   const shows3d = view === "model" || view === "split";
+  const phone = !wide();
   const house = editor.house();
-  const key = `${building}:${shows3d}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}`;
-  const same = key === frameKey;
+  const key = `${building}:${shows3d}:${view}:${phone}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}`;
+  if (key === frameKey) return;
   frameKey = key;
-  if (same || !building) return;
-  if (shows3d) {
-    model.resize?.();
-    model.frameHouse?.();
-  }
-  plan.fit?.();
+  if (building) plan.fit?.();
+  if (!shows3d || !(phone || building)) return;
+  const ticket = ++frameTicket;
+  frameShownModel();
+  requestAnimationFrame(() => {
+    if (ticket !== frameTicket) return;
+    frameShownModel();
+  });
 }
 
 let orbit3d = true;
@@ -574,12 +583,25 @@ document.querySelector("#issues-toggle").addEventListener("click", () => {
 });
 document.querySelector("#labor-open").addEventListener("click", () => document.querySelector("#labor-dialog").showModal());
 document.querySelector("#labor-dialog [data-close]").addEventListener("click", () => document.querySelector("#labor-dialog").close());
+function placeToast(toast) {
+  const phone = !wide();
+  toast.classList.toggle("toast-dock", phone);
+  if (!phone) {
+    toast.style.bottom = "";
+    return;
+  }
+  const build = document.querySelector("#build-hud");
+  const buildBox = build && !build.hidden ? build.getBoundingClientRect() : null;
+  const lift = buildBox ? Math.max(12, window.innerHeight - buildBox.top + 10) : 132;
+  toast.style.bottom = `${lift}px`;
+}
 document.addEventListener("budget-delta", (event) => {
   const toast = document.querySelector("#budget-toast");
   toast.textContent = event.detail.text;
   toast.hidden = false;
+  placeToast(toast);
   window.clearTimeout(toast._timer);
-  toast._timer = window.setTimeout(() => { toast.hidden = true; }, 1600);
+  toast._timer = window.setTimeout(() => { toast.hidden = true; }, wide() ? 1600 : 1400);
 });
 document.addEventListener("app-toast", (event) => {
   const toast = document.querySelector("#app-toast");
@@ -595,8 +617,10 @@ document.addEventListener("app-toast", (event) => {
     toast.append(" ", button);
   }
   toast.hidden = false;
+  placeToast(toast);
   window.clearTimeout(toast._timer);
-  toast._timer = window.setTimeout(() => { toast.hidden = true; }, event.detail.undo ? 4200 : 2400);
+  const phone = !wide();
+  toast._timer = window.setTimeout(() => { toast.hidden = true; }, event.detail.undo ? (phone ? 2400 : 4200) : (phone ? 1600 : 2400));
 });
 
 document.addEventListener("keydown", (event) => {

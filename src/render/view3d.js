@@ -441,18 +441,42 @@ export function createView3d(canvas, initialHouse) {
     return { minX, maxX, minY, maxY };
   }
 
+  function screenInsets() {
+    const canvasRect = canvas.getBoundingClientRect();
+    if (canvasRect.height < 40) return { top: 0, bottom: 0 };
+    const hud = canvas.parentElement?.querySelector(".hud");
+    let top = 0;
+    if (hud) {
+      const hudRect = hud.getBoundingClientRect();
+      if (hudRect.height) top = Math.max(0, Math.min(0.48, (hudRect.bottom - canvasRect.top) / canvasRect.height));
+    }
+    return { top, bottom: top > 0.08 ? 0.1 : 0 };
+  }
+
   function framePlan(whole) {
     const box = planBox(whole);
     if (!box) return;
+    const width = Math.max(8, box.maxX - box.minX);
+    const depth = Math.max(8, box.maxY - box.minY);
     const cx = (box.minX + box.maxX) / 2;
     const cz = -((box.minY + box.maxY) / 2);
-    const span = Math.max(16, Math.hypot(box.maxX - box.minX, box.maxY - box.minY));
-    const aspect = Math.max(0.4, camera.aspect || 1);
-    const fit = Math.max(1, 0.9 / aspect);
+    const aspect = Math.max(0.35, camera.aspect || 1);
+    const halfV = Math.tan((camera.fov * Math.PI) / 360);
+    const halfH = halfV * aspect;
+    const narrow = aspect < 1.15;
+    const insets = screenInsets();
+    const usableV = Math.max(0.42, 1 - insets.top - insets.bottom - 0.06);
+    const pad = narrow ? 1.45 : 1.22;
+    const heightForDepth = (depth * pad) / (2 * halfV * usableV);
+    const heightForWidth = (width * pad) / (2 * halfH * 0.88);
+    const diagonal = Math.hypot(width, depth);
+    const height = Math.max(heightForDepth, heightForWidth, diagonal * (narrow ? 2.15 : 1.32), 22);
     const lookDown = !!state?.building;
-    controls.target.set(cx, lookDown ? 1.5 : 4, cz);
-    if (lookDown) camera.position.set(cx + span * 0.05 * fit, span * 1.35 * fit, cz + span * 0.16 * fit);
-    else camera.position.set(cx - span * 0.85 * fit, span * 0.72 * fit, cz + span * 0.95 * fit);
+    const shift = insets.top * 0.55;
+    const lift = lookDown ? height * (2 * shift * halfV) : 0;
+    controls.target.set(cx, (lookDown ? 1.2 : 4) + lift, cz);
+    if (lookDown) camera.position.set(cx + height * 0.03, height + lift, cz + height * 0.1);
+    else camera.position.set(cx - height * 0.72, height * 0.5, cz + height * 0.86);
     controls.update();
     onChange(readCamera());
   }
@@ -495,6 +519,9 @@ export function createView3d(canvas, initialHouse) {
     },
     frameHouse() {
       framePlan(false);
+    },
+    frameWhole() {
+      framePlan(true);
     },
     focus(x, y) {
       const span = 22;
@@ -564,6 +591,7 @@ function failedView(message) {
     setOverlay() {},
     setSelection() {},
     frameHouse() {},
+    frameWhole() {},
     focus() {},
     frameParcel() {},
     dispose() {},
