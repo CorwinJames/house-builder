@@ -333,6 +333,7 @@ rule("nec.voltage-drop", () => {
   });
   assert.equal(ids(far, "nec.voltage-drop").length, 1);
   assert.equal(ids(far, "nec.voltage-drop")[0].severity, "tip");
+  assert.match(ids(far, "nec.voltage-drop")[0].title, /Outlets on this circuit: 1\. Wire voltage drop .+ \(under 5% is fine\)/);
   const near = shell({
     rooms: [rect("living", "Living", 0, 0, 20, 10)],
     walls: [wall("s", 0, 0, 20, 0)],

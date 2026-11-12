@@ -37,7 +37,7 @@ check("suggest preview groups ghosts by room and counts them", () => {
   ]);
   assert.equal(groups.find((group) => group.id === "living").count, 2);
   assert.equal(groups.find((group) => group.id === "kitchen").name, "Kitchen");
-  assert.equal(suggestionGroupLabel(Array.from({ length: 8 }, () => ({ kind: "receptacle" }))), "8 receptacles (outlets)");
+  assert.equal(suggestionGroupLabel(Array.from({ length: 8 }, () => ({ kind: "receptacle" }))), "8 outlets");
   assert.equal(suggestionGroupLabel([{ kind: "kitchen-sink" }]), "1 kitchen sink");
 });
 

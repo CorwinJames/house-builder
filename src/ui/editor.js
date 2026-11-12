@@ -49,12 +49,15 @@ import { costReport } from "../cost/list.js";
 import { siteInspectorHtml, siteOptionsHtml } from "./sitePanel.js";
 import {
   APPLIANCES,
+  DROP_WHY,
   PLACE_OPTIONS,
   applyDeviceKind,
   buildElectrical,
   deviceFromClick,
   deviceSpec,
   hitElectrical,
+  plainCircuitLine,
+  plainPlaceLabel,
   laborAssumption,
   panelFromClick,
   suggestPanel,
@@ -104,6 +107,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let fromSave = saved.fromSave;
   const past = [];
   const future = [];
+  const undoNotes = [];
+  const redoNotes = [];
   let mode = "view";
   let tool = "select";
   let assemblyId = DEFAULT_EXTERIOR_ID;
@@ -168,6 +173,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const button = event.target.closest("button[data-mode]");
     if (!button) return;
     mode = button.dataset.mode;
+    if (mode === "build") document.dispatchEvent(new CustomEvent("prefer-place"));
     if (mode === "build" && !getViewState().buildTutorialDone) tutorialStep = 0;
     publish();
     onChange();
@@ -176,6 +182,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const button = event.target.closest("button[data-tool]");
     if (!button) return;
     tool = button.dataset.tool;
+    if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
     if (tool === "site" || tool === "electrical" || tool === "plumbing") optionsOpen = true;
     publish();
     onChange();
@@ -216,6 +223,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     patchViewState({ dismissedHints: dismissed, buildTutorialDone: true });
     paintTutorial();
   });
+  document.addEventListener("show-finding", (event) => showFinding(event.detail));
   document.addEventListener("keydown", (event) => {
     if (event.target.matches("input, textarea, select")) return;
     const meta = event.metaKey || event.ctrlKey;
@@ -650,11 +658,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return ghost;
     }
     if (tool === "electrical" || tool === "plumbing") {
-      return previewPlacement(house, point, {
-        system: tool,
-        kind: tool === "electrical" ? deviceKind : fixtureKind,
-        supply: pumpSupply,
-      });
+      const kind = tool === "electrical" ? deviceKind : fixtureKind;
+      return {
+        ...previewPlacement(house, point, { system: tool, kind, supply: pumpSupply }),
+        kind,
+      };
     }
     return null;
   }
@@ -718,6 +726,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function startSiteSuggest() {
     siteGhosts = suggestSite(house);
     optionsKey = "";
+    announce(siteGhosts.note || "Suggested a well and a drain field. Accept the ones you want.", false);
     publish();
   }
 
@@ -791,7 +800,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     pushViews();
   }
 
-  function commit(next, baseline = null) {
+  function commit(next, baseline = null, note = "the last change") {
     const solved = solveConstraints(next);
     next = solved.house;
     const previous = baseline || house;
@@ -799,10 +808,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       house = previous;
       refreshWarnings();
       pushViews();
-      return;
+      return false;
     }
     past.push(previous);
-    if (past.length > 60) past.shift();
+    undoNotes.push(note);
+    redoNotes.length = 0;
+    if (past.length > 60) {
+      past.shift();
+      undoNotes.shift();
+    }
     future.length = 0;
     house = next;
     fromSave = true;
@@ -821,6 +835,22 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     pushViews();
     onDocument?.("edit");
+    return true;
+  }
+
+  function selectionExists(sel, doc) {
+    if (!sel?.type || !sel.id) return false;
+    if (sel.type === "room") return (doc.rooms || []).some((item) => item.id === sel.id);
+    if (sel.type === "wall") return (doc.walls || []).some((item) => item.id === sel.id);
+    if (sel.type === "opening") return (doc.openings || []).some((item) => item.id === sel.id);
+    if (sel.type === "device") return (doc.electrical?.devices || []).some((item) => item.id === sel.id);
+    if (sel.type === "panel") return !!doc.electrical?.panel;
+    if (sel.type === "fixture") return (doc.plumbing?.fixtures || []).some((item) => item.id === sel.id);
+    if (sel.type === "well") return !!doc.site?.well;
+    if (sel.type === "septic") return !!doc.site?.septic?.tank;
+    if (sel.type === "drainfield") return !!doc.site?.septic?.drainfield;
+    if (sel.type === "reserve") return !!doc.site?.septic?.reserve;
+    return false;
   }
 
   function syncSuggestOverlay() {
@@ -835,30 +865,34 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function undo() {
     if (!past.length) return;
+    const note = undoNotes.pop() || "the last change";
+    redoNotes.push(note);
     future.push(house);
     house = past.pop();
-    selection = null;
+    if (!selectionExists(selection, house)) selection = null;
     syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
     onDocument?.("edit");
-    announce("Undid the last action.", false);
+    announce(`Undid ${note}.`, false);
   }
 
   function redo() {
     if (!future.length) return;
+    const note = redoNotes.pop() || "the last change";
+    undoNotes.push(note);
     past.push(house);
     house = future.pop();
-    selection = null;
+    if (!selectionExists(selection, house)) selection = null;
     syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
     pushViews();
     publish();
     onDocument?.("edit");
-    announce("Redid the last action.", false);
+    announce(`Redid ${note}.`, false);
   }
 
   function eraseSelection(hit = selection) {
@@ -1009,12 +1043,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (mode !== "build") return "View mode. Switch to Build to draw and place.";
     const orbitNote = getViewState().view !== "plan" && document.body.dataset.orbit === "true"
       && ["electrical", "plumbing", "door", "window", "wall", "room", "site"].includes(tool)
-      ? " In 3D, press Edit so a click places instead of orbiting."
+      ? " Press Orbit when you want to look around. A click places."
       : "";
     if (lastPreview && !lastPreview.ok && (tool === "electrical" || tool === "plumbing")) return `${toolName()} ${lastPreview.reason}${orbitNote}`;
     if (tool === "electrical") {
       if (deviceKind === "panel") return `Power tool. Click a wall to place the breaker panel.${orbitNote}`;
-      const name = deviceSpec(deviceKind, pumpSupply).name.toLowerCase();
+      const name = plainPlaceLabel(deviceKind).toLowerCase();
       const where = deviceSpec(deviceKind, pumpSupply).mount === "ceiling" ? "inside a room" : "a wall";
       return `Power tool. Click ${where} to place the ${name}.${orbitNote}`;
     }
@@ -1383,7 +1417,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const panelPreview = rawPanel ? previewPlacement(next, rawPanel, { system: "electrical", kind: "panel" }) : null;
       panelGhost = panelPreview?.ok ? { ...panelPreview, kind: "panel" } : null;
       shown = ghosts.length + (panelGhost ? 1 : 0);
-      suggestNote = shown ? "" : "Nothing new to suggest. These rooms already have outlets.";
+      suggestNote = shown ? "" : (ghosts.note || "Nothing new to suggest.");
       if (ghosts.length) {
         commit(next);
         committed = true;
@@ -1394,7 +1428,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       next.plumbing.fixtures.push(...ghosts);
       panelGhost = null;
       shown = ghosts.length;
-      suggestNote = shown ? "" : "Nothing new to suggest. Name the room Kitchen, Bath, or Laundry, or place a sink on a wall.";
+      suggestNote = shown ? "" : (ghosts.note || "Nothing new to suggest.");
       if (ghosts.length) {
         commit(next);
         committed = true;
@@ -1476,33 +1510,51 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }).sort((a, b) => (rank[a.severity] ?? 1) - (rank[b.severity] ?? 1));
   }
 
+  function showFinding(finding) {
+    if (!finding) return;
+    const point = finding.point;
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+      plan.focus(point.x, point.y);
+      model.focus?.(point.x, point.y);
+    }
+    if (finding.target?.type && finding.target.type !== "house" && finding.target.id) {
+      selection = { type: finding.target.type, id: finding.target.id };
+    } else if (point) {
+      const room = (house.rooms || []).find((item) => inside(point, item.polygon || []));
+      if (room) selection = { type: "room", id: room.id };
+    }
+    const how = finding.fix?.explain || "Select the highlighted item and change it with the tool named on its card.";
+    announce(`${finding.title}. ${finding.why || ""} How to fix it: ${how}`, false);
+    publish();
+  }
+
   function runFindingFix(finding) {
     if (!finding) return;
-    if (finding.fix?.id === "guide-door") {
+    if (!finding.fix?.id || finding.fix.id === "show-wall") {
+      showFinding(finding);
+      return;
+    }
+    if (finding.fix.id === "guide-door") {
       tool = "door";
       optionsOpen = true;
       optionsKey = "";
-      announce("Door tool. Click a wall to add a door.", false);
+      document.dispatchEvent(new CustomEvent("prefer-place"));
+      announce(finding.fix.explain || "Door tool. Click a wall to add a door.", false);
       publish();
       return;
     }
-    if (finding.fix?.id === "guide-outlets") {
+    if (finding.fix.id === "guide-outlets") {
       startSuggest("electrical");
-      return;
-    }
-    if (finding.fix?.id === "show-wall" && finding.target?.type === "wall") {
-      selection = { type: "wall", id: finding.target.id };
-      announce(finding.title, false);
-      publish();
       return;
     }
     const next = applyFix(house, finding);
     if (!next) {
-      announce(finding.title, false);
+      showFinding(finding);
       return;
     }
-    commit(next);
-    announce(finding.fix?.label || finding.title);
+    const result = finding.fix.result || finding.fix.explain || finding.title;
+    commit(next, null, finding.fix.undo || result);
+    announce(result);
     publish();
   }
 
@@ -1654,7 +1706,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${deviceKind === "well-pump" ? `<label>Supply <select id="pump-supply" class="pill-select"><option value="240" ${pumpSupply === "240" ? "selected" : ""}>240V</option><option value="120" ${pumpSupply === "120" ? "selected" : ""}>120V</option></select></label>` : ""}
         <button type="button" class="hud-pill" id="suggest-outlets">Suggest placements</button>
       </div>
-      <p class="fine">${escapeAttr(spec?.note || spec?.name || "Click where the main panel should go. There is one panel.")} Hempcrete and rammed earth default to conduit so the cable is not buried in the wall. An electrician and the inspector need to confirm that.</p>
+      <p class="fine" title="Outlets: wires run in a pipe (conduit) on these walls instead of being buried in hempcrete or rammed earth. Your electrician and inspector will confirm.">${deviceKind === "receptacle" || deviceKind === "gfci" || deviceKind === "wr-receptacle" ? "Outlets: wires run in a pipe (conduit) on these walls instead of being buried in hempcrete or rammed earth. Your electrician and inspector will confirm." : escapeAttr(spec?.note || "Click a wall to place this. On hempcrete and rammed earth the wire runs in a pipe (conduit). Your electrician and inspector will confirm.")}</p>
       ${suggestKind === "electrical" ? suggestHtml() : ""}`;
     box.querySelector("#device-kind").addEventListener("change", (event) => {
       deviceKind = event.target.value;
@@ -1733,12 +1785,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const spec = deviceSpec(device.kind, device.supply);
     const wall = house.walls.find((item) => item.id === device.wallId);
     inspector.innerHTML = `
-      ${gameHead(device.ghost ? `Suggested ${spec.name}` : spec.name, warningsForDevice)}
+      ${gameHead(device.ghost ? `Suggested ${plainPlaceLabel(device.kind)}` : plainPlaceLabel(device.kind), warningsForDevice)}
+      ${circuit ? `<p class="fine" title="${escapeAttr(DROP_WHY)}">${escapeAttr(plainCircuitLine(circuit))}</p>` : ""}
       ${statTiles([
-        circuit ? { icon: "A", value: `${circuit.amps}A`, label: "Breaker" } : { icon: "A", value: "—", label: "Breaker" },
-        circuit ? { icon: "⌁", value: `${circuit.gauge} AWG`, label: "Wire" } : null,
-        circuit ? { icon: "%", value: `${circuit.voltageDrop.percent}%`, label: "Voltage drop" } : null,
-        circuit ? { icon: "↔", value: `${circuit.length} ft`, label: "Length" } : null,
+        circuit ? { icon: "A", value: `${circuit.amps}A`, label: "Breaker", title: "The switch in the panel that protects this wire." } : { icon: "A", value: "—", label: "Breaker", title: "The switch in the panel that protects this wire." },
+        circuit ? { icon: "%", value: `${circuit.voltageDrop.percent}%`, label: "Wire loss", title: DROP_WHY } : null,
+        circuit ? { icon: "↔", value: `${circuit.length} ft`, label: "Wire length", title: "How far the wire runs from the panel to this outlet." } : null,
       ])}
       ${device.ghost ? `<p>Suggested. Accept keeps it.</p>
         <button type="button" id="accept-one">Accept</button>
@@ -1904,11 +1956,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         <label>Wiring method
           <select id="wire-method">
             <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Stud bay</option>
-            <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Conduit in the wall</option>
+            <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Wire in a pipe (conduit)</option>
             <option value="raceway" ${wallMethod(house, wall) === "raceway" ? "selected" : ""}>Surface raceway</option>
           </select>
         </label>
-        <p class="fine">Hempcrete and rammed earth default to conduit so cable is not buried in the mass. That is an assumption. An electrician and the inspector need to confirm it.</p>
+        <p class="fine">Outlets: wires run in a pipe (conduit) on these walls instead of being buried in hempcrete or rammed earth. Your electrician and inspector will confirm.</p>
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Delete wall")}
       `;
@@ -2115,7 +2167,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (!validate(decorated)) return false;
     past.push(house);
-    if (past.length > 60) past.shift();
+    undoNotes.push("opening a saved plan");
+    redoNotes.length = 0;
+    if (past.length > 60) {
+      past.shift();
+      undoNotes.shift();
+    }
     future.length = 0;
     house = decorated;
     selection = null;

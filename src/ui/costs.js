@@ -1,5 +1,5 @@
 import { costReport, effectiveRecord, formatMoney, materialsCsv, materialsDocument } from "../cost/list.js";
-import { BRANCH_DROP_PERCENT, RULES, buildElectrical, deviceShare, wallMethod } from "../electrical/design.js";
+import { BRANCH_DROP_PERCENT, DROP_WHY, RULES, buildElectrical, deviceShare, plainCircuitLine, wallMethod } from "../electrical/design.js";
 import { buildPlumbing, fixtureShare, linkedElectrical, linkedWell } from "../plumbing/design.js";
 
 const GROUPS = [
@@ -123,7 +123,7 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy, setPhase
 
 const WIRE_METHODS = [
   ["stud-bay", "Stud bay"],
-  ["conduit", "Conduit in the wall"],
+  ["conduit", "Wire in a pipe (conduit)"],
   ["raceway", "Surface raceway"],
 ];
 
@@ -263,7 +263,7 @@ export function deviceCostHtml(house, device) {
     ${wall ? `<div class="method-list">${choices}</div>` : ""}
     <details class="tech">
       <summary>Technical details</summary>
-      <p class="fine">${wall ? "Choosing one sets it for the whole wall. Hempcrete and rammed earth default to conduit so the cable is not buried in the mass. Surface raceway stays out of that mass. Both need an electrician and the inspector to confirm." : "This one is not on a wall, so the run is treated as ceiling or attic cable."}</p>
+      <p class="fine">${wall ? "Outlets: wires run in a pipe (conduit) on hempcrete and rammed earth instead of being buried in the wall. Your electrician and inspector will confirm." : "This one is not on a wall, so the wire is treated as running in the ceiling."}</p>
       ${own.lines.length ? `${linesHtml(own.lines)}<p class="fine">${formatMoney(own.pricedTotal)} priced on this device · ${own.unpricedCount} still need a price.</p>` : `<p class="fine">Accept the suggestion to price this device.</p>`}
     </details>`;
 }
@@ -289,7 +289,7 @@ function loadHtml(house, phase) {
   }
   const spaces = design.circuits.reduce((sum, circuit) => sum + circuit.breakerPoles, 0);
   const steps = load.steps.map((step) => `<li><strong>${escapeHtml(step.label)}</strong> ${escapeHtml(step.detail)} · ${step.va.toLocaleString()} VA<p class="fine">${escapeHtml(step.section)}</p></li>`).join("");
-  const circuits = design.circuits.map((circuit) => `<li${circuit.voltageDrop.percent > BRANCH_DROP_PERCENT ? ` class="warn-line"` : ""}>Circuit ${circuit.number} ${escapeHtml(circuit.name)} · ${circuit.amps}A · ${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.volts} V drop (${circuit.voltageDrop.percent}%)${circuit.gfci ? " · GFCI" : ""}${circuit.afci ? " · AFCI" : ""}${circuit.voltageDrop.percent > BRANCH_DROP_PERCENT ? `. Over 3% branch-circuit guidance (${escapeHtml(RULES.voltageDrop.section)}).` : ""}</li>`).join("");
+  const circuits = design.circuits.map((circuit) => `<li${circuit.voltageDrop.percent > BRANCH_DROP_PERCENT ? ` class="warn-line"` : ""} title="${escapeAttr(DROP_WHY)}">${escapeHtml(plainCircuitLine(circuit))}</li>`).join("");
   const gaps = (design.gaps || []).map((gap) => `<li class="warn-line">${escapeHtml(gap.message)} ${escapeHtml(gap.section)}. <a href="${escapeAttr(gap.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></li>`).join("");
   return `<section>
     <h3>Service load</h3>
@@ -297,7 +297,7 @@ function loadHtml(house, phase) {
     <p class="fine">${escapeHtml(load.adoption)} <a href="${escapeAttr(load.adoptionUrl)}" target="_blank" rel="noreferrer">WAC 296-46B-010</a></p>
     <ol class="cost-lines">${steps}</ol>
     ${gaps ? `<ul class="cost-lines">${gaps}</ul>` : ""}
-    ${circuits ? `<h3>Circuits</h3><ul class="cost-lines">${circuits}</ul><p class="fine">Voltage drop is 2 × 12.9 × amps × feet to the far device ÷ circular mils, from NEC Chapter 9 Table 8 copper, and it assumes the whole circuit current goes that far. Confirm the table. ${escapeHtml(RULES.voltageDrop.section)} recommends 3% on the branch and 5% with the feeder. It is guidance. The cable length includes a vertical drop at every device. Circuits are split to stay near that 3% when they can. Eight devices per circuit is still the assumed cap, not a code maximum.</p>` : ""}
+    ${circuits ? `<h3>Circuits</h3><ul class="cost-lines">${circuits}</ul><details class="tech"><summary>Technical details</summary><p class="fine">Voltage drop is 2 × 12.9 × amps × feet to the far device ÷ circular mils, from NEC Chapter 9 Table 8 copper, and it assumes the whole circuit current goes that far. Confirm the table. ${escapeHtml(RULES.voltageDrop.section)} recommends 3% on the branch and 5% with the feeder. It is guidance. The cable length includes a vertical drop at every device. Circuits are split to stay near that 3% when they can. Eight devices per circuit is still the assumed cap, not a code maximum.</p></details>` : ""}
   </section>`;
 }
 

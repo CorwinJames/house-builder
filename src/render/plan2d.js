@@ -18,7 +18,7 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
-import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
+import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint, plainPlaceLabel } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
 
@@ -307,6 +307,11 @@ export function createPlanView(canvas, initialHouse) {
       ctx.beginPath();
       ctx.arc(well.x, well.y, (SETBACKS.well.drainfieldFt) * (camera.pxPerFt || 8), 0, Math.PI * 2);
       ctx.stroke();
+      ctx.fillStyle = "#1F6F8B";
+      ctx.font = "600 11px Outfit, sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText("100 ft to drain field", well.x + 10, well.y - (SETBACKS.well.drainfieldFt) * (camera.pxPerFt || 8));
       ctx.fillStyle = "#1F6F8B";
       ctx.beginPath();
       ctx.arc(well.x, well.y, 8, 0, Math.PI * 2);
@@ -970,7 +975,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawCircuitLabel(circuit, color, avoid) {
-    const text = `${circuit.gauge} AWG · ${circuit.length} ft · ${circuit.voltageDrop.percent}%`;
+    const text = `Wire loss ${circuit.voltageDrop.percent}%`;
     let longest = null;
     for (const segment of circuit.segments) {
       const pts = segment.points || [];
@@ -1019,6 +1024,7 @@ export function createPlanView(canvas, initialHouse) {
     const activeId = hoverCircuitId || design.circuits.find((circuit) => circuit.deviceIds.includes(selectedId))?.id || null;
     ctx.save();
     const fade = systemAlpha("electrical");
+    const avoid = [];
     design.circuits.forEach((circuit, index) => {
       const color = CIRCUIT_COLORS[index % CIRCUIT_COLORS.length];
       const active = circuit.id === activeId;
@@ -1101,7 +1107,7 @@ export function createPlanView(canvas, initialHouse) {
     if (ghost && !dim) {
       ctx.font = "700 12px Outfit, sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(device.name || "Outlet", screen.x + 14, screen.y - 14);
+      ctx.fillText(plainPlaceLabel(device.kind) || device.name || "Outlet", screen.x + 14, screen.y - 14);
     }
   }
 
@@ -1361,6 +1367,11 @@ export function createPlanView(canvas, initialHouse) {
       ctx.arc(screen.x, screen.y, 12, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      if (ghost.kind === "well") {
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, SETBACKS.well.drainfieldFt * (camera.pxPerFt || 8), 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     ctx.beginPath();
     ctx.moveTo(screen.x - 18, screen.y);
@@ -1374,6 +1385,11 @@ export function createPlanView(canvas, initialHouse) {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(ghost.label || "", screen.x + 16, screen.y - 16);
+    if (ghost.kind === "well") {
+      ctx.font = "600 11px Outfit, sans-serif";
+      ctx.fillStyle = "#1F6F8B";
+      ctx.fillText("100 ft to drain field", screen.x + 14, screen.y - SETBACKS.well.drainfieldFt * (camera.pxPerFt || 8));
+    }
     if (ghost.reason) ctx.fillText(ghost.reason, screen.x + 16, screen.y + 2);
     ctx.restore();
   }

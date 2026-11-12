@@ -5,6 +5,8 @@ import { formatFeet } from "../lib/format.js";
 import { openingsFor, wallLength, wallPieces } from "../lib/geom.js";
 import { LAYER_IDS, wallLayerId } from "../layers.js";
 import { planToScene, sceneToPlan } from "../build/space.js";
+import { SETBACKS } from "../site/design.js";
+import { plainPlaceLabel } from "../electrical/design.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprint } from "./roof.js";
@@ -454,6 +456,13 @@ export function createView3d(canvas, initialHouse) {
       controls.update();
       onChange(readCamera());
     },
+    focus(x, y) {
+      const span = 22;
+      controls.target.set(x, 4, -y);
+      camera.position.set(x - span * 0.7, span * 0.55, -y + span * 0.85);
+      controls.update();
+      onChange(readCamera());
+    },
     frameParcel() {
       const ring = house.site?.parcel?.ring;
       if (!ring?.length) return;
@@ -515,6 +524,7 @@ function failedView(message) {
     setOverlay() {},
     setSelection() {},
     frameHouse() {},
+    focus() {},
     frameParcel() {},
     dispose() {},
   };
@@ -657,7 +667,7 @@ function addPlacedItems(house, buckets) {
     );
     buckets.electrical.add(tag(mesh, "device", device.id, device.x, device.y));
     if (device.ghost) {
-      const label = makeSprite(device.name || "Outlet", false, { priority: 4, px: 28 });
+      const label = makeSprite(plainPlaceLabel(device.kind) || device.name || "Outlet", false, { priority: 4, px: 28 });
       const labelAt = planToScene(device, 3.2);
       label.position.set(labelAt.x, labelAt.y, labelAt.z);
       buckets.electrical.add(label);
@@ -701,6 +711,7 @@ function addPlacedItems(house, buckets) {
     label.position.set(well.x, 3.2, -well.y);
     buckets.site.add(label);
     buckets.site.add(tag(mesh, "well", well.id || "well", well.x, well.y));
+    buckets.site.add(setbackLoop(well.x, -well.y, SETBACKS.well.drainfieldFt));
   }
   const tank = house.site?.septic?.tank;
   if (tank) {
@@ -773,18 +784,100 @@ function syncGhost(group, house, overlay) {
   }
   const ghosts = [overlay.placeGhost, ...(overlay.siteGhosts || []), ...(overlay.suggestMarks || [])].filter(Boolean);
   for (const ghost of ghosts) {
-    const color = ghost.ok === false ? 0xc44536 : 0x1f6f8b;
-    const at = planToScene(ghost, ghost.width ? 0.2 : 1);
-    if (ghost.width && ghost.depth) {
-      group.add(marker(at.x, at.y, at.z, new THREE.BoxGeometry(ghost.width, 0.2, ghost.depth), color, 0.35));
-    } else {
-      group.add(marker(at.x, at.y, at.z, new THREE.SphereGeometry(1.1, 16, 12), color, 0.55));
-    }
+    const mesh = itemGhost(house, ghost);
+    group.add(mesh);
+    if (ghost.kind === "well") group.add(setbackLoop(mesh.position.x, mesh.position.z, SETBACKS.well.drainfieldFt));
     const label = makeSprite(ghost.reason || ghost.label || "Place", ghost.ok === false, { priority: 4, px: 32 });
-    const labelAt = planToScene(ghost, 3.6);
-    label.position.set(labelAt.x, labelAt.y, labelAt.z);
+    label.position.set(mesh.position.x, mesh.position.y + 2.2, mesh.position.z);
     group.add(label);
   }
+}
+
+function wallFrame(house, ghost) {
+  const wall = ghost.wallId ? (house.walls || []).find((item) => item.id === ghost.wallId) : null;
+  if (!wall) return null;
+  const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) || 1;
+  const ux = (wall.end.x - wall.start.x) / len;
+  const uy = (wall.end.y - wall.start.y) / len;
+  const off = ghost.offset || 0;
+  const nx = -uy;
+  const ny = ux;
+  return {
+    x: wall.start.x + ux * off,
+    z: -(wall.start.y + uy * off),
+    rot: Math.atan2(uy, ux),
+    nx,
+    nz: -ny,
+  };
+}
+
+function itemGhost(house, ghost) {
+  const bad = ghost.ok === false;
+  const color = bad ? 0xc44536 : 0x1f6f8b;
+  const kind = ghost.kind || "";
+  const frame = wallFrame(house, ghost);
+  const x = ghost.x;
+  const z = -ghost.y;
+  let geometry;
+  let y = 1.2;
+  if (kind === "panel") {
+    geometry = new THREE.BoxGeometry(1.5, 3.2, 0.35);
+    y = 4.2;
+  } else if (kind === "receptacle" || kind === "gfci" || kind === "wr-receptacle") {
+    geometry = new THREE.BoxGeometry(1.15, 1.7, 0.28);
+    y = ghost.height || 1.6;
+  } else if (kind === "switch" || kind === "switch-3way") {
+    geometry = new THREE.BoxGeometry(0.9, 1.7, 0.28);
+    y = 4;
+  } else if (kind === "light" || kind === "fan" || kind === "smoke") {
+    geometry = new THREE.CylinderGeometry(0.7, 0.7, 0.15, 16);
+    y = 9.2;
+  } else if (kind === "wall-light") {
+    geometry = new THREE.BoxGeometry(0.4, 0.7, 0.2);
+    y = 5;
+  } else if (/sink|lavatory/.test(kind)) {
+    geometry = new THREE.BoxGeometry(2, 0.7, 1.5);
+    y = 3;
+  } else if (kind === "toilet") {
+    geometry = new THREE.BoxGeometry(1.3, 1.6, 2);
+    y = 0.9;
+  } else if (kind === "shower") {
+    geometry = new THREE.BoxGeometry(3, 7, 3);
+    y = 3.5;
+  } else if (kind === "washer" || kind === "dishwasher") {
+    geometry = new THREE.BoxGeometry(2, 3, 2);
+    y = 1.5;
+  } else if (kind === "well") {
+    geometry = new THREE.CylinderGeometry(1.1, 1.3, 2.4, 18);
+    y = 1.2;
+  } else if (kind === "tank") {
+    geometry = new THREE.BoxGeometry(4, 2.2, 7);
+    y = 1.1;
+  } else if (kind === "drainfield" || kind === "reserve" || (ghost.width && ghost.depth)) {
+    geometry = new THREE.BoxGeometry(ghost.width || 12, 0.18, ghost.depth || 8);
+    y = 0.12;
+  } else {
+    geometry = new THREE.BoxGeometry(1.1, 1.4, 0.8);
+  }
+  const mesh = marker(x, y, z, geometry, color, bad ? 0.72 : 0.48);
+  if (frame && kind !== "drainfield" && kind !== "reserve" && kind !== "well") {
+    mesh.rotation.y = frame.rot;
+    mesh.position.x += frame.nx * 0.9;
+    mesh.position.z += frame.nz * 0.9;
+  }
+  mesh.material.depthWrite = false;
+  mesh.material.emissive = new THREE.Color(color);
+  mesh.material.emissiveIntensity = bad ? 0.45 : 0.28;
+  return mesh;
+}
+
+function setbackLoop(x, z, radius) {
+  const points = [];
+  for (let i = 0; i <= 72; i += 1) {
+    const angle = (i / 72) * Math.PI * 2;
+    points.push(new THREE.Vector3(x + Math.cos(angle) * radius, 0.25, z + Math.sin(angle) * radius));
+  }
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: 0x1f6f8b }));
 }
 
 function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}) {

@@ -119,24 +119,24 @@ app.innerHTML = `
             <button type="button" id="undo" disabled>Undo</button>
             <button type="button" id="redo" disabled>Redo</button>
           </div>
-          <div id="build-hud" class="build-hud" hidden>
-            <div id="coach-dock" class="coach-dock"></div>
-            <div id="build-tutorial" class="tool-hint" hidden></div>
-            <div id="tool-options" class="tool-options" hidden></div>
-            <div class="tool-dock">
-              <div id="tool-row" class="tool-row"></div>
-              <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
-              <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>
-              <button type="button" id="labor-open" class="hud-pill">Labor</button>
-              <button type="button" id="details-open" class="hud-pill phone-only">Details</button>
-            </div>
-          </div>
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
           <div class="hud"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
           <p class="webgl-fallback" id="webgl-fallback" hidden></p>
         </section>
+        <div id="build-hud" class="build-hud" hidden>
+          <div id="coach-dock" class="coach-dock"></div>
+          <div id="build-tutorial" class="tool-hint" hidden></div>
+          <div id="tool-options" class="tool-options" hidden></div>
+          <div class="tool-dock">
+            <div id="tool-row" class="tool-row"></div>
+            <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
+            <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>
+            <button type="button" id="labor-open" class="hud-pill">Labor</button>
+            <button type="button" id="details-open" class="hud-pill phone-only">Details</button>
+          </div>
+        </div>
       </div>
     </div>
     <footer class="statusbar" id="status">
@@ -204,7 +204,7 @@ app.innerHTML = `
     </p>
   </dialog>
   <div class="hint" id="hint" role="dialog" aria-labelledby="hint-title">
-    <p id="hint-title">Drag the plan to move around. Scroll or pinch to zoom. In 3D, drag to look around the house. Solid rooms are Phase 1, the first part to build. Dashed rooms are later wings. This sample is a starting point, not the final house.</p>
+    <p id="hint-title">Drag the plan to move around. Scroll or pinch to zoom. In 3D, a click places and Orbit looks around. Solid rooms are the first part to build. Dashed rooms are later wings.</p>
     <button type="button" id="hint-ok">Got it</button>
   </div>
 `;
@@ -290,8 +290,8 @@ function dockCoach() {
   const dock = document.querySelector("#coach-dock");
   const footer = document.querySelector("#status");
   if (!coach || !dock || !footer) return;
-  const phonePlan = !wide() && effectiveView() !== "model";
-  if (phonePlan) {
+  const building = editor?.mode() === "build";
+  if (building) {
     if (coach.parentElement !== dock) dock.append(coach);
   } else if (coach.parentElement !== footer) {
     footer.insertBefore(coach, footer.firstChild);
@@ -469,6 +469,9 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
   }
 });
 document.querySelector("#reset-3d").addEventListener("click", () => model.resetCamera());
+document.addEventListener("prefer-place", () => {
+  orbit3d = false;
+});
 document.querySelector("#edit-3d").addEventListener("click", () => {
   orbit3d = false;
   if (editor.mode() !== "build") document.querySelector("[data-mode=build]").click();

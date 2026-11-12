@@ -18,7 +18,7 @@ export function gameHead(title, issues) {
 
 export function statTiles(tiles) {
   return `<div class="stat-row">${tiles.filter(Boolean).map((tile) => `
-    <div class="stat-tile">
+    <div class="stat-tile" title="${escapeHtml(tile.title || tile.label)}">
       <span class="stat-top"><span class="stat-icon" aria-hidden="true">${tile.icon}</span><span class="stat-value">${escapeHtml(tile.value)}</span></span>
       <span class="stat-label">${escapeHtml(tile.label)}</span>
     </div>`).join("")}</div>`;
@@ -67,8 +67,8 @@ export function suggestionGroupLabel(items) {
     counts.set(kind, (counts.get(kind) || 0) + 1);
   }
   return [...counts.entries()].map(([kind, count]) => {
-    if (kind === "receptacle") return `${count} receptacle${count === 1 ? "" : "s"} (outlets)`;
-    if (kind === "gfci") return `${count} GFCI outlet${count === 1 ? "" : "s"}`;
+    if (kind === "receptacle" || kind === "wr-receptacle") return `${count} outlet${count === 1 ? "" : "s"}`;
+    if (kind === "gfci") return count === 1 ? "1 outlet near water" : `${count} outlets near water`;
     const name = String(kind).replaceAll("-", " ");
     return `${count} ${name}${count === 1 || name.endsWith("s") ? "" : "s"}`;
   }).join(", ");
@@ -88,9 +88,15 @@ export function groupByRoom(items, rooms) {
 }
 
 export function issueRows(issues) {
-  return (issues || []).map((item) => `
+  return (issues || []).map((item) => {
+    const explain = item.fix?.explain || item.why || "";
+    return `
     <div class="issue-row">
-      <span>${escapeHtml(item.title)}</span>
-      <button type="button" data-fix-finding="${escapeHtml(item.id)}">${escapeHtml(item.fix?.label || "Show me")}</button>
-    </div>`).join("");
+      <div>
+        <span>${escapeHtml(item.title)}</span>
+        ${explain ? `<p class="fine">${escapeHtml(explain)}</p>` : ""}
+      </div>
+      <button type="button" title="${escapeHtml(explain)}" data-fix-finding="${escapeHtml(item.id)}">${escapeHtml(item.fix?.label || "Show me")}</button>
+    </div>`;
+  }).join("");
 }

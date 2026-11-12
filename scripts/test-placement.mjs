@@ -128,8 +128,40 @@ check("a blank drawn room can suggest a panel, outlets, and a sink", () => {
   const panel = suggestPanel(house);
   const fixtures = suggestFixtures(house);
   assert.ok(outlets.length > 0);
+  assert.equal(outlets.note, "");
   assert.equal(panel?.kind, "panel");
   assert.ok(fixtures.some((item) => item.kind === "kitchen-sink"));
+  assert.equal(fixtures.note, "");
+});
+
+check("a light in an empty room does not count as outlets", () => {
+  const house = squareHouse();
+  const room = house.rooms[0];
+  house.electrical = house.electrical || { devices: [] };
+  house.electrical.devices = [{
+    id: "light-1",
+    kind: "light",
+    roomId: room.id,
+    roomRole: "general",
+    ghost: false,
+    x: 8,
+    y: 8,
+  }];
+  const outlets = suggestPlacements(house);
+  assert.ok(outlets.length > 0);
+  assert.doesNotMatch(outlets.note || "", /already has outlets/i);
+  house.electrical.devices.push({
+    id: "out-1",
+    kind: "receptacle",
+    roomId: room.id,
+    roomRole: "general",
+    ghost: false,
+    x: 1,
+    y: 1,
+  });
+  const full = suggestPlacements(house);
+  assert.equal(full.length, 0);
+  assert.match(full.note, /already has outlets/i);
 });
 
 check("no walls explains the missing suggestion", () => {

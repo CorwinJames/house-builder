@@ -44,9 +44,9 @@ export function attachWarnings({ getHouse, getPhase, plan, replaceHouse }) {
     const item = event.target.closest("details");
     const finding = current().find((entry) => entry.id === item?.dataset.id);
     if (!finding) return;
-    if (show && finding.point) {
+    if (show) {
       openId = finding.id;
-      plan.focus(finding.point.x, finding.point.y);
+      document.dispatchEvent(new CustomEvent("show-finding", { detail: finding }));
       paint();
       return;
     }
@@ -97,8 +97,9 @@ export function attachWarnings({ getHouse, getPhase, plan, replaceHouse }) {
     const citation = finding.citation;
     const link = citation?.url || citation?.adoptionUrl;
     const line = citationLine(citation);
+    const explain = finding.fix?.explain || "";
     const action = finding.fix
-      ? `<button type="button" data-fix>${escapeHtml(finding.fix.label)}</button>`
+      ? `${explain ? `<p>${escapeHtml(explain)}</p>` : ""}<button type="button" data-fix title="${escapeHtml(explain)}">${escapeHtml(finding.fix.label)}</button>`
       : `<button type="button" data-show>Show me</button>`;
     return `<details data-id="${escapeHtml(finding.id)}"${open}>
       <summary>${escapeHtml(finding.title)}</summary>

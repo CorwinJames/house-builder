@@ -1,5 +1,5 @@
 import { wallLength } from "../lib/geom.js";
-import { deviceSpec } from "../electrical/design.js";
+import { deviceSpec, plainPlaceLabel } from "../electrical/design.js";
 import { fixtureSpec } from "../plumbing/design.js";
 import { pointInRing } from "./space.js";
 
@@ -120,7 +120,7 @@ export function previewPlacement(house, point, { system, kind, supply = "240" } 
   }
   if (system === "electrical") {
     const spec = deviceSpec(kind, supply);
-    const label = spec.name || "Device";
+    const label = plainPlaceLabel(kind);
     if (spec.mount === "ceiling") {
       const room = roomAt(house, point);
       if (!room && !walls.length) return rejected(point, null, label, "Draw a room first.");

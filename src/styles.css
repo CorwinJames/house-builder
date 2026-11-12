@@ -38,6 +38,7 @@ button:focus-visible {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -121,6 +122,8 @@ button:focus-visible {
   display: grid;
   gap: 4px;
   min-width: 220px;
+  max-height: min(70dvh, 420px);
+  overflow: auto;
   padding: 8px;
   background: var(--card);
   border: 1px solid var(--line);
@@ -526,6 +529,7 @@ button:focus-visible {
 .swatch.later { background: repeating-linear-gradient(135deg, #e7d7c0, #e7d7c0 3px, #b7a48c 3px, #b7a48c 4px); }
 
 .stage {
+  position: relative;
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -630,6 +634,9 @@ button:focus-visible {
   border-color: var(--moss);
 }
 .tool-options select.pill-select {
+  max-width: min(100%, 24rem);
+  min-width: 12rem;
+  width: auto;
   appearance: none;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -693,6 +700,8 @@ button:focus-visible {
 .tool-options {
   width: max-content;
   max-width: calc(100% - 8px);
+  max-height: min(42dvh, 320px);
+  overflow: auto;
   display: grid;
   gap: 4px;
   padding: 6px 8px;
@@ -730,9 +739,11 @@ button:focus-visible {
   line-height: 1.35;
 }
 
+.coach-dock, .tool-hint { pointer-events: auto; }
+
 .option-line, .tool-options .swatch-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
 }
@@ -744,9 +755,11 @@ button:focus-visible {
 }
 
 .option-line input,
-.option-line select {
+.option-line select,
+.inspector select {
   width: auto;
-  max-width: 9.5rem;
+  max-width: min(100%, 24rem);
+  min-width: 12rem;
   min-height: 32px;
   padding: 2px 8px;
   border: 1px solid var(--line);
@@ -754,7 +767,7 @@ button:focus-visible {
   background: #fff;
 }
 
-.option-line input[type="number"] { width: 5.6rem; padding-inline: 6px; }
+.option-line input[type="number"] { width: 5.6rem; min-width: 0; padding-inline: 6px; }
 
 .opening-preview {
   width: 72px;
@@ -1062,14 +1075,16 @@ button:focus-visible {
 }
 .issue-row {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 0;
   border-top: 1px solid var(--line);
 }
+.issue-row > div { min-width: 0; }
 .issue-row span { font-weight: 700; font-size: 0.85rem; }
-.issue-row button { min-height: 32px; flex: none; }
+.issue-row .fine { margin: 2px 0 0; }
+.issue-row button { min-height: 32px; align-self: flex-start; }
 #cost-nav { flex-wrap: wrap; max-width: 100%; overflow: visible; }
 #cost-nav button { white-space: nowrap; }
 .issue-card { border-radius: 12px; padding: 8px 10px; display: grid; gap: 4px; }
@@ -1178,6 +1193,8 @@ button:focus-visible {
     right: 8px;
     z-index: 30;
     width: auto;
+    max-height: calc(100dvh - 72px);
+    overflow: auto;
     margin: 0;
     padding: 10px;
     background: var(--card);
@@ -1223,8 +1240,13 @@ button:focus-visible {
     overflow: hidden;
     contain: size;
   }
-  .viewport-plan .build-hud {
+  .stage {
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
+  }
+  .stage > .build-hud {
     position: static;
+    grid-column: 1;
     grid-row: 2;
     left: auto;
     right: auto;

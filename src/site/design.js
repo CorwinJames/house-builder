@@ -23,6 +23,12 @@ export const SETBACKS = {
     url: "https://app.leg.wa.gov/WAC/default.aspx?cite=173-160-171",
     guide: "https://apps.ecology.wa.gov/publications/documents/swr9690.pdf",
     buildingFt: 5,
+    // 100 ft well to the edge of the soil dispersal component and reserve,
+    // and 50 ft well to the sewage tank, are WAC 246-272A-0210 Table IV
+    // (nonpublic drinking water well). Checked 2026-11-12 against the adopted
+    // table. WSR 26-15-117 proposes surface-water edits and leaves this well
+    // row at 100 ft / 50 ft. A public well is 100 ft from the tank.
+    // https://app.leg.wa.gov/wac/default.aspx?cite=246-272A-0210
     tankFt: 50,
     drainfieldFt: 100,
     publicTankFt: 100,
@@ -310,21 +316,148 @@ export function fieldFootprint(house) {
   return { width, depth };
 }
 
+const SITE_NO_FIT = "No well and drain field fit on this lot at the distances this check uses: 100 ft from the well to the drain field (WAC 246-272A-0210 Table IV), 50 ft from the well to the tank, 10 ft from the drain field to the house, and 5 ft from the property line. Options: public or shared water, or a smaller pressure or mound system. The county health department decides.";
+
+function occupiedRect(house) {
+  const walls = (house.walls || []).filter((wall) => wall.phase !== "future");
+  if (!walls.length) return buildingRect(house);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const wall of walls) {
+    minX = Math.min(minX, wall.start.x, wall.end.x);
+    minY = Math.min(minY, wall.start.y, wall.end.y);
+    maxX = Math.max(maxX, wall.start.x, wall.end.x);
+    maxY = Math.max(maxY, wall.start.y, wall.end.y);
+  }
+  if (!Number.isFinite(minX) || maxX - minX < 1) return buildingRect(house);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function rectAt(center, field) {
+  return {
+    x: center.x - field.width / 2,
+    y: center.y - field.depth / 2,
+    width: field.width,
+    depth: field.depth,
+  };
+}
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.depth && a.y + a.depth > b.y;
+}
+
+function pullInside(corner, center, field, pad) {
+  const dx = Math.sign(center.x - corner.x) || 1;
+  const dy = Math.sign(center.y - corner.y) || 1;
+  return {
+    x: corner.x + dx * (field.width / 2 + pad),
+    y: corner.y + dy * (field.depth / 2 + pad),
+  };
+}
+
+function tankBeside(fieldCenter, well, center, field) {
+  const dx = Math.sign(center.x - fieldCenter.x) || 1;
+  const dy = Math.sign(center.y - fieldCenter.y) || 1;
+  const tank = {
+    x: fieldCenter.x + dx * (field.width / 2 + 8),
+    y: fieldCenter.y + dy * (field.depth / 2 + 8),
+  };
+  const awayX = Math.sign(tank.x - well.x) || 1;
+  const awayY = Math.sign(tank.y - well.y) || 1;
+  let guard = 0;
+  while (Math.hypot(tank.x - well.x, tank.y - well.y) < SETBACKS.well.tankFt + 1 && guard < 16) {
+    tank.x += awayX * 6;
+    tank.y += awayY * 6;
+    guard += 1;
+  }
+  return tank;
+}
+
+function layoutFits(site, layout) {
+  const ring = site.parcel.ring;
+  const buildable = buildableRing(site);
+  const inside = buildable.length >= 3 ? buildable : ring;
+  const field = rectAt(layout.fieldCenter, layout.field);
+  const reserve = rectAt(layout.reserveCenter, layout.field);
+  const building = layout.building;
+  if (rectsOverlap(field, reserve)) return false;
+  if (!pointInRing(layout.well, inside) || distToBoundary(layout.well, ring) < 5) return false;
+  if (!pointInRing(layout.tank, inside) || distToBoundary(layout.tank, ring) < SETBACKS.septic.tankLineFt) return false;
+  if (rectBoundaryClearance(field, ring) < SETBACKS.septic.drainfieldLineFt) return false;
+  if (rectBoundaryClearance(reserve, ring) < SETBACKS.septic.drainfieldLineFt) return false;
+  if (distPointRect(layout.well, field) < SETBACKS.well.drainfieldFt) return false;
+  if (distPointRect(layout.well, reserve) < SETBACKS.well.drainfieldFt) return false;
+  if (Math.hypot(layout.well.x - layout.tank.x, layout.well.y - layout.tank.y) < SETBACKS.well.tankFt) return false;
+  if (distPointRect(layout.well, { ...building, depth: building.height ?? building.depth }) < SETBACKS.well.buildingFt) return false;
+  if (distPointRect(layout.tank, { ...building, depth: building.height ?? building.depth }) < SETBACKS.septic.tankBuildingFt) return false;
+  if (distRectToRect(field, { ...building, depth: building.height ?? building.depth }) < SETBACKS.septic.drainfieldBuildingFt) return false;
+  if (distRectToRect(reserve, { ...building, depth: building.height ?? building.depth }) < SETBACKS.septic.drainfieldBuildingFt) return false;
+  return true;
+}
+
 /**
- * Setback-minded starting spots south and east of the footprint.
- * Accepting one moves the real well, tank, or field. Nothing here is a price.
+ * Opposite corners of the buildable lot, and only a layout that meets the
+ * cited setbacks. The returned x/y for a field is its center, which is what
+ * placeSite expects. An empty list means no layout fit; `.note` says why.
  */
 export function suggestSite(house) {
-  const width = house.footprint?.width || 36;
-  const depth = house.footprint?.depth || 24;
+  const site = house.site || {};
+  const ring = site.parcel?.ring;
+  const empty = (note) => {
+    const spots = [];
+    spots.note = note;
+    return spots;
+  };
+  if (!ring || ring.length < 3) return empty("Draw the property line first. This check needs a lot outline.");
+  const buildable = buildableRing(site);
+  const bounds = ringBounds(buildable.length >= 3 ? buildable : ring);
+  if (!bounds) return empty(SITE_NO_FIT);
   const field = fieldFootprint(house);
-  const fieldY = -18 - 14 - field.depth / 2;
-  return [
-    { kind: "well", label: "Well", x: width + 60, y: depth + 24 },
-    { kind: "tank", label: "Septic tank", x: width / 2, y: -18 },
-    { kind: "drainfield", label: "Drain field", x: width / 2 - field.width / 2 - 6, y: fieldY, width: field.width, depth: field.depth },
-    { kind: "reserve", label: "Reserve", x: width / 2 + field.width / 2 + 6, y: fieldY, width: field.width, depth: field.depth },
+  const building = occupiedRect(house);
+  const center = { x: (bounds.x0 + bounds.x1) / 2, y: (bounds.y0 + bounds.y1) / 2 };
+  const pad = 4;
+  const corners = [
+    { x: bounds.x0 + pad, y: bounds.y0 + pad },
+    { x: bounds.x1 - pad, y: bounds.y0 + pad },
+    { x: bounds.x1 - pad, y: bounds.y1 - pad },
+    { x: bounds.x0 + pad, y: bounds.y1 - pad },
+    { x: center.x, y: bounds.y0 + pad },
+    { x: bounds.x1 - pad, y: center.y },
+    { x: center.x, y: bounds.y1 - pad },
+    { x: bounds.x0 + pad, y: center.y },
   ];
+  const opposite = [2, 3, 0, 1, 6, 7, 4, 5];
+  for (let i = 0; i < corners.length; i += 1) {
+    const well = { ...corners[i] };
+    const far = corners[opposite[i]];
+    const fieldCenter = pullInside(far, center, field, pad);
+    let reserveCenter = pullInside(
+      { x: far.x + Math.sign(center.x - far.x) * (field.width + 8), y: far.y },
+      center,
+      field,
+      pad,
+    );
+    if (rectsOverlap(rectAt(fieldCenter, field), rectAt(reserveCenter, field))) {
+      reserveCenter = {
+        x: fieldCenter.x + Math.sign(center.x - fieldCenter.x || 1) * (field.width + 6),
+        y: fieldCenter.y,
+      };
+    }
+    const tank = tankBeside(fieldCenter, well, center, field);
+    const candidate = { well, tank, fieldCenter, reserveCenter, field, building };
+    if (!layoutFits(site, candidate)) continue;
+    const spots = [
+      { kind: "well", label: "Well", x: well.x, y: well.y },
+      { kind: "tank", label: "Septic tank", x: tank.x, y: tank.y },
+      { kind: "drainfield", label: "Drain field", x: fieldCenter.x, y: fieldCenter.y, width: field.width, depth: field.depth },
+      { kind: "reserve", label: "Reserve area", x: reserveCenter.x, y: reserveCenter.y, width: field.width, depth: field.depth },
+    ];
+    spots.note = "Well and drain field sit on opposite corners, at least 100 ft apart. That distance is WAC 246-272A-0210 Table IV (checked 2026-11-12). The circle is that 100 ft.";
+    return spots;
+  }
+  return empty(SITE_NO_FIT);
 }
 
 export function rectArea(rect) {
