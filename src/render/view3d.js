@@ -938,7 +938,8 @@ function addDimensions(house, futureShown, parent) {
       new THREE.Vector3(seg.x1, y, -seg.y1),
     ]);
     parent.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x2a241b })));
-    const label = makeSprite(formatFeet(seg.len), false, { priority: 0, px: 26 });
+    const text = dim.face ? `${formatFeet(seg.len)} ${dim.face}` : formatFeet(seg.len);
+    const label = makeSprite(text, false, { priority: 0, px: 26 });
     label.position.set((seg.x0 + seg.x1) / 2, 1.4, -((seg.y0 + seg.y1) / 2));
     parent.add(label);
   }

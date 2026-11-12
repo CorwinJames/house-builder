@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { blankPlan } from "../src/build/newPlan.js";
 import { DEFAULT_EXTERIOR_ID } from "../src/build/catalog.js";
 import { addRoomRectangle } from "../src/build/walls.js";
@@ -73,16 +74,23 @@ check("a click on a room corner snaps onto a wall", () => {
   assert.ok(beside.wallId);
 });
 
-check("a drawn room gets one dimension per side, and the footprint only when it differs", () => {
+check("a drawn room is dimensioned from its walls, not the stored footprint", () => {
   const house = squareHouse();
   const dims = planDimensions(house, true);
   const horizontal = dims.filter((dim) => dim.y0 === dim.y1);
   const vertical = dims.filter((dim) => dim.x0 === dim.x1);
   assert.equal(horizontal.length, 2);
   assert.equal(vertical.length, 2);
-  const widths = horizontal.map((dim) => Math.abs(dim.x1 - dim.x0));
-  assert.ok(widths.some((length) => Math.abs(length - 36) < 0.1));
-  assert.ok(widths.some((length) => length < 20));
+  const faces = new Set(dims.map((dim) => dim.face));
+  assert.deepEqual(faces, new Set(["inside", "outside"]));
+  for (const dim of dims) {
+    const length = Math.hypot(dim.x1 - dim.x0, dim.y1 - dim.y0);
+    assert.ok(length < 20, `dimension ${length} stays on the 16 ft room`);
+    assert.ok(dim.x0 > -2 && dim.x1 < 20 && dim.y0 > -2 && dim.y1 < 20);
+  }
+  const insideW = horizontal.find((dim) => dim.face === "inside");
+  const outsideW = horizontal.find((dim) => dim.face === "outside");
+  assert.ok(Math.abs(outsideW.x1 - outsideW.x0) > Math.abs(insideW.x1 - insideW.x0));
   const filled = blankPlan();
   filled.rooms = [{
     id: "room",
@@ -96,7 +104,22 @@ check("a drawn room gets one dimension per side, and the footprint only when it 
       { x: 0, y: 24 },
     ],
   }];
-  assert.equal(planDimensions(filled, true).length, 2);
+  const plain = planDimensions(filled, true);
+  assert.equal(plain.length, 2);
+  assert.ok(plain.every((dim) => !dim.face));
+});
+
+check("the sample house is dimensioned from its walls", () => {
+  const house = JSON.parse(readFileSync(new URL("../data/sample-house.json", import.meta.url), "utf8"));
+  const full = planDimensions(house, true);
+  const widths = full.filter((dim) => dim.y0 === dim.y1).map((dim) => Math.abs(dim.x1 - dim.x0));
+  assert.ok(widths.some((length) => Math.abs(length - 76) < 0.6), `outside width ${widths}`);
+  assert.ok(full.every((dim) => dim.x1 - dim.x0 < 76.6 && dim.y1 - dim.y0 < 47.6));
+  assert.ok(full.filter((dim) => dim.face === "outside").length === 2);
+  assert.ok(full.filter((dim) => dim.face === "inside").length === 2);
+  const phase = planDimensions(house, false);
+  const phaseWidths = phase.filter((dim) => dim.y0 === dim.y1).map((dim) => Math.abs(dim.x1 - dim.x0));
+  assert.ok(phaseWidths.every((length) => length < 40), `phase 1 stays off the full footprint ${phaseWidths}`);
 });
 
 check("a blank drawn room can suggest a panel, outlets, and a sink", () => {
