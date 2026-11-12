@@ -32,6 +32,9 @@ export function createPlanView(canvas, initialHouse) {
   let state = null;
   let overlay = null;
   let markers = [];
+  let badgeHits = [];
+  let badgeNote = null;
+  let pinnedBadge = null;
   let buildHooks = null;
   let buildGesture = false;
   let onChange = () => {};
@@ -44,6 +47,35 @@ export function createPlanView(canvas, initialHouse) {
   let pinch = null;
   let hoverCircuitId = null;
   let hoverPipeId = null;
+
+  let phoneLocked = false;
+
+  function layoutCanvas() {
+    const frame = canvas.parentElement;
+    const viewport = frame?.parentElement;
+    const phone = window.matchMedia("(max-width: 860px)").matches;
+    if (!phone || !frame || !viewport) {
+      if (phoneLocked) {
+        frame?.style.removeProperty("width");
+        frame?.style.removeProperty("height");
+        canvas.style.removeProperty("width");
+        canvas.style.removeProperty("height");
+        phoneLocked = false;
+      }
+      return;
+    }
+    const hud = viewport.querySelector(".build-hud");
+    const hudH = hud && !hud.hidden ? hud.offsetHeight : 0;
+    const w = viewport.clientWidth;
+    const h = Math.max(120, viewport.clientHeight - hudH);
+    const nextW = `${w}px`;
+    const nextH = `${h}px`;
+    if (frame.style.width !== nextW) frame.style.width = nextW;
+    if (frame.style.height !== nextH) frame.style.height = nextH;
+    if (canvas.style.width !== nextW) canvas.style.width = nextW;
+    if (canvas.style.height !== nextH) canvas.style.height = nextH;
+    phoneLocked = true;
+  }
 
   function size() {
     return { w: canvas.clientWidth, h: canvas.clientHeight };
@@ -668,6 +700,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawWatermark() {
+    if (!house.sample) return;
     const { w, h } = size();
     ctx.save();
     ctx.font = "600 11px Outfit, 'Segoe UI', sans-serif";
@@ -679,6 +712,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function render() {
+    layoutCanvas();
     if (!ratioFontReady && document.fonts?.load) {
       ratioFontReady = true;
       Promise.all([
@@ -832,7 +866,7 @@ export function createPlanView(canvas, initialHouse) {
     if (design.building?.length) {
       drawRun(design.building.points, "#3F2918", true, "building", `${design.building.size} in building drain · ${design.building.slope.inchesPerFoot} in/ft · drop ${design.building.slope.inches} in`);
     }
-    const mark = (x, y, letter, id) => {
+    const mark = (x, y, letter, id, name = "") => {
       const screen = worldToScreen(x, y);
       const on = active === id || (selectedId && id.endsWith(selectedId));
       ctx.beginPath();
@@ -847,6 +881,11 @@ export function createPlanView(canvas, initialHouse) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(letter, screen.x, screen.y);
+      if (name) {
+        ctx.font = "700 12px Outfit, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(name, screen.x + 14, screen.y - 14);
+      }
     };
     const letters = { toilet: "T", lavatory: "L", "kitchen-sink": "S", dishwasher: "D", shower: "H", tub: "B", washer: "W", "laundry-sink": "Y", "hose-bibb": "HB", "water-heater": "WH" };
     for (const fixture of design.fixtures) {
@@ -855,7 +894,12 @@ export function createPlanView(canvas, initialHouse) {
     }
     for (const fixture of house.plumbing.fixtures || []) {
       if (!fixture.ghost || !isPhaseVisible(fixture.phase, state)) continue;
-      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`);
+      const focus = overlay?.suggestFocus;
+      const dim = !!(focus && fixture.roomId !== focus);
+      ctx.save();
+      ctx.globalAlpha = systemAlpha("plumbing") * (dim ? 0.18 : 1);
+      mark(fixture.x, fixture.y, letters[fixture.kind] || "P", `fixture:${fixture.id}`, dim ? "" : (fixture.name || "Fixture"));
+      ctx.restore();
     }
     if (design.entry) mark(design.entry.x, design.entry.y, "E", "entry");
     if (design.septic) mark(design.septic.x, design.septic.y, "ST", "septic");
@@ -1018,15 +1062,18 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawDeviceMark(device, ghost) {
-    if (state?.issuesOnly && !(state.issueDeviceIds || []).includes(device.id) && overlay?.selection?.id !== device.id) return;
+    if (!ghost && state?.issuesOnly && !(state.issueDeviceIds || []).includes(device.id) && overlay?.selection?.id !== device.id) return;
     const at = devicePoint(house, device);
     const screen = worldToScreen(at.x, at.y);
     const selected = overlay?.selection?.type === "device" && overlay.selection.id === device.id;
+    const focus = overlay?.suggestFocus;
+    const preview = !!(ghost && focus && device.roomId === focus);
+    const dim = !!(ghost && focus && device.roomId !== focus);
     ctx.beginPath();
-    ctx.globalAlpha = (ghost ? 0.7 : 1) * systemAlpha("electrical");
+    ctx.globalAlpha = (ghost ? (dim ? 0.18 : 0.95) : 1) * systemAlpha("electrical");
     ctx.fillStyle = "#F7F3EB";
-    ctx.strokeStyle = device.volts === 240 ? "#8A5A12" : "#1F6F8B";
-    ctx.lineWidth = selected ? 3 : 1.5;
+    ctx.strokeStyle = preview ? "#2F5D45" : device.volts === 240 ? "#8A5A12" : "#1F6F8B";
+    ctx.lineWidth = selected || preview ? 3 : 1.5;
     ctx.setLineDash(ghost ? [3, 3] : []);
     ctx.arc(screen.x, screen.y, selected ? 9 : 7, 0, Math.PI * 2);
     ctx.fill();
@@ -1050,10 +1097,19 @@ export function createPlanView(canvas, initialHouse) {
                 ? "A"
                 : "R";
     ctx.fillText(letter, screen.x, screen.y);
+    if (ghost && !dim) {
+      ctx.font = "700 12px Outfit, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(device.name || "Outlet", screen.x + 14, screen.y - 14);
+    }
   }
 
   function drawMarkers() {
-    if (!markers.length) return;
+    badgeHits = [];
+    if (!markers.length) {
+      badgeNote = null;
+      return;
+    }
     const zoomedOut = (camera.pxPerFt || 8) < 8;
     const buckets = new Map();
     for (const marker of markers) {
@@ -1078,6 +1134,8 @@ export function createPlanView(canvas, initialHouse) {
           ? "#2F5D45"
           : "#C4654A";
       const radius = lead.marker.active ? 10 : 8;
+      const titles = [...new Set(group.map((item) => item.marker.title).filter(Boolean))];
+      badgeHits.push({ x, y, r: radius + 6, text: titles.join(" · ") || "Open the room card for this issue." });
       ctx.beginPath();
       ctx.fillStyle = color;
       ctx.strokeStyle = "#F7F3EB";
@@ -1088,6 +1146,30 @@ export function createPlanView(canvas, initialHouse) {
       ctx.fillStyle = "#F7F3EB";
       ctx.fillText(group.length > 1 ? String(group.length) : "!", x, y + 0.5);
     }
+    ctx.restore();
+    canvas.dataset.badges = JSON.stringify(badgeHits.map((hit) => ({ x: hit.x, y: hit.y, text: hit.text })));
+    drawBadgeNote();
+  }
+
+  function drawBadgeNote() {
+    if (!badgeNote?.text) return;
+    const { w } = size();
+    ctx.save();
+    ctx.font = "700 13px Outfit, sans-serif";
+    const pad = 10;
+    const max = Math.min(520, w - 16);
+    const textWidth = Math.min(ctx.measureText(badgeNote.text).width, max - pad * 2);
+    const width = textWidth + pad * 2;
+    const x = Math.min(Math.max(8, badgeNote.x - width / 2), w - width - 8);
+    const y = Math.max(8, badgeNote.y - 46);
+    ctx.fillStyle = "#2A241B";
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, 28, 14);
+    ctx.fill();
+    ctx.fillStyle = "#F6F1E8";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeNote.text, x + pad, y + 14, max - pad * 2);
     ctx.restore();
   }
 
@@ -1240,6 +1322,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
     for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
+    for (const ghost of overlay.suggestMarks || []) drawPlaceGhost(ghost, true);
     if (overlay.ghostOpening) {
       const ghost = overlay.ghostOpening;
       const wall = house.walls.find((item) => item.id === ghost.wallId);
@@ -1257,10 +1340,15 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawPlaceGhost(ghost, suggested) {
     const screen = worldToScreen(ghost.x, ghost.y);
+    const focus = overlay?.suggestFocus;
+    const dim = !!(suggested && focus && !(focus === "panel" && ghost.kind === "panel"));
+    const preview = !!(suggested && focus === "panel" && ghost.kind === "panel");
     ctx.save();
-    ctx.strokeStyle = suggested ? "#2F5D45" : "#1F6F8B";
-    ctx.fillStyle = suggested ? "rgba(47, 93, 69, 0.16)" : "rgba(31, 111, 139, 0.22)";
-    ctx.lineWidth = 2;
+    if (dim) ctx.globalAlpha = 0.2;
+    const bad = ghost.ok === false;
+    ctx.strokeStyle = bad ? "#9C341F" : suggested ? "#2F5D45" : "#1F6F8B";
+    ctx.fillStyle = bad ? "rgba(156, 52, 31, 0.18)" : suggested ? "rgba(47, 93, 69, 0.16)" : "rgba(31, 111, 139, 0.22)";
+    ctx.lineWidth = preview ? 3 : 2;
     ctx.setLineDash([5, 4]);
     if (ghost.width && ghost.depth) {
       const w = ghost.width * camera.pxPerFt;
@@ -1281,10 +1369,11 @@ export function createPlanView(canvas, initialHouse) {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.font = "700 12px Outfit, sans-serif";
-    ctx.fillStyle = "#1d3d2e";
+    ctx.fillStyle = bad ? "#9C341F" : "#1d3d2e";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(ghost.label || "", screen.x + 16, screen.y - 16);
+    if (ghost.reason) ctx.fillText(ghost.reason, screen.x + 16, screen.y + 2);
     ctx.restore();
   }
 
@@ -1399,7 +1488,33 @@ export function createPlanView(canvas, initialHouse) {
     return screenToWorld(local.x, local.y);
   }
 
+  function badgeAt(local) {
+    return badgeHits.find((hit) => Math.hypot(hit.x - local.x, hit.y - local.y) <= hit.r) || null;
+  }
+
+  function showBadge(local, pin) {
+    const hit = local ? badgeAt(local) : null;
+    if (pin) pinnedBadge = hit;
+    const next = hit || (pin ? null : pinnedBadge);
+    const text = next?.text || "";
+    if (text === (badgeNote?.text || "") && (!next || (badgeNote && next.x === badgeNote.x && next.y === badgeNote.y))) return;
+    badgeNote = next;
+    render();
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
+    const badge = badgeAt(localPoint(event));
+    if (badge) {
+      pinnedBadge = badge;
+      badgeNote = badge;
+      render();
+      return;
+    }
+    if (pinnedBadge || badgeNote) {
+      pinnedBadge = null;
+      badgeNote = null;
+      render();
+    }
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.size > 1) {
@@ -1437,7 +1552,9 @@ export function createPlanView(canvas, initialHouse) {
     return best;
   }
 
-  canvas.addEventListener("pointerleave", () => {
+  canvas.addEventListener("pointerleave", (event) => {
+    if (!pinnedBadge) showBadge(null, false);
+    buildHooks?.hover?.(event, null);
     if (!hoverCircuitId && !hoverPipeId) return;
     hoverCircuitId = null;
     hoverPipeId = null;
@@ -1446,6 +1563,7 @@ export function createPlanView(canvas, initialHouse) {
 
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) {
+      showBadge(localPoint(event), false);
       const world = worldFromEvent(event);
       buildHooks?.hover?.(event, world);
       let nextCircuit = null;
@@ -1554,6 +1672,7 @@ export function createPlanView(canvas, initialHouse) {
       render();
     },
     resize() {
+      layoutCanvas();
       if (!cameraReady && canvas.clientWidth > 20) {
         if (state?.plan) {
           camera = { ...state.plan };

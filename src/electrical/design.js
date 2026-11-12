@@ -258,6 +258,26 @@ export function suggestPlacements(house) {
   return ghosts;
 }
 
+/** A labeled panel ghost for a drawn room that does not have one yet. */
+export function suggestPanel(house) {
+  if (house.electrical?.panel) return null;
+  const walls = (house.walls || []).filter((wall) => wallLength(wall) >= 2);
+  if (!walls.length) return null;
+  const wall = walls.slice().sort((a, b) => wallLength(b) - wallLength(a))[0];
+  const length = wallLength(wall);
+  const t = 0.5;
+  return {
+    kind: "panel",
+    label: "Breaker panel",
+    x: wall.start.x + (wall.end.x - wall.start.x) * t,
+    y: wall.start.y + (wall.end.y - wall.start.y) * t,
+    wallId: wall.id,
+    offset: length / 2,
+    ok: true,
+    phase: wall.phase || "phase1",
+  };
+}
+
 export function devicePoint(house, device) {
   if (device.wallId) {
     const wall = (house.walls || []).find((item) => item.id === device.wallId);

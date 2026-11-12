@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { budgetPhrase, groupByRoom } from "../src/ui/gamecard.js";
+import { budgetPhrase, groupByRoom, suggestionGroupLabel } from "../src/ui/gamecard.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -37,6 +37,8 @@ check("suggest preview groups ghosts by room and counts them", () => {
   ]);
   assert.equal(groups.find((group) => group.id === "living").count, 2);
   assert.equal(groups.find((group) => group.id === "kitchen").name, "Kitchen");
+  assert.equal(suggestionGroupLabel(Array.from({ length: 8 }, () => ({ kind: "receptacle" }))), "8 receptacles (outlets)");
+  assert.equal(suggestionGroupLabel([{ kind: "kitchen-sink" }]), "1 kitchen sink");
 });
 
 if (failed) process.exit(1);

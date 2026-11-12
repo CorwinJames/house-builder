@@ -31,7 +31,7 @@ app.innerHTML = `
         </svg>
         <h1>House Builder</h1>
       </div>
-      <p class="sample-chip">Sample layout · not a final design</p>
+      <p class="sample-chip" hidden>Sample layout · not a final design</p>
       <button type="button" id="cost-chip" class="cost-chip" title="Materials and labor">
         <span id="cost-figure">—</span>
         <span id="cost-note"></span>
@@ -112,7 +112,7 @@ app.innerHTML = `
       </aside>
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
-          <canvas id="plan-canvas"></canvas>
+          <div class="plan-frame"><canvas id="plan-canvas"></canvas></div>
           <div class="hud">
             <span>Plan · north up</span>
             <button type="button" id="fit-plan">Fit</button>
@@ -120,6 +120,7 @@ app.innerHTML = `
             <button type="button" id="redo" disabled>Redo</button>
           </div>
           <div id="build-hud" class="build-hud" hidden>
+            <div id="coach-dock" class="coach-dock"></div>
             <div id="build-tutorial" class="tool-hint" hidden></div>
             <div id="tool-options" class="tool-options" hidden></div>
             <div class="tool-dock">
@@ -138,7 +139,16 @@ app.innerHTML = `
         </section>
       </div>
     </div>
-    <footer class="statusbar" id="status"></footer>
+    <footer class="statusbar" id="status">
+      <div class="coach">
+        <div id="coach-line">Build mode. Pick a tool.</div>
+        <details id="action-history">
+          <summary>Recent</summary>
+          <ol id="history-list"></ol>
+        </details>
+      </div>
+      <p id="status-meta"></p>
+    </footer>
   </div>
   <div id="budget-toast" class="budget-toast" hidden></div>
   <div id="app-toast" class="app-toast" hidden></div>
@@ -275,6 +285,19 @@ function wide() {
   return wideQuery.matches;
 }
 
+function dockCoach() {
+  const coach = document.querySelector(".coach");
+  const dock = document.querySelector("#coach-dock");
+  const footer = document.querySelector("#status");
+  if (!coach || !dock || !footer) return;
+  const phonePlan = !wide() && effectiveView() !== "model";
+  if (phonePlan) {
+    if (coach.parentElement !== dock) dock.append(coach);
+  } else if (coach.parentElement !== footer) {
+    footer.insertBefore(coach, footer.firstChild);
+  }
+}
+
 function effectiveView() {
   if (!wide() && state.view === "split") return "plan";
   return state.view;
@@ -317,7 +340,11 @@ function syncControls() {
     button.setAttribute("aria-pressed", String(!!state.layers[button.dataset.layer]));
   }
   document.querySelector("#stage").dataset.view = view;
-  document.querySelector("#status").textContent = statusText();
+  const meta = document.querySelector("#status-meta");
+  if (meta) meta.textContent = statusText();
+  const sampleChip = document.querySelector(".sample-chip");
+  if (sampleChip && editor) sampleChip.hidden = !editor.house()?.sample;
+  dockCoach();
   document.querySelector("#hint").hidden = !!state.hintDismissed;
   const showPanel = panelOpen && !wide();
   document.querySelector("#layer-panel").classList.toggle("open", showPanel);
@@ -357,6 +384,7 @@ let orbit3d = true;
 let cutaway3d = false;
 function sync3d() {
   const editing = editor?.mode() === "build" && !orbit3d;
+  document.body.dataset.orbit = String(!editing);
   model.setEditing?.(editing);
   model.setCutaway?.(cutaway3d);
   document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing));
@@ -511,10 +539,20 @@ document.addEventListener("budget-delta", (event) => {
 });
 document.addEventListener("app-toast", (event) => {
   const toast = document.querySelector("#app-toast");
-  toast.textContent = event.detail.text;
+  toast.replaceChildren(document.createTextNode(event.detail.text || ""));
+  if (event.detail.undo) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Undo";
+    button.addEventListener("click", () => {
+      document.querySelector("#undo")?.click();
+      toast.hidden = true;
+    });
+    toast.append(" ", button);
+  }
   toast.hidden = false;
   window.clearTimeout(toast._timer);
-  toast._timer = window.setTimeout(() => { toast.hidden = true; }, 2200);
+  toast._timer = window.setTimeout(() => { toast.hidden = true; }, event.detail.undo ? 4200 : 2400);
 });
 
 document.addEventListener("keydown", (event) => {

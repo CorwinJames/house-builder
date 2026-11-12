@@ -233,17 +233,19 @@ function pointOnWall(wall, offset, inset, toward) {
   return { x: x + nx * inset, y: y + ny * inset };
 }
 
-export function suggestRoom(house, room) {
+export function suggestRoom(house, room, kindsOverride = null) {
   const role = roleFor(room);
-  if (role !== "bath" && role !== "kitchen" && role !== "laundry") return [];
-  const wall = wetWallFor(house, room);
-  if (!wall) return [];
-  const length = wallLength(wall);
-  const kinds = role === "bath"
+  const kinds = kindsOverride || (role === "bath"
     ? ["toilet", "lavatory", "shower"]
     : role === "kitchen"
       ? ["kitchen-sink", "dishwasher"]
-      : ["washer", "laundry-sink"];
+      : role === "laundry"
+        ? ["washer", "laundry-sink"]
+        : null);
+  if (!kinds) return [];
+  const wall = wetWallFor(house, room);
+  if (!wall) return [];
+  const length = wallLength(wall);
   const ghosts = [];
   kinds.forEach((kind, index) => {
     const spec = fixtureSpec(kind);
@@ -271,12 +273,26 @@ export function suggestRoom(house, room) {
 
 export function suggestPlacements(house) {
   const ghosts = [];
+  const fixtures = house.plumbing?.fixtures || [];
+  const hasKitchen = (house.rooms || []).some((room) => roleFor(room) === "kitchen");
+  const hasSink = fixtures.some((item) => !item.ghost && item.kind === "kitchen-sink");
+  let offeredSink = false;
   for (const room of house.rooms || []) {
     if (room.outdoor) continue;
-    const role = roleFor(room);
-    const already = (house.plumbing?.fixtures || []).some((item) => !item.ghost && item.roomId === room.id);
+    const already = fixtures.some((item) => !item.ghost && item.roomId === room.id);
     if (already) continue;
-    ghosts.push(...suggestRoom(house, room));
+    const role = roleFor(room);
+    if (role === "bath" || role === "kitchen" || role === "laundry") {
+      ghosts.push(...suggestRoom(house, room));
+      continue;
+    }
+    if (!hasKitchen && !hasSink && !offeredSink) {
+      const sink = suggestRoom(house, room, ["kitchen-sink"]);
+      if (sink.length) {
+        offeredSink = true;
+        ghosts.push(...sink);
+      }
+    }
   }
   return ghosts;
 }
