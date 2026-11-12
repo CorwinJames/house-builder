@@ -1230,6 +1230,15 @@ button:focus-visible {
   padding: 8px 14px;
   font-weight: 750;
 }
+.toast-dock {
+  top: auto;
+  max-width: calc(100vw - 24px);
+  pointer-events: none;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
+}
+.toast-dock button { pointer-events: auto; }
 .focus-note { font-size: 0.75rem; color: var(--muted); }
 
 @media (max-width: 860px) {
