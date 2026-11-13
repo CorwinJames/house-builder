@@ -17,6 +17,13 @@ import { blankPlan, fourRoomSample } from "./build/newPlan.js";
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
 let panelOpen = false;
+let buildRoofHold = null;
+let frameKey = "";
+let frameTicket = 0;
+let frameImportPending = false;
+let holdView = false;
+let orbit3d = true;
+let cutaway3d = false;
 
 const app = document.querySelector("#app");
 app.innerHTML = `
@@ -85,6 +92,10 @@ app.innerHTML = `
       </div>
       </div>
     </header>
+    <div id="drive-banner" class="drive-banner" hidden>
+      <p>Your Drive plan is waiting. Reconnect to load it. The file in Drive stays as it is.</p>
+      <button type="button" id="drive-banner-load">Load from Drive</button>
+    </div>
     <div class="workspace">
       <aside class="layer-panel" id="layer-panel">
         <div class="sheet-bar">
@@ -227,11 +238,18 @@ layerList.innerHTML = LAYER_DEFS.map((layer, index) => {
 const planCanvas = document.querySelector("#plan-canvas");
 const modelCanvas = document.querySelector("#model-canvas");
 planCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
-const plan = createPlanView(planCanvas, house);
-const model = createView3d(modelCanvas, house);
-let editor;
-let warningsUi;
+bindShell();
+let plan = null;
+let model = null;
+let editor = null;
+let warningsUi = null;
 let onDocument = () => {};
+let account = null;
+let costs = null;
+try {
+plan = createPlanView(planCanvas, house);
+model = createView3d(modelCanvas, house);
+plan.setState(state);
 editor = attachEditor({
   plan,
   model,
@@ -242,13 +260,13 @@ editor = attachEditor({
     saveViewState(state);
   },
   onChange() {
-    if (editor) publish();
+    publish();
   },
   onDocument(source) {
     onDocument(source);
   },
 });
-const account = attachAccount({ editor });
+account = attachAccount({ editor });
 onDocument = account.onDocument;
 warningsUi = attachWarnings({
   getHouse: () => editor.house(),
@@ -256,7 +274,7 @@ warningsUi = attachWarnings({
   plan,
   replaceHouse: (next) => editor.loadHouse(next),
 });
-const costs = attachCosts({
+costs = attachCosts({
   getHouse: () => editor.house(),
   getPhase: () => (state.phase === "phase1" ? "phase1" : "full"),
   getSelection: () => editor.selection(),
@@ -283,6 +301,9 @@ if (model.failed) {
   fallback.hidden = false;
   fallback.textContent = model.message;
 }
+} catch (error) {
+  console.error(error);
+}
 
 function wide() {
   return wideQuery.matches;
@@ -307,6 +328,7 @@ function effectiveView() {
 }
 
 function statusText() {
+  if (!editor) return "";
   const doc = editor.house();
   const areas = areaReport(doc);
   const stubs = LAYER_DEFS.filter((layer) => layer.stub && state.layers[layer.id]).map((layer) => layer.label);
@@ -343,14 +365,15 @@ function syncControls() {
   const sampleChip = document.querySelector(".sample-chip");
   if (sampleChip && editor) sampleChip.hidden = !editor.house()?.sample;
   dockCoach();
-  document.querySelector("#hint").hidden = !!state.hintDismissed;
+  const hint = document.querySelector("#hint");
+  if (hint) hint.hidden = !!state.hintDismissed;
   const showPanel = panelOpen && !wide();
-  document.querySelector("#layer-panel").classList.toggle("open", showPanel);
-  document.querySelector("#scrim").hidden = !showPanel;
-  document.querySelector("#layers-btn").setAttribute("aria-expanded", String(showPanel));
+  document.querySelector("#layer-panel")?.classList.toggle("open", showPanel);
+  const scrim = document.querySelector("#scrim");
+  if (scrim) scrim.hidden = !showPanel;
+  document.querySelector("#layers-btn")?.setAttribute("aria-expanded", String(showPanel));
 }
 
-let buildRoofHold = null;
 function syncBuildRoof() {
   const building = editor?.mode() === "build";
   if (building && buildRoofHold === null) {
@@ -363,37 +386,38 @@ function syncBuildRoof() {
 }
 
 function publish() {
-  syncBuildRoof();
-  saveViewState(state);
-  syncControls();
-  plan.setState(state);
-  model.setState({ ...state, building: editor?.mode() === "build" });
-  costs?.paint();
-  warningsUi?.paint();
-  const siteCard = document.querySelector("#site-card");
-  const siteFold = document.querySelector("#site-fold");
-  if (siteCard && siteFold && editor) {
-    const show = state.layers.site !== false;
-    const html = show ? siteCardHtml(editor.house()) : "";
-    siteFold.hidden = !html;
-    if (html && siteCard.dataset.html !== html) {
-      const open = siteCard.querySelector("details")?.open;
-      siteCard.innerHTML = html;
-      siteCard.dataset.html = html;
-      const details = siteCard.querySelector("details");
-      if (details && open) details.open = true;
+  if (!plan || !model) return;
+  try { syncBuildRoof(); } catch (error) { console.error(error); }
+  try { saveViewState(state); } catch (error) { console.error(error); }
+  try { plan.setState(state); } catch (error) { console.error(error); }
+  try { model.setState({ ...state, building: editor?.mode() === "build" }); } catch (error) { console.error(error); }
+  try { syncControls(); } catch (error) { console.error(error); }
+  try { costs?.paint(); } catch (error) { console.error(error); }
+  try { warningsUi?.paint(); } catch (error) { console.error(error); }
+  try {
+    const siteCard = document.querySelector("#site-card");
+    const siteFold = document.querySelector("#site-fold");
+    if (siteCard && siteFold && editor) {
+      const show = state.layers.site !== false;
+      const html = show ? siteCardHtml(editor.house()) : "";
+      siteFold.hidden = !html;
+      if (html && siteCard.dataset.html !== html) {
+        const open = siteCard.querySelector("details")?.open;
+        siteCard.innerHTML = html;
+        siteCard.dataset.html = html;
+        const details = siteCard.querySelector("details");
+        if (details && open) details.open = true;
+      }
     }
+  } catch (error) {
+    console.error(error);
   }
-  sync3d();
-  plan.resize();
-  model.resize();
-  frameBuildIfNeeded();
+  try { sync3d(); } catch (error) { console.error(error); }
+  try { plan.resize(); } catch (error) { console.error(error); }
+  try { model.resize(); } catch (error) { console.error(error); }
+  try { frameBuildIfNeeded(); } catch (error) { console.error(error); }
 }
 
-let frameKey = "";
-let frameTicket = 0;
-let frameImportPending = false;
-let holdView = false;
 document.addEventListener("plan-imported", () => {
   frameImportPending = true;
 });
@@ -437,8 +461,6 @@ function frameBuildIfNeeded() {
   });
 }
 
-let orbit3d = true;
-let cutaway3d = false;
 function sync3d() {
   const editing = editor?.mode() === "build" && !orbit3d;
   document.body.dataset.orbit = String(!editing);
@@ -461,6 +483,7 @@ function sync3d() {
   if (label) label.textContent = editing ? "3D · edit" : "3D · orbit";
 }
 
+function bindShell() {
 document.querySelector("#phase-seg").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-phase]");
   if (!button) return;
@@ -519,7 +542,7 @@ document.querySelector("#hint-ok").addEventListener("click", () => {
   state.hintDismissed = true;
   publish();
 });
-document.querySelector("#fit-plan").addEventListener("click", () => plan.fit());
+document.querySelector("#fit-plan").addEventListener("click", () => plan?.fit());
 document.querySelector("#import-site").addEventListener("click", () => {
   document.querySelector("#import-site-file").click();
 });
@@ -536,10 +559,11 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
   }
 });
 document.querySelector("#reset-3d").addEventListener("click", () => {
-  model.resetCamera();
-  plan.fit();
+  model?.resetCamera();
+  plan?.fit();
 });
 document.querySelector("#edit-3d").addEventListener("click", () => {
+  if (!editor) return;
   orbit3d = false;
   if (editor.mode() !== "build") document.querySelector("[data-mode=build]").click();
   else publish();
@@ -561,6 +585,7 @@ document.querySelector("#new-blank").addEventListener("click", () => startNew("b
 document.querySelector("#new-sample").addEventListener("click", () => startNew("sample"));
 
 function openNewPlan() {
+  if (!editor || !account) return;
   document.querySelector("#file-menu").open = false;
   const warn = document.querySelector("#new-plan-warn");
   warn.textContent = editor.isDirty()
@@ -572,6 +597,7 @@ function openNewPlan() {
 }
 
 async function startNew(kind) {
+  if (!editor || !account) return;
   if (editor.isDirty()) {
     const signed = account.isSignedIn();
     const ok = window.confirm(signed
@@ -600,6 +626,7 @@ document.querySelector("#issues-toggle").addEventListener("click", () => {
 });
 document.querySelector("#labor-open").addEventListener("click", () => document.querySelector("#labor-dialog").showModal());
 document.querySelector("#labor-dialog [data-close]").addEventListener("click", () => document.querySelector("#labor-dialog").close());
+}
 function placeToast(toast) {
   const phone = !wide();
   toast.classList.toggle("toast-dock", phone);
@@ -653,14 +680,14 @@ wideQuery.addEventListener("change", () => {
 });
 
 const observer = new ResizeObserver(() => {
-  plan.resize();
-  model.resize();
+  plan?.resize();
+  model?.resize();
 });
 observer.observe(planCanvas.parentElement);
 observer.observe(modelCanvas.parentElement);
 
 if (document.fonts?.ready) {
-  document.fonts.ready.then(() => plan.redraw());
+  document.fonts.ready.then(() => plan?.redraw());
 }
 
 publish();

@@ -11,6 +11,7 @@ import {
   updateDesign,
 } from "../src/drive/client.js";
 import { googleClientId, isGoogleConfigured } from "../src/auth/config.js";
+import { DRIVE_DEBOUNCE_MS, DRIVE_INTERVAL_MS, driveBootAction, shouldUploadToDrive } from "../src/drive/sync.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -213,6 +214,19 @@ await check("about.get supplies the account name without another scope", async (
   });
   const user = await getUser(fetchImpl, "token");
   assert.equal(user.displayName, "James");
+});
+
+await check("a remembered Drive file loads when signed in and never uploads first", () => {
+  assert.deepEqual(driveBootAction({ fileId: "", signedIn: true }), { action: "keep-local" });
+  assert.deepEqual(driveBootAction({ fileId: "file-7", signedIn: true }), { action: "load", fileId: "file-7" });
+  assert.deepEqual(driveBootAction({ fileId: "file-7", signedIn: false }), { action: "prompt", fileId: "file-7" });
+  assert.equal(shouldUploadToDrive({ dirty: true, loaded: false, signedIn: true, paused: false, saving: false }), false);
+  assert.equal(shouldUploadToDrive({ dirty: true, loaded: true, signedIn: false, paused: false, saving: false }), false);
+  assert.equal(shouldUploadToDrive({ dirty: true, loaded: true, signedIn: true, paused: true, saving: false }), false);
+  assert.equal(shouldUploadToDrive({ dirty: false, loaded: true, signedIn: true, paused: false, saving: false }), false);
+  assert.equal(shouldUploadToDrive({ dirty: true, loaded: true, signedIn: true, paused: false, saving: false }), true);
+  assert.ok(DRIVE_DEBOUNCE_MS >= 2000 && DRIVE_DEBOUNCE_MS <= 8000);
+  assert.ok(DRIVE_INTERVAL_MS > DRIVE_DEBOUNCE_MS);
 });
 
 if (failed) {

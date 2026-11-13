@@ -212,14 +212,16 @@ function wallOnSide(house, edge, axis) {
 }
 
 export function footprintMatch(house, custom = []) {
+  const width = Number(house?.footprint?.width);
+  const depth = Number(house?.footprint?.depth);
+  if (!(width > 0) || !(depth > 0)) return null;
   const constraint = (house.constraints || []).find((item) => item.targetId === FOOTPRINT_WIDTH || item.targetId === FOOTPRINT_DEPTH);
   if (constraint) return constraintReadout(house, constraint, custom);
-  const aspect = Math.max(house.footprint.width, house.footprint.depth) / Math.min(house.footprint.width, house.footprint.depth);
   const match = roomProportion({ polygon: [
     { x: 0, y: 0 },
-    { x: house.footprint.width, y: 0 },
-    { x: house.footprint.width, y: house.footprint.depth },
-    { x: 0, y: house.footprint.depth },
+    { x: width, y: 0 },
+    { x: width, y: depth },
+    { x: 0, y: depth },
   ] }, custom);
   return { phrase: match.phrase, match: match.match };
 }

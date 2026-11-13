@@ -1,7 +1,6 @@
 import { googleClientId, googleConfigured } from "../auth/config.js";
 import { createGoogleAuth } from "../auth/google.js";
 import {
-  AUTOSAVE_MS,
   createDesign,
   designNameFromFile,
   ensureAppFolder,
@@ -13,6 +12,7 @@ import {
   validShareEmail,
   DriveError,
 } from "../drive/client.js";
+import { DRIVE_DEBOUNCE_MS, DRIVE_INTERVAL_MS, driveBootAction, shouldUploadToDrive } from "../drive/sync.js";
 
 const DRIVE_KEY = "house-builder.drive.v1";
 
@@ -31,16 +31,25 @@ export function attachAccount({ editor }) {
   const dialog = document.querySelector("#drive-dialog");
   const auth = googleConfigured ? createGoogleAuth({ clientId: googleClientId }) : null;
   let user = null;
-  let currentFile = readBinding();
+  let currentFile = null;
+  let remembered = readBinding();
   let folderId = null;
   let timer = 0;
   let paused = false;
   let saving = false;
+  let driveLoaded = false;
+  let dirty = false;
+  let dirtyGen = 0;
 
   const linked = new URLSearchParams(window.location.search).get("file");
   renderAccount();
   wireMenu();
-  if (auth?.hadSession()) restoreSession();
+  bootDrive();
+  window.setInterval(() => {
+    if (shouldUploadToDrive({ dirty, loaded: driveLoaded, signedIn: Boolean(user && auth), paused, saving })) {
+      saveNow({ auto: true });
+    }
+  }, DRIVE_INTERVAL_MS);
 
   function renderAccount() {
     if (!googleConfigured) {
@@ -63,7 +72,9 @@ export function attachAccount({ editor }) {
       auth.signOut();
       user = null;
       window.clearTimeout(timer);
-      setStatus("", "");
+      dirty = false;
+      if (remembered?.id) showDrivePrompt();
+      else setStatus("", "");
       renderAccount();
     });
   }
@@ -73,34 +84,78 @@ export function attachAccount({ editor }) {
     document.querySelector("#drive-save-as").addEventListener("click", () => { closeMenu(); saveAs(); });
     document.querySelector("#drive-open").addEventListener("click", () => { closeMenu(); openFromDrive(); });
     document.querySelector("#drive-share").addEventListener("click", () => { closeMenu(); shareWith(); });
+    document.querySelector("#drive-banner-load")?.addEventListener("click", () => loadRemembered());
     statusEl.addEventListener("click", () => {
-      if (statusEl.dataset.state === "reconnect") signIn(true);
+      if (statusEl.dataset.state !== "reconnect") return;
+      if ((remembered?.id || linked) && !driveLoaded) loadRemembered();
+      else signIn(true);
     });
+  }
+
+  function bootDrive() {
+    const fileId = remembered?.id || linked;
+    if (!auth || driveBootAction({ fileId, signedIn: false }).action === "keep-local") return;
+    if (auth.hadSession()) restoreSession();
+    else showDrivePrompt();
+  }
+
+  function showDrivePrompt() {
+    const banner = document.querySelector("#drive-banner");
+    if (banner) banner.hidden = false;
+    setStatus("reconnect", "Reconnect to load your Drive plan");
+  }
+
+  function hideDrivePrompt() {
+    const banner = document.querySelector("#drive-banner");
+    if (banner) banner.hidden = true;
   }
 
   function onDocument(source) {
     if (source === "import" || source === "reset") {
       currentFile = null;
+      remembered = null;
+      driveLoaded = false;
+      dirty = false;
       folderId = null;
       paused = false;
       window.clearTimeout(timer);
       writeBinding(null);
+      hideDrivePrompt();
       if (source === "reset") setStatus("", "");
       return;
     }
-    if (source !== "edit" || !auth || !user || !currentFile || paused) return;
+    if (source !== "edit") return;
+    if (!shouldUploadToDrive({ dirty: true, loaded: driveLoaded, signedIn: Boolean(auth && user), paused, saving: false })) return;
+    dirty = true;
+    dirtyGen += 1;
+    setStatus("saving", "Saving to Drive...");
     window.clearTimeout(timer);
-    timer = window.setTimeout(() => { saveNow({ auto: true }); }, AUTOSAVE_MS);
+    timer = window.setTimeout(() => { saveNow({ auto: true }); }, DRIVE_DEBOUNCE_MS);
   }
 
   async function restoreSession() {
     try {
       await auth.token({ interactive: false });
       await refreshUser();
+      const fileId = linked || remembered?.id;
+      const action = driveBootAction({ fileId, signedIn: true });
       if (linked) await openFileId(linked, { fromLink: true });
+      else if (action.action === "load") await openFileId(action.fileId, { confirm: false });
     } catch {
-      setStatus("reconnect", "Reconnect Google");
+      if (remembered?.id || linked) showDrivePrompt();
+      else setStatus("reconnect", "Sign in to Google again");
     }
+  }
+
+  async function loadRemembered() {
+    const fileId = remembered?.id || linked;
+    if (!fileId || !auth) return;
+    if (!user) {
+      const ok = await signIn(true);
+      if (!ok) return;
+    }
+    if (driveLoaded && currentFile?.id === fileId) return;
+    await openFileId(fileId, { confirm: false });
   }
 
   async function signIn(interactive) {
@@ -108,8 +163,7 @@ export function attachAccount({ editor }) {
     try {
       await auth.token({ interactive, force: interactive });
       await refreshUser();
-      setStatus(currentFile ? "saved" : "", currentFile ? "Saved" : "");
-      if (linked) await openFileId(linked, { fromLink: true });
+      if (driveLoaded) setStatus("saved", "Saved to Drive");
       return true;
     } catch (error) {
       if (interactive && (error.code === "access_denied" || String(error.message || "").includes("access_denied"))) {
@@ -117,7 +171,8 @@ export function attachAccount({ editor }) {
       } else if (interactive && /popup_closed|popup_failed/.test(String(error.message || ""))) {
         message("Google sign-in", "The Google window closed before sign-in finished.");
       } else if (interactive) message("Google sign-in", error.message || "Google sign-in failed.");
-      else setStatus("reconnect", "Reconnect Google");
+      else if (remembered?.id) showDrivePrompt();
+      else setStatus("reconnect", "Sign in to Google again");
       return false;
     }
   }
@@ -164,6 +219,9 @@ export function attachAccount({ editor }) {
     if (!name) return;
     paused = false;
     currentFile = null;
+    remembered = null;
+    driveLoaded = false;
+    dirty = false;
     writeBinding(null);
     editor.setDesignName(name);
     await saveNow({ create: true });
@@ -174,8 +232,11 @@ export function attachAccount({ editor }) {
     if (saving) return;
     window.clearTimeout(timer);
     const house = editor.house();
+    if (!create && !currentFile) return;
+    if (auto && !shouldUploadToDrive({ dirty, loaded: driveLoaded, signedIn: true, paused, saving: false })) return;
+    const gen = dirtyGen;
     saving = true;
-    setStatus("saving", "Saving");
+    setStatus("saving", "Saving to Drive...");
     try {
       const saved = await withAuth(async (token) => {
         if (!folderId) folderId = await ensureAppFolder(fetch, token);
@@ -191,9 +252,13 @@ export function attachAccount({ editor }) {
         });
       });
       currentFile = { id: saved.id, name: saved.name, modifiedTime: saved.modifiedTime };
+      remembered = currentFile;
+      driveLoaded = true;
+      if (dirtyGen === gen) dirty = false;
       writeBinding(currentFile);
       paused = false;
-      setStatus("saved", "Saved");
+      hideDrivePrompt();
+      setStatus("saved", "Saved to Drive");
     } catch (error) {
       if (error instanceof DriveError && error.code === "conflict") {
         const overwrite = window.confirm("This file changed in Drive since you opened it. Overwrite it?");
@@ -207,7 +272,8 @@ export function attachAccount({ editor }) {
         return;
       }
       if (error?.code === "auth" || error?.code === "reconnect") {
-        setStatus("reconnect", "Reconnect Google");
+        setStatus("reconnect", remembered?.id && !driveLoaded ? "Reconnect to load your Drive plan" : "Sign in to Google again");
+        if (remembered?.id && !driveLoaded) showDrivePrompt();
         return;
       }
       if (error?.code === "offline" || navigator.onLine === false) {
@@ -254,37 +320,50 @@ export function attachAccount({ editor }) {
     });
   }
 
-  async function openFileId(fileId, { fromLink }) {
-    if (!fileId || !auth) return;
+  async function openFileId(fileId, { fromLink = false, confirm = fromLink } = {}) {
+    if (!fileId || !auth) return false;
     if (!user) {
       const ok = await signIn(true);
-      if (!ok) return;
+      if (!ok) return false;
     }
-    const replace = fromLink
-      ? window.confirm("Open this Drive design? It replaces the house saved on this device.")
-      : true;
-    if (!replace) return;
+    if (confirm && !window.confirm("Open this Drive design? It replaces the house saved on this device.")) return false;
     try {
       const loaded = await withAuth((token) => readDesign(fetch, token, fileId));
       if (!editor.loadHouse(loaded.house)) {
         message("Open from Drive", "That file is not a house this app can read.");
-        return;
+        return false;
       }
       currentFile = { id: loaded.id, name: loaded.name, modifiedTime: loaded.modifiedTime };
+      remembered = currentFile;
+      driveLoaded = true;
+      dirty = false;
       const title = designNameFromFile(loaded.name);
       if (loaded.house.name !== title) editor.setDesignName(title);
       writeBinding(currentFile);
       paused = false;
-      setStatus("saved", "Saved");
+      hideDrivePrompt();
+      setStatus("saved", "Saved to Drive");
+      return true;
     } catch (error) {
       if (error?.code === "not-found") {
         message(
           "Can't open that Drive file",
           "drive.file only sees files this app created or that you opened with it. A file Sophie shared from her own sign-in stays hidden until Google Picker is added (that needs an API key). She can also use Export JSON and you can Import it.",
         );
-        return;
+        if (remembered?.id === fileId) {
+          remembered = null;
+          writeBinding(null);
+          hideDrivePrompt();
+          setStatus("", "");
+        }
+        return false;
+      }
+      if (error?.code === "auth" || error?.code === "reconnect") {
+        showDrivePrompt();
+        return false;
       }
       handleListError(error);
+      return false;
     }
   }
 
@@ -315,7 +394,8 @@ export function attachAccount({ editor }) {
 
   function handleListError(error) {
     if (error?.code === "auth" || error?.code === "reconnect") {
-      setStatus("reconnect", "Reconnect Google");
+      if (remembered?.id && !driveLoaded) showDrivePrompt();
+      else setStatus("reconnect", "Sign in to Google again");
       return;
     }
     if (error?.code === "offline") {
@@ -384,8 +464,12 @@ export function attachAccount({ editor }) {
         });
       });
       currentFile = null;
+      remembered = null;
+      driveLoaded = false;
+      dirty = false;
       writeBinding(null);
-      setStatus("saved", "Saved a copy");
+      hideDrivePrompt();
+      setStatus("saved", "Saved a copy to Drive");
       return true;
     } catch {
       setStatus("offline", "Not saved");
@@ -395,7 +479,12 @@ export function attachAccount({ editor }) {
 
   function unbind() {
     currentFile = null;
+    remembered = null;
+    driveLoaded = false;
+    dirty = false;
+    window.clearTimeout(timer);
     writeBinding(null);
+    hideDrivePrompt();
   }
 
   return {
