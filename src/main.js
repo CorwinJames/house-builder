@@ -168,6 +168,15 @@ app.innerHTML = `
   </div>
   <div id="budget-toast" class="budget-toast" hidden></div>
   <div id="app-toast" class="app-toast" hidden></div>
+  <form id="wall-measure" class="wall-measure" hidden>
+    <p class="fine" id="measure-join">0° points east. The angle turns counterclockwise.</p>
+    <label>Length <input id="measure-length" autocomplete="off" inputmode="decimal" /></label>
+    <label>Angle (°) <input id="measure-angle" autocomplete="off" inputmode="decimal" /></label>
+    <div class="measure-actions">
+      <button type="submit" class="primary">Set it</button>
+      <button type="button" id="measure-cancel">Cancel</button>
+    </div>
+  </form>
   <div class="scrim" id="scrim" hidden></div>
   <dialog id="new-plan-dialog" class="cost-dialog">
     <header class="cost-head"><h2>New plan</h2><button type="button" data-close>Close</button></header>

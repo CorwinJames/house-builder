@@ -61,6 +61,7 @@ export function createPlanView(canvas, initialHouse) {
   let onChange = () => {};
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let labelBoxes = [];
+  let measureLabelHit = null;
   let cameraReady = false;
   let openedFrame = false;
   let ratioFontReady = false;
@@ -976,6 +977,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     if (!openedFrame && w > 20 && h > 20) openedFrame = true;
     labelBoxes = [];
+    measureLabelHit = null;
     const dpr = pixelRatio(w, h);
     const pw = Math.round(w * dpr);
     const ph = Math.round(h * dpr);
@@ -1433,16 +1435,96 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  function drawWorldArc(cx, cy, radius, fromDeg, toDeg, anticlockwise) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, (-fromDeg * Math.PI) / 180, (-toDeg * Math.PI) / 180, anticlockwise);
+  }
+
+  function drawAngleMark(mark) {
+    if (!mark?.arc || !(mark.length > 0.2)) return;
+    const origin = worldToScreen(mark.arc.x, mark.arc.y);
+    const radius = 22;
+    const sweep = ((mark.arc.to % 360) + 360) % 360;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#2F5D45";
+    ctx.fillStyle = "rgba(47, 93, 69, 0.16)";
+    ctx.beginPath();
+    ctx.moveTo(origin.x + 6, origin.y);
+    ctx.lineTo(origin.x + radius + 8, origin.y);
+    ctx.stroke();
+    ctx.font = "700 11px Outfit, sans-serif";
+    ctx.fillStyle = "#2F5D45";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText("east", origin.x + radius + 10, origin.y - 8);
+    if (sweep > 0.5) {
+      if (sweep <= 180) {
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.arc(origin.x, origin.y, radius, 0, (-sweep * Math.PI) / 180, true);
+        ctx.closePath();
+        ctx.fill();
+      }
+      drawWorldArc(origin.x, origin.y, radius, 0, sweep, true);
+      ctx.stroke();
+    }
+    if (mark.join && mark.join.degrees > 0.5) {
+      const joint = worldToScreen(mark.join.x, mark.join.y);
+      let turn = ((mark.join.to - mark.join.from + 540) % 360) - 180;
+      ctx.strokeStyle = "#9C5B2A";
+      ctx.fillStyle = "rgba(156, 91, 42, 0.18)";
+      ctx.beginPath();
+      ctx.moveTo(joint.x, joint.y);
+      ctx.arc(
+        joint.x,
+        joint.y,
+        radius + 8,
+        (-mark.join.from * Math.PI) / 180,
+        (-mark.join.to * Math.PI) / 180,
+        turn > 0,
+      );
+      ctx.closePath();
+      ctx.fill();
+      drawWorldArc(joint.x, joint.y, radius + 8, mark.join.from, mark.join.to, turn > 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawMeasurePill(text, screenX, screenY) {
+    ctx.save();
+    ctx.font = "700 13px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const padX = 8;
+    const textW = ctx.measureText(text).width;
+    const pillW = Math.min(textW + padX * 2, Math.max(80, canvas.clientWidth - 16));
+    const pillH = 26;
+    let pillX = screenX - pillW / 2;
+    let pillY = screenY - 18 - pillH;
+    if (pillX < 8) pillX = 8;
+    if (pillX + pillW > canvas.clientWidth - 8) pillX = Math.max(8, canvas.clientWidth - pillW - 8);
+    if (pillY < 8) pillY = screenY + 14;
+    ctx.fillStyle = "rgba(247, 243, 235, 0.97)";
+    ctx.strokeStyle = "#2F5D45";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(pillX, pillY, pillW, pillH, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#1d3d2e";
+    ctx.fillText(text, pillX + pillW / 2, pillY + pillH / 2, pillW - padX * 2);
+    ctx.restore();
+    measureLabelHit = { x: pillX, y: pillY, w: pillW, h: pillH };
+  }
+
   function drawOverlay() {
     if (!overlay) return;
+    drawAngleMark(overlay.measure);
     if (overlay.moveLabel) {
       const screen = worldToScreen(overlay.moveLabel.x, overlay.moveLabel.y);
-      ctx.save();
-      ctx.font = "700 13px Outfit, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#2A241B";
-      ctx.fillText(overlay.moveLabel.text, screen.x, screen.y - 16);
-      ctx.restore();
+      drawMeasurePill(overlay.moveLabel.text, screen.x, screen.y);
     }
     const warnedWalls = overlay.warningWalls || [];
     const warnedOpenings = overlay.warningOpenings || [];
@@ -1500,8 +1582,8 @@ export function createPlanView(canvas, initialHouse) {
         let pillY = anchorY + ny * (pillH + 14) - pillH / 2;
         if (pillY < 8) pillY = anchorY - ny * (pillH + 14) - pillH / 2;
         if (pillX < 8) pillX = 8;
-        if (pillX + pillW > canvas.width - 8) pillX = canvas.width - pillW - 8;
-        if (pillY + pillH > canvas.height - 8) pillY = Math.max(8, anchorY - pillH - 10);
+        if (pillX + pillW > canvas.clientWidth - 8) pillX = Math.max(8, canvas.clientWidth - pillW - 8);
+        if (pillY + pillH > canvas.clientHeight - 8) pillY = Math.max(8, anchorY - pillH - 10);
         const box = { pillX, pillY, pillW, pillH };
         const hit = boxes.some((other) => (
           box.pillX < other.pillX + other.pillW + 10
@@ -1509,7 +1591,7 @@ export function createPlanView(canvas, initialHouse) {
           && box.pillY < other.pillY + other.pillH + 8
           && box.pillY + box.pillH + 8 > other.pillY
         ));
-        if (hit) { ctx.restore(); return false; }
+        if (hit) { ctx.restore(); return null; }
         boxes.push(box);
         ctx.beginPath();
         ctx.arc(anchorX, anchorY, 3.5, 0, Math.PI * 2);
@@ -1525,7 +1607,7 @@ export function createPlanView(canvas, initialHouse) {
         ctx.fillStyle = "#1d3d2e";
         ctx.fillText(text, pillX + pillW / 2, pillY + pillH / 2);
         ctx.restore();
-        return true;
+        return box;
       };
       const readable = pickReadableTicks(
         overlay.draft.ticks || [],
@@ -1534,7 +1616,10 @@ export function createPlanView(canvas, initialHouse) {
         110,
         3,
       );
-      if (overlay.draft.lengthLabel) drawPill(overlay.draft.lengthLabel, b.x, b.y);
+      if (overlay.draft.lengthLabel) {
+        const box = drawPill(overlay.draft.lengthLabel, b.x, b.y);
+        if (box) measureLabelHit = { x: box.pillX, y: box.pillY, w: box.pillW, h: box.pillH };
+      }
       for (const tick of readable) drawPill(tick.label, tick.pos.x, tick.pos.y);
     }
     const drawBox = (rect, fill) => {
@@ -1834,8 +1919,16 @@ export function createPlanView(canvas, initialHouse) {
     render();
   }
 
+  function hitMeasureLabel(local) {
+    const box = measureLabelHit;
+    if (!box) return false;
+    return local.x >= box.x - 4 && local.x <= box.x + box.w + 4 && local.y >= box.y - 4 && local.y <= box.y + box.h + 4;
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
-    const badge = badgeAt(localPoint(event));
+    const local = localPoint(event);
+    if (event.button === 0 && hitMeasureLabel(local) && buildHooks?.label?.(event)) return;
+    const badge = badgeAt(local);
     if (badge) {
       pinnedBadge = badge;
       badgeNote = badge;
@@ -2062,6 +2155,16 @@ export function createPlanView(canvas, initialHouse) {
     },
     getCamera() {
       return { ...camera };
+    },
+    measureLabelBox() {
+      if (!measureLabelHit) return null;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        left: rect.left + measureLabelHit.x,
+        top: rect.top + measureLabelHit.y,
+        width: measureLabelHit.w,
+        height: measureLabelHit.h,
+      };
     },
     clientToWorld(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();

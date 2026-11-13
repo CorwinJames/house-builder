@@ -1246,6 +1246,24 @@ button:focus-visible {
   font-size: 0.82rem;
 }
 .tool-hint button { min-height: 32px; border: 0; background: transparent; color: inherit; font-weight: 700; }
+.wall-measure:not([hidden]) {
+  position: fixed;
+  z-index: 24;
+  display: grid;
+  gap: 8px;
+  width: min(280px, calc(100vw - 24px));
+  padding: 12px 14px;
+  background: #f7f3eb;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(42, 36, 27, 0.18);
+}
+.wall-measure .fine { margin: 0; }
+.wall-measure label { display: grid; gap: 4px; font-weight: 700; }
+.wall-measure input { min-height: 36px; width: 100%; }
+.wall-measure .measure-actions { display: flex; gap: 8px; }
+.wall-measure button { min-height: 36px; }
 .budget-toast, .app-toast {
   position: fixed;
   z-index: 20;
