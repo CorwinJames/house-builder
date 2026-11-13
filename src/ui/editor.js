@@ -23,7 +23,8 @@ import { syncRooms } from "../build/rooms.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
-import { projectOntoWall, snapDrawingPoint, snapPointToGrid, snapToGrid } from "../build/snap.js";
+import { FINE_GRID_FT, placePoint, projectOntoWall, snapDrawingPoint, snapToGrid } from "../build/snap.js";
+import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import { applyFix, evaluateRules, warningTargets } from "../rules/index.js";
 import { isFutureShown, isPhaseVisible } from "../render/visibility.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
@@ -73,7 +74,7 @@ const validate = ajv.compile(schema);
 
 const TOOLS = [
   { id: "select", label: "Select", icon: "↖", tip: "Click a wall, room, or part" },
-  { id: "wall", label: "Wall", icon: "▬", tip: "Drag a wall. It snaps." },
+  { id: "wall", label: "Wall", icon: "▬", tip: "Drag a wall. It follows the cursor." },
   { id: "room", label: "Room", icon: "▢", tip: "Drag a rectangle of walls" },
   { id: "door", label: "Door", icon: "⌂", tip: "Drag a door along a wall" },
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
@@ -85,7 +86,7 @@ const TOOLS = [
 
 const TOOL_HINTS = {
   select: "Click anything to open its card.",
-  wall: "Drag to draw a wall. It snaps to the grid and to other walls.",
+  wall: "Drag to draw a wall. It lands where you let go. Snap to grid lines it up.",
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
@@ -96,10 +97,10 @@ const TOOL_HINTS = {
 };
 
 const TUTORIAL = [
-  "Drag on the plan to draw a wall. It snaps to the grid, to other walls, and to 45 degree angles.",
+  "Drag on the plan to draw a wall. It follows the cursor and lands where you let go.",
   "Room draws a rectangle of walls. The south side suggests rammed earth. The other sides suggest hempcrete.",
   "Door shows only doors. Window shows only windows. Set the size, then drag along a wall.",
-  "Select a wall and drag the round handles, or drag empty space to slide the plan. Undo is on the plan, or Ctrl Z.",
+  "Select a wall and drag a round handle. It follows the cursor. Snap to grid lines it up. Undo is on the plan, or Ctrl Z.",
   "Electrical places outlets, lights, switches, and the panel. Suggest placements draws ghost outlets you can accept.",
 ];
 
@@ -115,9 +116,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let tool = "select";
   let assemblyId = DEFAULT_EXTERIOR_ID;
   let assemblyExplicit = false;
-  let grid = 0.5;
+  let grid = FINE_GRID_FT;
   let catalogId = "door-30";
   let snapMode = "grid";
+  let snapOn = false;
+  let shiftHeld = false;
   let guidesOn = false;
   let selection = null;
   let picks = [];
@@ -230,6 +233,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   });
   document.addEventListener("show-finding", (event) => showFinding(event.detail));
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Shift") {
+      shiftHeld = true;
+      paintSnapButton();
+    }
     if (typingTarget(event.target)) return;
     const meta = event.metaKey || event.ctrlKey;
     if (event.code === "Space") {
@@ -252,6 +259,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       eraseSelection();
     } else if (event.key === "Escape") {
       event.preventDefault();
+      cancelLive();
+      if (gesture?.snapshot) {
+        house = gesture.snapshot;
+        plan.setHouse(house);
+        model.setHouse?.(house);
+      }
       gesture = null;
       hoverWorld = null;
       hoverPlace = null;
@@ -266,6 +279,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   });
   document.addEventListener("keyup", (event) => {
     if (event.code === "Space") spaceHeld = false;
+    if (event.key === "Shift") {
+      shiftHeld = false;
+      paintSnapButton();
+    }
   });
 
   refreshWarnings();
@@ -312,8 +329,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function ratioOrMagnet(origin, world) {
-    const magnet = snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetRadius() });
-    if (magnet.snapped === "end" || magnet.snapped === "mid") return magnet;
+    const magnet = snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetFeet() });
+    if (magnet.snapped === "end" || magnet.snapped === "mid" || magnet.snapped === "line") return magnet;
     return snapToRatioLength(
       origin,
       world,
@@ -343,6 +360,36 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function magnetRadius() {
     const camera = plan.getCamera();
     return Math.max(0.55, 16 / (camera.pxPerFt || 8));
+  }
+
+  function snapping(event) {
+    return snapOn || !!(event && event.shiftKey);
+  }
+
+  function magnetFeet() {
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return Math.min(1.25, 12 / scale);
+  }
+
+  function aim(world, event, origin, walls) {
+    if (snapping(event) && snapMode === "ratio" && origin) return ratioOrMagnet(origin, world);
+    return placePoint(world, {
+      snap: snapping(event),
+      grid,
+      walls: walls || [],
+      origin: origin || null,
+      magnetFeet: snapping(event) ? magnetFeet() : 0,
+    });
+  }
+
+  function movedEnough(from, to) {
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return Math.hypot(to.x - from.x, to.y - from.y) * scale >= 3;
+  }
+
+  function snapInches() {
+    const inches = Math.round(grid * 12);
+    return inches === 1 ? "1 inch" : `${inches} inches`;
   }
 
   function hitTest(world) {
@@ -502,9 +549,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return true;
     }
     if (tool === "wall" || tool === "room") {
-      const start = tool === "room"
-        ? snapPointToGrid(world, grid)
-        : snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetRadius() });
+      const start = aim(world, event, null, house.walls);
       gesture = { kind: tool, start, origin: world, snapshot: cloneHouse(house), clientX: event.clientX, clientY: event.clientY };
       armPan();
       return true;
@@ -600,30 +645,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (gesture.kind === "wall" || gesture.kind === "room") {
       window.clearTimeout(longTimer);
-      const end = gesture.kind === "room"
-        ? { ...snapPointToGrid(world, grid), length: 0 }
-        : snapMode === "ratio"
-          ? ratioOrMagnet(gesture.start, world)
-          : snapDrawingPoint(world, {
-            grid,
-            walls: house.walls,
-            origin: gesture.start,
-            magnetRadius: magnetRadius(),
-          });
-      gesture.end = end;
+      gesture.end = aim(world, event, gesture.start, house.walls);
       gesture.moved = true;
-      publish();
+      scheduleLive();
       return;
     }
     if (gesture.kind === "opening") {
       window.clearTimeout(longTimer);
-      gesture.place = openingSpot(world);
+      gesture.place = openingSpot(world, openingStep(event));
       gesture.moved = true;
-      publish();
+      scheduleLive();
       return;
     }
     if (gesture.kind === "endpoint" && gesture.hit) {
-      if (Math.hypot(world.x - gesture.origin.x, world.y - gesture.origin.y) < 0.15) return;
+      if (!gesture.moved && !movedEnough(gesture.origin, world)) return;
       window.clearTimeout(longTimer);
       gesture.moved = true;
       const wall = gesture.snapshot.walls.find((item) => item.id === gesture.hit.wallId);
@@ -631,17 +666,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ? wall.end
         : wall?.start;
       const others = gesture.snapshot.walls.filter((item) => item.id !== gesture.hit.wallId);
-      const snapped = snapDrawingPoint(world, { grid, walls: others, origin: other || null, magnetRadius: magnetRadius() });
-      preview(moveEndpointGroup(gesture.snapshot, gesture.hit.point, snapped));
+      const snapped = aim(world, event, other || null, others);
+      scheduleLive(moveEndpointGroup(gesture.snapshot, gesture.hit.point, snapped));
       return;
     }
     if (gesture.kind === "select" && gesture.hit?.type === "wall") {
       const dx = world.x - gesture.origin.x;
       const dy = world.y - gesture.origin.y;
-      if (!gesture.moved && Math.hypot(dx, dy) < 0.2) return;
+      if (!gesture.moved && !movedEnough(gesture.origin, world)) return;
       window.clearTimeout(longTimer);
       gesture.moved = true;
-      preview(translateWall(gesture.snapshot, gesture.hit.id, snapToGrid(dx, grid), snapToGrid(dy, grid)));
+      const step = snapping(event) ? grid : 0;
+      const sdx = step ? snapToGrid(dx, step) : dx;
+      const sdy = step ? snapToGrid(dy, step) : dy;
+      scheduleLive(translateWall(gesture.snapshot, gesture.hit.id, sdx, sdy));
       return;
     }
     if (gesture.kind === "select" && (["fixture", "device", "panel", "entry", "well", "septic", "drainfield", "reserve"].includes(gesture.hit?.type) || movablePiece(gesture.hit, gesture.snapshot))) {
@@ -650,8 +688,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!gesture.moved && Math.hypot(dx, dy) < 0.35) return;
       window.clearTimeout(longTimer);
       gesture.moved = true;
-      preview(movablePiece(gesture.hit, gesture.snapshot)
-        ? movePiece(gesture.snapshot, gesture.hit, world.x - gesture.origin.x, world.y - gesture.origin.y)
+      const step = snapping(event) ? grid : 0;
+      scheduleLive(movablePiece(gesture.hit, gesture.snapshot)
+        ? movePiece(gesture.snapshot, gesture.hit, dx, dy, step)
         : relocate(gesture.snapshot, gesture.hit, world));
       return;
     }
@@ -663,16 +702,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!hit) return;
       window.clearTimeout(longTimer);
       gesture.moved = true;
-      const slid = snapOpeningOffset(wall, gesture.snapshot.openings, hit.offset - opening.width / 2, opening.width, grid, opening.id);
+      const slid = snapOpeningOffset(wall, gesture.snapshot.openings, hit.offset - opening.width / 2, opening.width, openingStep(event), opening.id);
       const next = cloneHouse(gesture.snapshot);
       const target = next.openings.find((item) => item.id === opening.id);
       if (target && slid.ok) target.offset = slid.offset;
-      preview(next);
+      scheduleLive(next);
     }
   }
 
   function onUp(event, world) {
     window.clearTimeout(longTimer);
+    flushLive();
     const current = gesture;
     gesture = null;
     if (!current) return;
@@ -758,10 +798,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return kind === "study" || kind === "site";
   }
 
-  function movePiece(snapshot, hit, dx, dy) {
+  function movePiece(snapshot, hit, dx, dy, step = 0) {
     const next = cloneHouse(snapshot);
-    const shift = snapToGrid(dx, grid);
-    const nudge = snapToGrid(dy, grid);
+    const shift = step ? snapToGrid(dx, step) : dx;
+    const nudge = step ? snapToGrid(dy, step) : dy;
     if (hit.type === "room") {
       const room = next.rooms.find((item) => item.id === hit.id);
       if (!room) return next;
@@ -889,14 +929,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     model.setOverlay?.(overlay);
   }
 
-  function openingSpot(world) {
+  function openingStep(event) {
+    return snapping(event) ? grid : 1 / 48;
+  }
+
+  function openingSpot(world, step = grid) {
     const item = catalogItem();
     let best = null;
     for (const wall of house.walls) {
       if (!visibleWall(wall)) continue;
       const hit = projectOntoWall(world, wall);
       if (!hit || hit.distance > wall.thickness / 2 + magnetRadius()) continue;
-      const slid = snapOpeningOffset(wall, house.openings, hit.offset - item.width / 2, item.width, grid);
+      const slid = snapOpeningOffset(wall, house.openings, hit.offset - item.width / 2, item.width, step);
       if (!best || hit.distance < best.distance) {
         best = { wall, offset: slid.offset, width: item.width, ok: slid.ok, distance: hit.distance };
       }
@@ -914,6 +958,43 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     house = next;
     refreshWarnings();
     pushViews();
+  }
+
+  let pendingHouse = null;
+  let liveFrame = 0;
+
+  function scheduleLive(nextHouse) {
+    if (nextHouse) pendingHouse = nextHouse;
+    if (liveFrame) return;
+    liveFrame = requestAnimationFrame(() => {
+      liveFrame = 0;
+      if (pendingHouse) {
+        house = syncRooms(pendingHouse);
+        pendingHouse = null;
+        plan.setHouse(house, { silent: true });
+        model.setHouse?.(house);
+      }
+      const overlayNow = makeOverlay();
+      plan.setOverlay(overlayNow);
+      model.setOverlay?.(overlayNow);
+    });
+  }
+
+  function flushLive() {
+    if (liveFrame) {
+      cancelAnimationFrame(liveFrame);
+      liveFrame = 0;
+    }
+    if (pendingHouse) {
+      house = syncRooms(pendingHouse);
+      pendingHouse = null;
+    }
+  }
+
+  function cancelLive() {
+    if (liveFrame) cancelAnimationFrame(liveFrame);
+    liveFrame = 0;
+    pendingHouse = null;
   }
 
   function commit(next, baseline = null, note = "the last change") {
@@ -1332,6 +1413,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function moveLabel() {
+    if (gesture?.kind === "endpoint" && gesture.moved && gesture.hit) {
+      const wall = house.walls.find((item) => item.id === gesture.hit.wallId);
+      if (!wall) return null;
+      return {
+        x: (wall.start.x + wall.end.x) / 2,
+        y: (wall.start.y + wall.end.y) / 2,
+        text: formatFeetFine(wallLength(wall)).construction,
+      };
+    }
     if (gesture?.kind !== "select" || !gesture.moved || gesture.hit?.type !== "wall") return null;
     const wall = house.walls.find((item) => item.id === gesture.hit.id);
     if (!wall) return null;
@@ -1359,6 +1449,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     document.querySelectorAll("#tool-row button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
     });
+    paintSnapButton();
     document.querySelector("#undo").disabled = past.length === 0;
     document.querySelector("#redo").disabled = future.length === 0;
     paintToolOptions();
@@ -1391,8 +1482,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return `Water tool. Click a wall to place the ${fixtureSpec(fixtureKind).name.toLowerCase()}.${orbitNote}`;
     }
     const lines = {
-      select: "Select tool. Drag a box on empty plan to choose several items. Hold Shift and drag to add. Shift-click adds or removes one. Delete removes the selection.",
-      wall: "Wall tool. Drag to draw a wall.",
+      select: "Select tool. Drag a wall handle and it follows the cursor. Snap to grid lines it up. Drag a box on empty plan to choose several items. Hold Shift and drag to add. Shift-click adds or removes one. Delete removes the selection.",
+      wall: "Wall tool. Drag to draw a wall. It lands where you let go. Snap to grid lines it up.",
       room: "Room tool. Drag a rectangle.",
       door: "Door tool. Click a wall to place a door.",
       window: "Window tool. Click a wall to place a window.",
@@ -1559,7 +1650,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
             <button type="button" data-snap="grid" aria-pressed="${snapMode === "grid"}">Grid</button>
             <button type="button" data-snap="ratio" aria-pressed="${snapMode === "ratio"}">Ratio</button>
           </div>
-          <label>Size <select id="grid-size"><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
+          <label>Size <select id="grid-size"><option value="0.08333333333333333">1 in</option><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
           <label>Ratio <select id="project-ratio">${ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.symbol || ratio.name}</option>`).join("")}</select></label>
           <label>Module <input id="module-length" type="number" min="0.5" step="0.5" value="${house.proportion?.module || 8}" /> ft</label>
           <button type="button" id="guides-toggle" aria-pressed="${guidesOn}">Guides</button>
@@ -1608,7 +1699,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${warnings[0]?.message ? `<p class="warn-line" data-warn>${warnings[0].message}</p>` : `<p class="warn-line" data-warn hidden></p>`}`;
       return;
     }
-    box.innerHTML = `<p class="fine">Drag empty space to pan. Drag a wall handle to resize it.</p>`;
+    box.innerHTML = `<p class="fine">Drag a wall handle and it follows the cursor. Snap to grid lines it up. Tidy up shape squares the selection.</p>`;
   }
 
   function onHudClick(event) {
@@ -1640,6 +1731,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       return;
     }
+    if (event.target.closest("#snap-toggle")) {
+      snapOn = !snapOn;
+      paintSnapButton();
+      announce(snapOn
+        ? `Snap to grid is on. Ends line up to ${snapInches()}, to a nearby wall, or to a square corner. Hold Shift to snap for one drag.`
+        : "Snap is off. The wall end follows your cursor.", false);
+      return;
+    }
+    if (event.target.closest("#tidy-shape")) {
+      tidySelection();
+      return;
+    }
     const snap = event.target.closest("button[data-snap]");
     if (snap) {
       snapMode = snap.dataset.snap;
@@ -1655,6 +1758,30 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       commit(solveConstraints(house, { includeFootprint: true }).house);
       publish();
     }
+  }
+
+  function paintSnapButton() {
+    const button = document.querySelector("#snap-toggle");
+    if (!button) return;
+    button.setAttribute("aria-pressed", String(snapOn || shiftHeld));
+  }
+
+  function tidySelection() {
+    const ids = new Set();
+    for (const pick of picks) {
+      if (pick.type === "wall") ids.add(pick.id);
+      if (pick.type === "room") {
+        const room = (house.rooms || []).find((item) => item.id === pick.id);
+        for (const id of wallsTouchingRoom(house, room)) ids.add(id);
+      }
+    }
+    if (!ids.size) {
+      announce("Select a wall or a room, then tidy the shape.", false);
+      return;
+    }
+    const changed = commit(syncRooms(tidyHouse(house, [...ids])), house, "tidying the shape");
+    if (!changed) announce("Those walls are already tidy.", false);
+    else announce("Tidied the shape. Lengths use 3 inch steps, and near-square corners are square.");
   }
 
   function readOpeningFields() {

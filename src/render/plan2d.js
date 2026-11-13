@@ -69,6 +69,11 @@ export function createPlanView(canvas, initialHouse) {
   let pinch = null;
   let hoverCircuitId = null;
   let hoverPipeId = null;
+  let renderQueued = false;
+  let cameraSaveTimer = 0;
+  let electricalCache = null;
+  let plumbingCache = null;
+  let siteCache = null;
 
   let phoneLocked = false;
 
@@ -157,7 +162,7 @@ export function createPlanView(canvas, initialHouse) {
     if (w < 20 || h < 20) return;
     const future = state ? isFutureShown(state) : true;
     const siteMode = state?.focus === "site";
-    const siteView = siteMode && state?.layers?.site !== false ? buildSite(house) : null;
+    const siteView = siteMode && state?.layers?.site !== false ? cachedSite() : null;
     const footW = Number(house.footprint?.width);
     const footD = Number(house.footprint?.depth);
     const phaseBox = house.phases?.phase1?.bounds;
@@ -281,7 +286,7 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawSiteGround() {
     if (!siteOn()) return;
-    const view = buildSite(house);
+    const view = cachedSite();
     if (!view) return;
     ctx.save();
     drawRing(view.ring);
@@ -910,6 +915,47 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  function pixelRatio(w, h) {
+    const area = (w || 0) * (h || 0);
+    const cap = area > 700_000 ? 1.25 : 1.5;
+    return Math.min(window.devicePixelRatio || 1, cap);
+  }
+
+  function requestRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => {
+      renderQueued = false;
+      render();
+    });
+  }
+
+  function scheduleCameraSave() {
+    window.clearTimeout(cameraSaveTimer);
+    cameraSaveTimer = window.setTimeout(() => onChange({ ...camera }), 180);
+  }
+
+  function cachedSite() {
+    if (!siteCache || siteCache.house !== house) siteCache = { house, design: buildSite(house) };
+    return siteCache.design;
+  }
+
+  function cachedPlumbing() {
+    const phase = electricalPhase();
+    if (!plumbingCache || plumbingCache.house !== house || plumbingCache.phase !== phase) {
+      plumbingCache = { house, phase, design: buildPlumbing(house, { phase }) };
+    }
+    return plumbingCache.design;
+  }
+
+  function cachedElectrical() {
+    const phase = electricalPhase();
+    if (!electricalCache || electricalCache.house !== house || electricalCache.phase !== phase) {
+      electricalCache = { house, phase, design: buildElectrical(house, { phase }) };
+    }
+    return electricalCache.design;
+  }
+
   function render() {
     try {
     layoutCanvas();
@@ -930,7 +976,7 @@ export function createPlanView(canvas, initialHouse) {
     }
     if (!openedFrame && w > 20 && h > 20) openedFrame = true;
     labelBoxes = [];
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = pixelRatio(w, h);
     const pw = Math.round(w * dpr);
     const ph = Math.round(h * dpr);
     if (canvas.width !== pw || canvas.height !== ph) {
@@ -1033,7 +1079,7 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawPlumbing() {
     if (!state?.layers.plumbing || !house.plumbing) return;
-    const design = buildPlumbing(house, { phase: electricalPhase() });
+    const design = cachedPlumbing();
     const selectedId = overlay?.selection?.type === "fixture" ? overlay.selection.id : null;
     const active = hoverPipeId || (selectedId ? `fixture:${selectedId}` : null);
     ctx.save();
@@ -1225,7 +1271,7 @@ export function createPlanView(canvas, initialHouse) {
 
   function drawElectrical() {
     if (!state?.layers.electrical || !house.electrical) return;
-    const design = buildElectrical(house, { phase: electricalPhase() });
+    const design = cachedElectrical();
     const selectedId = overlay?.selection?.type === "device" ? overlay.selection.id : null;
     const activeId = hoverCircuitId || design.circuits.find((circuit) => circuit.deviceIds.includes(selectedId))?.id || null;
     ctx.save();
@@ -1855,7 +1901,7 @@ export function createPlanView(canvas, initialHouse) {
       let nextCircuit = null;
       let circuitDistance = Infinity;
       if (state?.layers.electrical && house.electrical) {
-        const design = buildElectrical(house, { phase: electricalPhase() });
+        const design = cachedElectrical();
         const hit = circuitFromPoint(design, world);
         if (hit) {
           nextCircuit = hit.circuit.id;
@@ -1865,7 +1911,7 @@ export function createPlanView(canvas, initialHouse) {
       let nextPipe = null;
       let pipeDistance = Infinity;
       if (state?.layers.plumbing && house.plumbing) {
-        const design = buildPlumbing(house, { phase: electricalPhase() });
+        const design = cachedPlumbing();
         const hit = pipeFromPoint(design, world);
         if (hit) {
           nextPipe = hit.id;
@@ -1898,7 +1944,7 @@ export function createPlanView(canvas, initialHouse) {
         camera.pxPerFt = Math.min(90, Math.max(2, pinch.camera.pxPerFt * (dist / pinch.dist)));
         camera.cx = pinch.world.x - (mid.x - size().w / 2) / camera.pxPerFt;
         camera.cy = pinch.world.y + (mid.y - size().h / 2) / camera.pxPerFt;
-        render();
+        requestRender();
       }
       return;
     }
@@ -1907,7 +1953,7 @@ export function createPlanView(canvas, initialHouse) {
     const dy = event.clientY - drag.y;
     camera.cx = drag.cx - dx / camera.pxPerFt;
     camera.cy = drag.cy + dy / camera.pxPerFt;
-    render();
+    requestRender();
   });
 
   function endPointer(event) {
@@ -1933,15 +1979,24 @@ export function createPlanView(canvas, initialHouse) {
     "wheel",
     (event) => {
       event.preventDefault();
-      const cursor = localPoint(event);
-      const before = screenToWorld(cursor.x, cursor.y);
-      const factor = Math.exp(-event.deltaY * 0.0011);
-      camera.pxPerFt = Math.min(90, Math.max(2, camera.pxPerFt * factor));
-      const after = screenToWorld(cursor.x, cursor.y);
-      camera.cx += before.x - after.x;
-      camera.cy += before.y - after.y;
-      render();
-      onChange({ ...camera });
+      const line = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 800 : 1;
+      const dx = event.deltaX * line;
+      const dy = event.deltaY * line;
+      const notch = !event.ctrlKey && event.deltaMode === 0 && Math.abs(event.deltaY) >= 50 && Math.abs(event.deltaX) < 1;
+      if (event.ctrlKey || notch) {
+        const cursor = localPoint(event);
+        const before = screenToWorld(cursor.x, cursor.y);
+        const gain = event.ctrlKey ? 0.007 : 0.0011;
+        camera.pxPerFt = Math.min(90, Math.max(2, camera.pxPerFt * Math.exp(-dy * gain)));
+        const after = screenToWorld(cursor.x, cursor.y);
+        camera.cx += before.x - after.x;
+        camera.cy += before.y - after.y;
+      } else {
+        camera.cx += dx / camera.pxPerFt;
+        camera.cy -= dy / camera.pxPerFt;
+      }
+      requestRender();
+      scheduleCameraSave();
     },
     { passive: false },
   );
@@ -1991,13 +2046,13 @@ export function createPlanView(canvas, initialHouse) {
     setOnChange(fn) {
       onChange = fn;
     },
-    setHouse(next) {
+    setHouse(next, options) {
       house = next;
-      render();
+      if (!options?.silent) render();
     },
-    setOverlay(next) {
+    setOverlay(next, options) {
       overlay = next;
-      render();
+      if (!options?.silent) render();
     },
     setBuildHooks(hooks) {
       buildHooks = hooks;
