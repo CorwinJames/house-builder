@@ -13,8 +13,6 @@ import {
   addWall,
   cloneHouse,
   decorateHouse,
-  deleteOpening,
-  deleteWall,
   moveEndpointGroup,
   placeOpening,
   resizeOpening,
@@ -27,9 +25,9 @@ import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
 import { projectOntoWall, snapDrawingPoint, snapPointToGrid, snapToGrid } from "../build/snap.js";
 import { applyFix, evaluateRules, warningTargets } from "../rules/index.js";
-import { isFutureShown } from "../render/visibility.js";
+import { isFutureShown, isPhaseVisible } from "../render/visibility.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
-import { polygonArea, wallLength } from "../lib/geom.js";
+import { pointAlong, polygonArea, wallLength } from "../lib/geom.js";
 import { furnitureFootprint } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
 import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
@@ -56,12 +54,14 @@ import {
   applyDeviceKind,
   buildElectrical,
   deviceFromClick,
+  devicePoint,
   deviceSpec,
   hitElectrical,
   plainCircuitLine,
   plainPlaceLabel,
   laborAssumption,
   panelFromClick,
+  panelPoint,
   suggestPanel,
   suggestPlacements,
   wallMethod,
@@ -120,6 +120,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let snapMode = "grid";
   let guidesOn = false;
   let selection = null;
+  let picks = [];
   let foldedFor = "";
   let gesture = null;
   let warnings = [];
@@ -165,12 +166,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   };
   plan.setBuildHooks(buildHooks);
   model.setBuildHooks?.(buildHooks);
-  model.setOnPick?.((pick) => {
+  model.setOnPick?.((pick, event) => {
     if (mode !== "build") return;
-    if (!pick) selection = null;
-    else if (typeof pick === "string") selection = { type: "wall", id: pick };
-    else if (pick.type && pick.id) selection = { type: pick.type, id: pick.id };
-    else selection = null;
+    const item = typeof pick === "string" ? { type: "wall", id: pick } : pickItem(pick);
+    if (event?.shiftKey && tool === "select" && item) togglePick(item);
+    else choose(item);
     publish();
   });
 
@@ -216,7 +216,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     fromSave = false;
     localStorage.removeItem(DOC_KEY);
     house = decorateHouse(sample);
-    selection = null;
+    choose(null);
     warnings = [];
     publish();
     onDocument?.("reset");
@@ -230,7 +230,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   });
   document.addEventListener("show-finding", (event) => showFinding(event.detail));
   document.addEventListener("keydown", (event) => {
-    if (event.target.matches("input, textarea, select")) return;
+    if (typingTarget(event.target)) return;
     const meta = event.metaKey || event.ctrlKey;
     if (event.code === "Space") {
       spaceHeld = true;
@@ -247,7 +247,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (meta && event.key.toLowerCase() === "y") {
       event.preventDefault();
       redo();
-    } else if (mode === "build" && (event.key === "Delete" || event.key === "Backspace") && selection) {
+    } else if (mode === "build" && tool === "select" && (event.key === "Delete" || event.key === "Backspace") && picks.length && !typingTarget(event.target)) {
       event.preventDefault();
       eraseSelection();
     } else if (event.key === "Escape") {
@@ -260,7 +260,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         tool = "select";
         optionsOpen = false;
         announce("Select tool. Esc canceled the last tool.", false);
-      } else selection = null;
+      } else choose(null);
       publish();
     }
   });
@@ -459,14 +459,28 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (tool === "select") {
       const pickedPiece = pieceSelection(extra?.pick);
       const hit = pickedPiece || hitTest(world) || extra?.pick || null;
-      if (!hit) {
-        selection = null;
-        publish();
-        return false;
+      const item = pickItem(hit);
+      if (event.shiftKey || !item) {
+        gesture = {
+          kind: "marquee",
+          start: world,
+          end: world,
+          origin: world,
+          additive: !!event.shiftKey,
+          moved: false,
+          base: event.shiftKey ? picks.map((pick) => ({ ...pick })) : [],
+          toggleHit: event.shiftKey ? item : null,
+          downX: event.clientX,
+          downY: event.clientY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+        return true;
       }
-      if (hit.type === "endpoint") selection = { type: "wall", id: hit.wallId };
-      else selection = { type: hit.type, id: hit.id };
-      const selectedWall = hit.type === "wall" ? house.walls.find((item) => item.id === hit.id) : null;
+      choose(item);
+      const selectedWall = hit.type === "wall" || hit.type === "endpoint"
+        ? house.walls.find((wall) => wall.id === item.id)
+        : null;
       gesture = {
         kind: hit?.type === "endpoint" ? "endpoint" : "select",
         hit,
@@ -483,11 +497,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "erase") {
       const hit = pieceSelection(extra?.pick) || hitTest(world) || extra?.pick || null;
-      if (hit?.type === "device" || hit?.type === "panel" || hit?.type === "fixture" || hit?.type === "entry" || hit?.type === "well" || hit?.type === "septic" || hit?.type === "drainfield" || hit?.type === "reserve") eraseSelection(hit);
-      else if (hit?.type === "wall") commit(syncRooms(deleteWall(house, hit.id)));
-      else if (hit?.type === "opening") commit(deleteOpening(house, hit.id));
-      else if (hit?.type === "room" || hit?.type === "furniture" || hit?.type === "siteFeature" || hit?.type === "planLabel") eraseSelection(hit);
-      selection = null;
+      const item = pickItem(hit);
+      if (item) deleteItems([item]);
       return true;
     }
     if (tool === "wall" || tool === "room") {
@@ -521,7 +532,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           height: 5,
           phase: preview.phase || "phase1",
         };
-        selection = { type: "panel", id: "panel" };
+        choose({ type: "panel", id: "panel" });
         panelGhost = null;
       } else if (tool === "electrical") {
         const device = deviceFromClick(next, { x: preview.x, y: preview.y }, deviceKind, { supply: pumpSupply });
@@ -530,7 +541,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         device.wallId = preview.wallId;
         device.offset = preview.offset;
         next.electrical.devices.push(device);
-        selection = { type: "device", id: device.id };
+        choose({ type: "device", id: device.id });
       } else if (fixtureKind === "entry") {
         next.plumbing.entry = {
           id: "water-entry",
@@ -540,7 +551,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           offset: preview.offset,
           phase: preview.phase || "phase1",
         };
-        selection = { type: "entry", id: "entry" };
+        choose({ type: "entry", id: "entry" });
       } else {
         const fixture = fixtureFromClick(next, { x: preview.x, y: preview.y }, fixtureKind);
         fixture.x = preview.x;
@@ -548,7 +559,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         fixture.wallId = preview.wallId;
         fixture.offset = preview.offset;
         next.plumbing.fixtures.push(fixture);
-        selection = { type: "fixture", id: fixture.id };
+        choose({ type: "fixture", id: fixture.id });
       }
       commit(next);
       announce(preview.placed);
@@ -556,7 +567,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "site") {
       const placed = placeSite(house, world, siteKind);
-      selection = placed.selection;
+      choose(placed.selection);
       commit(placed.house);
       announce(`Placed ${siteKind.replaceAll("-", " ")}.`);
       return true;
@@ -579,6 +590,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     gesture.clientX = event.clientX;
     gesture.clientY = event.clientY;
+    if (gesture.kind === "marquee") {
+      window.clearTimeout(longTimer);
+      const screen = Math.hypot(event.clientX - gesture.downX, event.clientY - gesture.downY);
+      if (screen > 6) gesture.moved = true;
+      gesture.end = world;
+      publish();
+      return;
+    }
     if (gesture.kind === "wall" || gesture.kind === "room") {
       window.clearTimeout(longTimer);
       const end = gesture.kind === "room"
@@ -657,6 +676,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const current = gesture;
     gesture = null;
     if (!current) return;
+    if (current.kind === "marquee") {
+      finishMarquee(current);
+      publish();
+      return;
+    }
     if (current.kind === "wall" && current.moved && current.end) {
       const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
       const added = addWall(house, current.start, current.end, chosen);
@@ -681,7 +705,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (current.kind === "opening" && current.place?.ok) {
       const placed = placeOpening(house, current.place.wall.id, catalogItem(), current.place.offset);
       if (placed.createdId) {
-        selection = { type: "opening", id: placed.createdId };
+        choose({ type: "opening", id: placed.createdId });
         commit(placed.house);
         announce(`Placed a ${catalogItem().type === "window" ? "window" : "door"}.`);
       } else {
@@ -829,7 +853,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!keep.has(ghost.kind)) continue;
       const placed = placeSite(next, { x: ghost.x, y: ghost.y }, ghost.kind);
       next = placed.house;
-      selection = placed.selection;
+      choose(placed.selection);
     }
     siteGhosts = siteGhosts.filter((ghost) => !keep.has(ghost.kind));
     optionsKey = "";
@@ -945,7 +969,208 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (sel.type === "furniture") return (doc.furniture || []).some((item) => item.id === sel.id);
     if (sel.type === "siteFeature") return (doc.siteFeatures || []).some((item) => item.id === sel.id);
     if (sel.type === "planLabel") return (doc.planLabels || []).some((item) => item.id === sel.id);
+    if (sel.type === "entry") return !!doc.plumbing?.entry;
     return false;
+  }
+
+  function choose(next) {
+    const item = pickItem(next);
+    applyPicks(item ? [item] : []);
+  }
+
+  function applyPicks(next) {
+    const seen = new Set();
+    picks = [];
+    for (const item of next || []) {
+      const picked = pickItem(item);
+      if (!picked) continue;
+      const key = `${picked.type}:${picked.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picks.push(picked);
+    }
+    selection = picks.length === 1 ? { ...picks[0] } : null;
+  }
+
+  function togglePick(hit) {
+    const item = pickItem(hit);
+    if (!item) return;
+    const next = picks.filter((pick) => !(pick.type === item.type && pick.id === item.id));
+    if (next.length === picks.length) next.push(item);
+    applyPicks(next);
+  }
+
+  function prunePicks() {
+    applyPicks(picks.filter((item) => selectionExists(item, house)));
+  }
+
+  function pickItem(hit) {
+    if (!hit || typeof hit !== "object") return null;
+    if (hit.type === "endpoint" && hit.wallId) return { type: "wall", id: hit.wallId };
+    if (hit.type && hit.id != null && hit.id !== "") return { type: hit.type, id: hit.id };
+    return null;
+  }
+
+  function typingTarget(target) {
+    return !!target?.matches?.("input, textarea, select") || !!target?.isContentEditable;
+  }
+
+  function holdCamera() {
+    document.dispatchEvent(new CustomEvent("preserve-view"));
+  }
+
+  function normRect(a, b) {
+    return {
+      minX: Math.min(a.x, b.x),
+      maxX: Math.max(a.x, b.x),
+      minY: Math.min(a.y, b.y),
+      maxY: Math.max(a.y, b.y),
+    };
+  }
+
+  function pointInRect(point, rect, pad = 0) {
+    return point.x >= rect.minX - pad && point.x <= rect.maxX + pad && point.y >= rect.minY - pad && point.y <= rect.maxY + pad;
+  }
+
+  function segmentsCross(a, b, c, d) {
+    const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    const d1 = cross(c, d, a);
+    const d2 = cross(c, d, b);
+    const d3 = cross(a, b, c);
+    const d4 = cross(a, b, d);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  }
+
+  function segHitsRect(a, b, rect) {
+    if (pointInRect(a, rect) || pointInRect(b, rect)) return true;
+    const corners = [
+      { x: rect.minX, y: rect.minY },
+      { x: rect.maxX, y: rect.minY },
+      { x: rect.maxX, y: rect.maxY },
+      { x: rect.minX, y: rect.maxY },
+    ];
+    for (let i = 0; i < 4; i += 1) {
+      if (segmentsCross(a, b, corners[i], corners[(i + 1) % 4])) return true;
+    }
+    return false;
+  }
+
+  function polyHitsRect(points, rect) {
+    if (!points?.length) return false;
+    if (points.some((point) => pointInRect(point, rect))) return true;
+    for (let i = 0; i < points.length; i += 1) {
+      if (segHitsRect(points[i], points[(i + 1) % points.length], rect)) return true;
+    }
+    return false;
+  }
+
+  function rectsTouch(a, rect) {
+    if (!a || !Number.isFinite(a.x) || !Number.isFinite(a.y)) return false;
+    const width = a.width || a.depth || 0;
+    const depth = a.depth || a.height || a.width || 0;
+    return a.x <= rect.maxX && a.x + width >= rect.minX && a.y <= rect.maxY && a.y + depth >= rect.minY;
+  }
+
+  function phaseOk(item) {
+    return isPhaseVisible(item?.phase, getViewState());
+  }
+
+  function itemsInBox(start, end) {
+    const rect = normRect(start, end);
+    const found = [];
+    const add = (type, id) => {
+      if (id == null || id === "") return;
+      found.push({ type, id });
+    };
+    for (const wall of house.walls || []) {
+      if (!phaseOk(wall)) continue;
+      if (segHitsRect(wall.start, wall.end, rect)) add("wall", wall.id);
+    }
+    for (const opening of house.openings || []) {
+      if (!phaseOk(opening)) continue;
+      const wall = (house.walls || []).find((item) => item.id === opening.wallId);
+      if (!wall) continue;
+      const a = pointAlong(wall, opening.offset || 0);
+      const b = pointAlong(wall, (opening.offset || 0) + (opening.width || 0));
+      if (segHitsRect(a, b, rect)) add("opening", opening.id);
+    }
+    for (const room of house.rooms || []) {
+      if (!phaseOk(room)) continue;
+      if (polyHitsRect(room.polygon, rect)) add("room", room.id);
+    }
+    for (const item of house.furniture || []) {
+      if (!phaseOk(item)) continue;
+      if (polyHitsRect(furnitureFootprint(item), rect)) add("furniture", item.id);
+    }
+    for (const item of house.siteFeatures || []) {
+      if (!phaseOk(item)) continue;
+      if (pointInRect(item, rect, Math.max(1.5, (item.size || 3) / 2))) add("siteFeature", item.id);
+    }
+    for (const item of house.planLabels || []) {
+      if (pointInRect(item, rect, 2)) add("planLabel", item.id);
+    }
+    for (const item of house.electrical?.devices || []) {
+      if (!phaseOk(item)) continue;
+      if (pointInRect(devicePoint(house, item), rect, 1.5)) add("device", item.id);
+    }
+    const panel = panelPoint(house);
+    if (panel && pointInRect(panel, rect, 2)) add("panel", "panel");
+    for (const item of house.plumbing?.fixtures || []) {
+      if (!phaseOk(item)) continue;
+      if (pointInRect(devicePoint(house, item), rect, 1.5)) add("fixture", item.id);
+    }
+    if (house.plumbing?.entry && pointInRect(devicePoint(house, house.plumbing.entry), rect, 2)) add("entry", "entry");
+    if (house.site?.well && pointInRect(house.site.well, rect, 3)) add("well", house.site.well.id || "well");
+    const tank = house.site?.septic?.tank;
+    if (tank && pointInRect(tank, rect, 3)) add("septic", "tank");
+    if (rectsTouch(house.site?.septic?.drainfield, rect)) add("drainfield", "drainfield");
+    if (rectsTouch(house.site?.septic?.reserve, rect)) add("reserve", "reserve");
+    return found;
+  }
+
+  function finishMarquee(current) {
+    if (!current.moved) {
+      if (current.toggleHit) togglePick(current.toggleHit);
+      else if (!current.additive) choose(null);
+      return;
+    }
+    const found = itemsInBox(current.start, current.end || current.start);
+    if (!current.additive) {
+      applyPicks(found);
+      return;
+    }
+    const merged = current.base.map((item) => ({ ...item }));
+    for (const item of found) {
+      if (!merged.some((pick) => pick.type === item.type && pick.id === item.id)) merged.push(item);
+    }
+    applyPicks(merged);
+  }
+
+  function itemLabel(item) {
+    if (item.type === "wall") return "wall";
+    if (item.type === "opening") return "opening";
+    if (item.type === "room") {
+      const room = (house.rooms || []).find((entry) => entry.id === item.id);
+      return areaKind(room || {}) === "heated" ? "room" : "drawing";
+    }
+    if (item.type === "furniture") return "furniture";
+    if (item.type === "siteFeature") return "site mark";
+    if (item.type === "planLabel") return "note";
+    if (item.type === "device") return "device";
+    if (item.type === "panel") return "breaker panel";
+    if (item.type === "fixture") return "fixture";
+    if (item.type === "entry") return "water entry";
+    if (item.type === "well") return "well";
+    if (item.type === "septic" || item.type === "drainfield" || item.type === "reserve") return "septic";
+    return "item";
+  }
+
+  function idsOf(items, type) {
+    return new Set(items.filter((item) => item.type === type).map((item) => item.id));
+  }
+
+  function dropIds(list, ids) {
+    return (list || []).filter((item) => !ids.has(item.id));
   }
 
   function syncSuggestOverlay() {
@@ -964,7 +1189,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     redoNotes.push(note);
     future.push(house);
     house = past.pop();
-    if (!selectionExists(selection, house)) selection = null;
+    holdCamera();
+    prunePicks();
     syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
@@ -980,7 +1206,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     undoNotes.push(note);
     past.push(house);
     house = future.pop();
-    if (!selectionExists(selection, house)) selection = null;
+    holdCamera();
+    prunePicks();
     syncSuggestOverlay();
     refreshWarnings();
     localStorage.setItem(DOC_KEY, JSON.stringify(house));
@@ -990,61 +1217,60 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     announce(`Redid ${note}.`, false);
   }
 
-  function eraseSelection(hit = selection) {
-    if (hit && typeof hit.preventDefault === "function") hit = selection;
-    if (!hit?.type) return;
-    let label = "";
-    if (hit.type === "device") {
-      const next = cloneHouse(house);
-      next.electrical.devices = next.electrical.devices.filter((item) => item.id !== hit.id);
-      label = "device";
-      commit(next);
-    } else if (hit.type === "panel") {
-      const next = cloneHouse(house);
-      next.electrical.panel = null;
-      label = "breaker panel";
-      commit(next);
-    } else if (hit.type === "fixture") {
-      const next = cloneHouse(house);
-      next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => item.id !== hit.id);
-      label = "fixture";
-      commit(next);
-    } else if (hit.type === "entry") {
-      const next = cloneHouse(house);
-      next.plumbing.entry = null;
-      label = "water entry";
-      commit(next);
-    } else if (hit.type === "well") {
-      const next = cloneHouse(house);
-      next.site.well = null;
-      label = "well";
-      commit(next);
-    } else if (hit.type === "septic" || hit.type === "drainfield" || hit.type === "reserve") {
-      const next = cloneHouse(house);
-      next.site.septic = null;
-      label = "septic";
-      commit(next);
-    } else if (hit.type === "wall") {
-      label = "wall";
-      commit(syncRooms(deleteWall(house, hit.id)));
-    } else if (hit.type === "opening") {
-      label = "opening";
-      commit(deleteOpening(house, hit.id));
-    } else if (hit.type === "room") {
-      const next = cloneHouse(house);
-      next.rooms = next.rooms.filter((room) => room.id !== hit.id);
-      label = areaKind(house.rooms.find((room) => room.id === hit.id) || {}) === "heated" ? "room" : "drawing";
-      commit(next);
-    } else if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel") {
-      const next = cloneHouse(house);
-      const key = hit.type === "furniture" ? "furniture" : hit.type === "siteFeature" ? "siteFeatures" : "planLabels";
-      next[key] = (next[key] || []).filter((item) => item.id !== hit.id);
-      label = hit.type === "furniture" ? "furniture" : hit.type === "siteFeature" ? "site mark" : "note";
-      commit(next);
+  function eraseSelection(hit) {
+    if (!hit || typeof hit.preventDefault === "function") {
+      deleteItems(picks);
+      return;
     }
-    if (!label) return;
-    selection = null;
-    announce(`Deleted ${label}.`);
+    const item = pickItem(hit);
+    if (item) deleteItems([item]);
+  }
+
+  function deleteItems(list) {
+    const items = [];
+    const seen = new Set();
+    for (const raw of list || []) {
+      const item = pickItem(raw);
+      if (!item) continue;
+      const key = `${item.type}:${item.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(item);
+    }
+    if (!items.length) return;
+    holdCamera();
+    const walls = idsOf(items, "wall");
+    const openings = idsOf(items, "opening");
+    const rooms = idsOf(items, "room");
+    const furniture = idsOf(items, "furniture");
+    const features = idsOf(items, "siteFeature");
+    const labels = idsOf(items, "planLabel");
+    const devices = idsOf(items, "device");
+    const fixtures = idsOf(items, "fixture");
+    let next = cloneHouse(house);
+    if (walls.size) next.walls = dropIds(next.walls, walls);
+    if (walls.size || openings.size) {
+      next.openings = (next.openings || []).filter((opening) => !openings.has(opening.id) && !walls.has(opening.wallId));
+    }
+    if (rooms.size) next.rooms = dropIds(next.rooms, rooms);
+    if (furniture.size) next.furniture = dropIds(next.furniture, furniture);
+    if (features.size) next.siteFeatures = dropIds(next.siteFeatures, features);
+    if (labels.size) next.planLabels = dropIds(next.planLabels, labels);
+    if (devices.size && next.electrical) next.electrical.devices = dropIds(next.electrical.devices, devices);
+    if (idsOf(items, "panel").size && next.electrical) next.electrical.panel = null;
+    if (fixtures.size && next.plumbing) next.plumbing.fixtures = dropIds(next.plumbing.fixtures, fixtures);
+    if (idsOf(items, "entry").size && next.plumbing) next.plumbing.entry = null;
+    if (idsOf(items, "well").size && next.site) next.site.well = null;
+    if ((idsOf(items, "septic").size || idsOf(items, "drainfield").size || idsOf(items, "reserve").size) && next.site) {
+      next.site.septic = null;
+    }
+    if (walls.size) next = syncRooms(next);
+    const count = items.length;
+    const note = count === 1 ? "deleting 1 item" : `deleting ${count} items`;
+    const changed = commit(next, null, note);
+    if (!changed) return;
+    choose(null);
+    announce(count === 1 ? `Deleted ${itemLabel(items[0])}.` : `Deleted ${count} items.`);
     publish();
   }
 
@@ -1070,6 +1296,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       warningWalls: [...targets.walls],
       warningOpenings: [...targets.openings],
       selection: mode === "build" ? selection : null,
+      picks: mode === "build" ? picks.map((item) => ({ ...item })) : [],
+      marquee: gesture?.kind === "marquee" && gesture.moved && gesture.end ? {
+        x0: gesture.start.x,
+        y0: gesture.start.y,
+        x1: gesture.end.x,
+        y1: gesture.end.y,
+      } : null,
       draft: gesture?.kind === "wall" && gesture.end ? {
         start: gesture.start,
         end: gesture.end,
@@ -1134,8 +1367,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const overlay = mode === "build" ? makeOverlay() : null;
     plan.setOverlay(overlay);
     model.setOverlay?.(overlay);
-    model.setSelection?.(mode === "build" ? selection : null);
-    model.setSelected?.(mode === "build" && selection?.type === "wall" ? selection.id : null);
+    model.setSelection?.(mode === "build" ? picks.map((item) => ({ ...item })) : null);
+    model.setSelected?.(mode === "build" && picks.length === 1 && picks[0].type === "wall" ? picks[0].id : null);
     plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing"].includes(tool) ? "crosshair" : "");
     paintCoach();
   }
@@ -1158,7 +1391,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return `Water tool. Click a wall to place the ${fixtureSpec(fixtureKind).name.toLowerCase()}.${orbitNote}`;
     }
     const lines = {
-      select: "Select tool. Click a wall, room, or fixture to open its card.",
+      select: "Select tool. Drag a box on empty plan to choose several items. Hold Shift and drag to add. Shift-click adds or removes one. Delete removes the selection.",
       wall: "Wall tool. Drag to draw a wall.",
       room: "Room tool. Drag a rectangle.",
       door: "Door tool. Click a wall to place a door.",
@@ -1485,7 +1718,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const fold = document.querySelector("#layer-fold");
     const showing = !inspector.hidden;
     panel.classList.toggle("showing-selection", showing);
-    const key = showing ? `${selection.type}:${selection.id}` : "";
+    const key = !showing
+      ? ""
+      : picks.length > 1
+        ? `multi:${picks.map((item) => `${item.type}:${item.id}`).join("|")}`
+        : `${selection?.type}:${selection?.id}`;
     if (!showing) {
       fold.open = true;
       foldedFor = "";
@@ -1554,7 +1791,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       phase: panelGhost.phase || "phase1",
     };
     panelGhost = null;
-    selection = { type: "panel", id: "panel" };
+    choose({ type: "panel", id: "panel" });
     commit(next);
     if (announceIt) announce("Placed breaker panel from the suggestion.");
   }
@@ -1621,10 +1858,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       model.focus?.(point.x, point.y);
     }
     if (finding.target?.type && finding.target.type !== "house" && finding.target.id) {
-      selection = { type: finding.target.type, id: finding.target.id };
+      choose({ type: finding.target.type, id: finding.target.id });
     } else if (point) {
       const room = (house.rooms || []).find((item) => inside(point, item.polygon || []));
-      if (room) selection = { type: "room", id: room.id };
+      if (room) choose({ type: "room", id: room.id });
     }
     const how = finding.fix?.explain || "Select the highlighted item and change it with the tool named on its card.";
     announce(`${finding.title}. ${finding.why || ""} How to fix it: ${how}`, false);
@@ -1786,7 +2023,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (onlyId && item.id !== onlyId) return item;
       return { ...item, ghost: false };
     });
-    if (onlyId) selection = { type: "fixture", id: onlyId };
+    if (onlyId) choose({ type: "fixture", id: onlyId });
     commit(next);
     publish();
   }
@@ -1794,7 +2031,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function dismissFixtures(onlyId = null) {
     const next = cloneHouse(house);
     next.plumbing.fixtures = next.plumbing.fixtures.filter((item) => !item.ghost || (onlyId && item.id !== onlyId));
-    if (onlyId && selection?.id === onlyId) selection = null;
+    if (onlyId && selection?.id === onlyId) choose(null);
     commit(next);
     publish();
   }
@@ -1832,7 +2069,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (onlyId && item.id !== onlyId) return item;
       return { ...item, ghost: false };
     });
-    if (onlyId) selection = { type: "device", id: onlyId };
+    if (onlyId) choose({ type: "device", id: onlyId });
     commit(next);
     publish();
   }
@@ -1840,7 +2077,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function dismissGhosts(onlyId = null) {
     const next = cloneHouse(house);
     next.electrical.devices = next.electrical.devices.filter((item) => !item.ghost || (onlyId && item.id !== onlyId));
-    if (onlyId && selection?.id === onlyId) selection = null;
+    if (onlyId && selection?.id === onlyId) choose(null);
     commit(next);
     publish();
   }
@@ -2017,13 +2254,23 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function paintInspector() {
-    if (mode !== "build" || !selection) {
+    if (mode !== "build" || !picks.length) {
       inspector.hidden = true;
       inspector.innerHTML = "";
       syncSelectionLayout();
       return;
     }
     inspector.hidden = false;
+    if (picks.length > 1) {
+      inspector.innerHTML = `
+        <header class="game-head"><h2>${picks.length} items selected</h2></header>
+        <p>Shift-click adds or removes one. Drag a box to choose more.</p>
+        ${quietDelete("Delete selected")}
+      `;
+      inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+      syncSelectionLayout();
+      return;
+    }
     if (selection.type === "wall") {
       const wall = house.walls.find((item) => item.id === selection.id);
       if (!wall) { inspector.hidden = true; syncSelectionLayout(); return; }
@@ -2257,7 +2504,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         house = decorated;
         document.dispatchEvent(new CustomEvent("plan-imported"));
         fromSave = true;
-        selection = null;
+        choose(null);
         localStorage.setItem(DOC_KEY, JSON.stringify(house));
         refreshWarnings();
         pushViews();
@@ -2320,7 +2567,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     future.length = 0;
     house = decorated;
-    selection = null;
+    choose(null);
     fromSave = true;
     document.dispatchEvent(new CustomEvent("plan-imported"));
     try {
@@ -2358,7 +2605,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     hoverWorld = null;
     hoverPlace = null;
     gesture = null;
-    selection = null;
+    choose(null);
     if (!doc.sample && !(doc.rooms || []).length) patchViewState({ guideSkipped: false });
     house = decorateHouse(doc);
     fromSave = false;

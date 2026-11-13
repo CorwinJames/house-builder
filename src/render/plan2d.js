@@ -25,6 +25,24 @@ import { plainPlaceLabel } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
 
+function pickSpot(house, pick) {
+  if (pick.type === "siteFeature") return (house.siteFeatures || []).find((item) => item.id === pick.id);
+  if (pick.type === "planLabel") return (house.planLabels || []).find((item) => item.id === pick.id);
+  if (pick.type === "device") {
+    const item = (house.electrical?.devices || []).find((entry) => entry.id === pick.id);
+    return item ? devicePoint(house, item) : null;
+  }
+  if (pick.type === "panel") return panelPoint(house);
+  if (pick.type === "fixture") {
+    const item = (house.plumbing?.fixtures || []).find((entry) => entry.id === pick.id);
+    return item ? devicePoint(house, item) : null;
+  }
+  if (pick.type === "entry") return house.plumbing?.entry ? devicePoint(house, house.plumbing.entry) : null;
+  if (pick.type === "well") return house.site?.well;
+  if (pick.type === "septic") return house.site?.septic?.tank;
+  return null;
+}
+
 /**
  * 2D plan. North is up. Walls are drawn at their real thickness.
  * Build mode hands pointer events to a hook so drawing doesn't also pan.
@@ -1415,72 +1433,90 @@ export function createPlanView(canvas, initialHouse) {
       if (overlay.draft.lengthLabel) drawPill(overlay.draft.lengthLabel, b.x, b.y);
       for (const tick of readable) drawPill(tick.label, tick.pos.x, tick.pos.y);
     }
-    if (overlay.rect) {
-      const { x0, y0, x1, y1 } = overlay.rect;
-      const a = worldToScreen(x0, y0);
-      const b = worldToScreen(x1, y1);
+    const drawBox = (rect, fill) => {
+      if (!rect) return;
+      const a = worldToScreen(rect.x0, rect.y0);
+      const b = worldToScreen(rect.x1, rect.y1);
       ctx.save();
       ctx.strokeStyle = "#2F5D45";
-      ctx.fillStyle = "rgba(47, 93, 69, 0.12)";
+      ctx.fillStyle = fill;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
       ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
       ctx.restore();
-    }
-    if (overlay.selection?.type === "wall") {
-      const wall = house.walls.find((item) => item.id === overlay.selection.id);
-      if (wall) {
+    };
+    drawBox(overlay.rect, "rgba(47, 93, 69, 0.12)");
+    drawBox(overlay.marquee, "rgba(47, 93, 69, 0.2)");
+    const marks = overlay.picks?.length ? overlay.picks : (overlay.selection ? [overlay.selection] : []);
+    const strokePick = () => {
+      ctx.save();
+      ctx.strokeStyle = "#2F5D45";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+    };
+    const ringAt = (x, y, radius = 16) => {
+      const spot = worldToScreen(x, y);
+      ctx.save();
+      ctx.strokeStyle = "#2F5D45";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(spot.x, spot.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    };
+    for (const pick of marks) {
+      if (pick.type === "wall") {
+        const wall = house.walls.find((item) => item.id === pick.id);
+        if (!wall) continue;
         trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness + 0.2));
-        ctx.save();
-        ctx.strokeStyle = "#2F5D45";
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-        for (const point of [wall.start, wall.end]) {
-          const s = worldToScreen(point.x, point.y);
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
-          ctx.fillStyle = "#F7F3EB";
-          ctx.fill();
-          ctx.stroke();
+        strokePick();
+        if (marks.length === 1) {
+          ctx.save();
+          ctx.strokeStyle = "#2F5D45";
+          ctx.lineWidth = 2.5;
+          for (const point of [wall.start, wall.end]) {
+            const s = worldToScreen(point.x, point.y);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+            ctx.fillStyle = "#F7F3EB";
+            ctx.fill();
+            ctx.stroke();
+          }
+          ctx.restore();
         }
-        ctx.restore();
-      }
-    }
-    if (overlay.selection?.type === "room") {
-      const room = house.rooms.find((item) => item.id === overlay.selection.id);
-      if (room) {
+      } else if (pick.type === "room") {
+        const room = house.rooms.find((item) => item.id === pick.id);
+        if (!room) continue;
         trace(room.polygon);
-        ctx.save();
-        ctx.strokeStyle = "#2F5D45";
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-    if (overlay.selection?.type === "furniture") {
-      const item = (house.furniture || []).find((entry) => entry.id === overlay.selection.id);
-      if (item) {
+        strokePick();
+      } else if (pick.type === "opening") {
+        const opening = (house.openings || []).find((item) => item.id === pick.id);
+        const wall = opening && house.walls.find((item) => item.id === opening.wallId);
+        if (!opening || !wall) continue;
+        const a = pointAlong(wall, opening.offset || 0);
+        const b = pointAlong(wall, (opening.offset || 0) + (opening.width || 0));
+        trace(segmentQuad(a.x, a.y, b.x, b.y, (wall.thickness || 0.5) + 0.35));
+        strokePick();
+      } else if (pick.type === "furniture") {
+        const item = (house.furniture || []).find((entry) => entry.id === pick.id);
+        if (!item) continue;
         trace(furnitureFootprint(item));
-        ctx.save();
-        ctx.strokeStyle = "#2F5D45";
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-    if (overlay.selection?.type === "siteFeature" || overlay.selection?.type === "planLabel") {
-      const list = overlay.selection.type === "siteFeature" ? house.siteFeatures : house.planLabels;
-      const item = (list || []).find((entry) => entry.id === overlay.selection.id);
-      if (item) {
-        const spot = worldToScreen(item.x, item.y);
-        ctx.save();
-        ctx.strokeStyle = "#2F5D45";
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(spot.x, spot.y, 16, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+        strokePick();
+      } else if (pick.type === "drainfield" || pick.type === "reserve") {
+        const field = house.site?.septic?.[pick.type];
+        if (!field) continue;
+        trace([
+          { x: field.x, y: field.y },
+          { x: field.x + field.width, y: field.y },
+          { x: field.x + field.width, y: field.y + field.depth },
+          { x: field.x, y: field.y + field.depth },
+        ]);
+        strokePick();
+      } else {
+        const spot = pickSpot(house, pick);
+        if (spot) ringAt(spot.x, spot.y);
       }
     }
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
