@@ -21,6 +21,12 @@ import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
  * Build mode can edit this view with the same plan gestures. Orbit mode
  * looks around. Cutaway caps the walls so the rooms stay visible.
  */
+function pixelCap(canvas) {
+  const area = canvas.clientWidth * canvas.clientHeight;
+  const cap = area > 700_000 ? 1.25 : 1.5;
+  return Math.min(window.devicePixelRatio || 1, cap);
+}
+
 export function createView3d(canvas, initialHouse) {
   let house = initialHouse;
   let renderer;
@@ -31,7 +37,7 @@ export function createView3d(canvas, initialHouse) {
   }
   if (!renderer.getContext()) return failedView("WebGL is not available in this browser.");
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(pixelCap(canvas));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -47,7 +53,12 @@ export function createView3d(canvas, initialHouse) {
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(34, 6, -14);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  controls.dampingFactor = 0.16;
+  controls.zoomToCursor = true;
+  controls.zoomSpeed = 1.8;
+  controls.panSpeed = 1.15;
+  controls.rotateSpeed = 0.9;
+  controls.screenSpacePanning = true;
   controls.maxPolarAngle = Math.PI / 2 - 0.05;
   controls.minDistance = 12;
   controls.maxDistance = 1400;
@@ -177,8 +188,36 @@ export function createView3d(canvas, initialHouse) {
     }
   }
 
+  const panRight = new THREE.Vector3();
+  const panUp = new THREE.Vector3();
+  const panOffset = new THREE.Vector3();
+  const wheelNudge = { x: 0, y: 0 };
+  let cameraSaveTimer = 0;
+
+  function scheduleCameraSave() {
+    window.clearTimeout(cameraSaveTimer);
+    cameraSaveTimer = window.setTimeout(() => onChange(readCamera()), 180);
+  }
+
   function tick() {
     frameId = requestAnimationFrame(tick);
+    if (wheelNudge.x || wheelNudge.y) {
+      camera.updateMatrixWorld();
+      const offset = camera.position.clone().sub(controls.target);
+      const dist = Math.max(1, offset.length());
+      panRight.setFromMatrixColumn(camera.matrixWorld, 0);
+      panUp.setFromMatrixColumn(camera.matrixWorld, 1);
+      const scale = dist * 0.0011;
+      panOffset.copy(panRight).multiplyScalar(wheelNudge.x * scale).addScaledVector(panUp, -wheelNudge.y * scale);
+      controls.target.add(panOffset);
+      camera.position.copy(controls.target).add(offset);
+      wheelNudge.x *= 0.65;
+      wheelNudge.y *= 0.65;
+      if (Math.hypot(wheelNudge.x, wheelNudge.y) < 0.2) {
+        wheelNudge.x = 0;
+        wheelNudge.y = 0;
+      }
+    }
     controls.update();
     layoutSprites();
     renderer.render(scene, camera);
@@ -221,6 +260,7 @@ export function createView3d(canvas, initialHouse) {
     if (w < 2 || h < 2) return;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    renderer.setPixelRatio(pixelCap(canvas));
     renderer.setSize(w, h, false);
   }
 
@@ -413,13 +453,17 @@ export function createView3d(canvas, initialHouse) {
     if (editing) buildHooks?.hover?.(event, null);
   });
   canvas.addEventListener("wheel", (event) => {
-    if (!editing) return;
+    const line = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 800 : 1;
+    const dx = event.deltaX * line;
+    const dy = event.deltaY * line;
+    const notch = !event.ctrlKey && event.deltaMode === 0 && Math.abs(event.deltaY) >= 50 && Math.abs(event.deltaX) < 1;
+    if (event.ctrlKey || notch) return;
     event.preventDefault();
-    event.stopPropagation();
-    const offset = camera.position.clone().sub(controls.target);
-    const next = THREE.MathUtils.clamp(offset.length() * Math.exp(event.deltaY * 0.0012), controls.minDistance, controls.maxDistance);
-    camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(next));
-  }, { passive: false });
+    event.stopImmediatePropagation();
+    wheelNudge.x += dx;
+    wheelNudge.y += dy;
+    scheduleCameraSave();
+  }, { passive: false, capture: true });
 
   function resetCamera() {
     framePlan(true);
@@ -938,6 +982,16 @@ function clearGroup(group) {
 function syncGhost(group, house, overlay) {
   clearGroup(group);
   if (!overlay) return;
+  const lengthText = overlay.moveLabel?.text || overlay.draft?.lengthLabel;
+  const lengthAt = overlay.moveLabel || (overlay.draft?.start && overlay.draft?.end ? {
+    x: (overlay.draft.start.x + overlay.draft.end.x) / 2,
+    y: (overlay.draft.start.y + overlay.draft.end.y) / 2,
+  } : null);
+  if (lengthText && lengthAt) {
+    const label = makeSprite(String(lengthText), false, { priority: 0, px: 28 });
+    label.position.set(lengthAt.x, 11, -lengthAt.y);
+    group.add(label);
+  }
   if (overlay.draft?.start && overlay.draft?.end) {
     const a = overlay.draft.start;
     const b = overlay.draft.end;

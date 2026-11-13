@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
-import { snapToGrid, snapAngle, snapDrawingPoint } from "../src/build/snap.js";
+import { snapToGrid, snapAngle, snapDrawingPoint, placePoint } from "../src/build/snap.js";
+import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
@@ -63,6 +64,54 @@ check("angle snap locks to 45 degree stops", () => {
   assert.ok(Math.abs(snapped.length - 10) < 0.01);
   const diagonal = snapAngle({ x: 0, y: 0 }, { x: 8, y: 7 }, 0.5);
   assert.equal(diagonal.angle, 45);
+});
+
+check("free placement keeps the cursor", () => {
+  const hit = placePoint({ x: 3.141, y: 2.718 }, { snap: false, origin: { x: 0, y: 0 } });
+  assert.equal(hit.snapped, "free");
+  assert.equal(hit.x, 3.141);
+  assert.equal(hit.y, 2.718);
+});
+
+check("opt-in snap uses a fine grid and only nearby angles", () => {
+  const near = placePoint({ x: 10.04, y: 0.4 }, { snap: true, grid: 1 / 12, origin: { x: 0, y: 0 }, walls: [], magnetFeet: 0 });
+  assert.equal(near.snapped, "angle");
+  assert.ok(Math.abs(near.y) < 1e-6);
+  const slant = placePoint({ x: 10, y: 4 }, { snap: true, grid: 1 / 12, origin: { x: 0, y: 0 }, walls: [], magnetFeet: 0 });
+  assert.equal(slant.snapped, "grid");
+  const magnet = placePoint({ x: 3.2, y: 4.1 }, {
+    snap: true,
+    grid: 1 / 12,
+    walls: [{ id: "w", start: { x: 3.1, y: 4 }, end: { x: 9, y: 4 } }],
+    magnetFeet: 0.5,
+  });
+  assert.equal(magnet.snapped, "end");
+  assert.equal(magnet.x, 3.1);
+  assert.equal(magnet.y, 4);
+});
+
+check("tidy squares a near-rectangle and keeps corners joined", () => {
+  const house = {
+    walls: [
+      { id: "a", start: { x: 0.04, y: 0.08 }, end: { x: 10.12, y: 0.2 } },
+      { id: "b", start: { x: 10.12, y: 0.2 }, end: { x: 10.28, y: 8.06 } },
+      { id: "c", start: { x: 10.28, y: 8.06 }, end: { x: 0.1, y: 8.22 } },
+      { id: "d", start: { x: 0.1, y: 8.22 }, end: { x: 0.04, y: 0.08 } },
+    ],
+  };
+  const next = tidyHouse(house, ["a", "b", "c", "d"]);
+  for (const wall of next.walls) {
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    assert.ok(Math.abs(dx) < 0.02 || Math.abs(dy) < 0.02, wall.id);
+    const len = Math.hypot(dx, dy);
+    assert.ok(Math.abs(len * 4 - Math.round(len * 4)) < 0.02, `${wall.id} ${len}`);
+  }
+  const corners = next.walls.flatMap((wall) => [wall.start, wall.end]);
+  for (const point of corners) {
+    const hits = corners.filter((other) => Math.hypot(other.x - point.x, other.y - point.y) < 0.02);
+    assert.ok(hits.length >= 2);
+  }
 });
 
 check("magnets beat the grid", () => {

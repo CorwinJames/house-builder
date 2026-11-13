@@ -142,6 +142,8 @@ app.innerHTML = `
           <div id="tool-options" class="tool-options" hidden></div>
           <div class="tool-dock">
             <div id="tool-row" class="tool-row"></div>
+            <button type="button" id="snap-toggle" class="hud-pill" aria-pressed="false" title="Line up wall ends while you drag">Snap to grid</button>
+            <button type="button" id="tidy-shape" class="hud-pill" title="Square the selected walls and round their lengths">Tidy up shape</button>
             <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
             <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>
             <button type="button" id="labor-open" class="hud-pill">Labor</button>
