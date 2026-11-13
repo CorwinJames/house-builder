@@ -270,9 +270,13 @@ export function createView3d(canvas, initialHouse) {
   function paintSelection() {
     scene.traverse((object) => {
       if (!object.material?.emissive) return;
-      const wallOn = object.userData?.wallId && object.userData.wallId === selectedId;
+      const chosen = Array.isArray(selection) ? selection : (selection ? [selection] : []);
+      const wallOn = object.userData?.wallId && (
+        object.userData.wallId === selectedId
+        || chosen.some((item) => item?.type === "wall" && item.id === object.userData.wallId)
+      );
       const pick = object.userData?.pick;
-      const pickOn = pick && selection && pick.type === selection.type && pick.id === selection.id;
+      const pickOn = pick && chosen.some((item) => item && item.type === pick.type && item.id === pick.id);
       if (!object.userData?.wallId && !pick) return;
       const on = !!(wallOn || pickOn);
       object.material.emissive.set(on ? 0x1f6b45 : 0x000000);
@@ -394,13 +398,13 @@ export function createView3d(canvas, initialHouse) {
     if (moved > 6 || !onPick) return;
     const hit = planFromEvent(event);
     if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel")) {
-      onPick(hit.pick);
+      onPick(hit.pick, event);
       return;
     }
     if (hit?.surface) {
       const hits = raycaster.intersectObjects(scene.children, true);
       const wall = hits.find((item) => item.object.userData?.wallId);
-      onPick(wall?.object.userData.wallId ? { type: "wall", id: wall.object.userData.wallId } : null);
+      onPick(wall?.object.userData.wallId ? { type: "wall", id: wall.object.userData.wallId } : null, event);
     }
   }
   canvas.addEventListener("pointerup", endEditPointer);
@@ -567,8 +571,7 @@ export function createView3d(canvas, initialHouse) {
       syncGhost(ghostGroup, house, overlay);
     },
     setSelection(next) {
-      selection = next;
-      selectedId = next?.type === "wall" ? next.id : selectedId;
+      selection = Array.isArray(next) ? next.filter(Boolean) : (next ? [next] : []);
       paintSelection();
     },
     frameHouse() {
@@ -738,7 +741,8 @@ function fitGround(nextHouse, ground, scene, camera, controls) {
   scene.fog.far = far;
   camera.far = Math.max(camera.far, far * 2.2);
   camera.updateProjectionMatrix();
-  controls.maxDistance = Math.max(170, radius * 1.8, far * 0.85);
+  const current = Math.max(0, camera.position.distanceTo(controls.target));
+  controls.maxDistance = Math.max(170, radius * 1.8, far * 0.85, current);
 }
 
 function rammedEarthTexture() {
@@ -948,6 +952,22 @@ function syncGhost(group, house, overlay) {
     const { x0, y0, x1, y1 } = overlay.rect;
     const mesh = marker((x0 + x1) / 2, 0.1, -((y0 + y1) / 2), new THREE.BoxGeometry(Math.abs(x1 - x0), 0.12, Math.abs(y1 - y0)), 0x2f5d45, 0.28);
     group.add(mesh);
+  }
+  if (overlay.marquee) {
+    const { x0, y0, x1, y1 } = overlay.marquee;
+    const width = Math.max(0.2, Math.abs(x1 - x0));
+    const depth = Math.max(0.2, Math.abs(y1 - y0));
+    group.add(marker((x0 + x1) / 2, 0.08, -((y0 + y1) / 2), new THREE.BoxGeometry(width, 0.06, depth), 0x2f5d45, 0.22));
+    const loop = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x0, 0.3, -y0),
+        new THREE.Vector3(x1, 0.3, -y0),
+        new THREE.Vector3(x1, 0.3, -y1),
+        new THREE.Vector3(x0, 0.3, -y1),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0x2f5d45 }),
+    );
+    group.add(loop);
   }
   if (overlay.ghostOpening) {
     const wall = house.walls.find((item) => item.id === overlay.ghostOpening.wallId);

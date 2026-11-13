@@ -393,8 +393,12 @@ function publish() {
 let frameKey = "";
 let frameTicket = 0;
 let frameImportPending = false;
+let holdView = false;
 document.addEventListener("plan-imported", () => {
   frameImportPending = true;
+});
+document.addEventListener("preserve-view", () => {
+  holdView = true;
 });
 function frameShownModel(imported = false) {
   model.resize?.();
@@ -410,7 +414,15 @@ function frameBuildIfNeeded() {
   const pendingImport = frameImportPending;
   const house = editor.house();
   const key = `${building}:${shows3d}:${view}:${phone}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}:${pendingImport ? "import" : ""}`;
-  if (key === frameKey && !pendingImport) return;
+  if (key === frameKey && !pendingImport) {
+    holdView = false;
+    return;
+  }
+  if (holdView && !pendingImport) {
+    frameKey = key;
+    holdView = false;
+    return;
+  }
   frameKey = key;
   if (building) plan.fit?.();
   if (pendingImport && !shows3d) return;
