@@ -392,9 +392,13 @@ function publish() {
 
 let frameKey = "";
 let frameTicket = 0;
-function frameShownModel() {
+let frameImportPending = false;
+document.addEventListener("plan-imported", () => {
+  frameImportPending = true;
+});
+function frameShownModel(imported = false) {
   model.resize?.();
-  if (editor?.mode() === "build") model.frameHouse?.();
+  if (imported || editor?.mode() === "build") model.frameHouse?.();
   else model.frameWhole?.();
 }
 function frameBuildIfNeeded() {
@@ -403,17 +407,21 @@ function frameBuildIfNeeded() {
   const view = effectiveView();
   const shows3d = view === "model" || view === "split";
   const phone = !wide();
+  const pendingImport = frameImportPending;
   const house = editor.house();
-  const key = `${building}:${shows3d}:${view}:${phone}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}`;
-  if (key === frameKey) return;
+  const key = `${building}:${shows3d}:${view}:${phone}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}:${pendingImport ? "import" : ""}`;
+  if (key === frameKey && !pendingImport) return;
   frameKey = key;
   if (building) plan.fit?.();
-  if (!shows3d || !(phone || building)) return;
+  if (pendingImport && !shows3d) return;
+  const imported = pendingImport && shows3d;
+  if (imported) frameImportPending = false;
+  if (!shows3d || !(imported || phone || building)) return;
   const ticket = ++frameTicket;
-  frameShownModel();
+  frameShownModel(imported);
   requestAnimationFrame(() => {
     if (ticket !== frameTicket) return;
-    frameShownModel();
+    frameShownModel(imported);
   });
 }
 
@@ -518,9 +526,6 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
 document.querySelector("#reset-3d").addEventListener("click", () => {
   model.resetCamera();
   plan.fit();
-});
-document.addEventListener("prefer-place", () => {
-  orbit3d = false;
 });
 document.querySelector("#edit-3d").addEventListener("click", () => {
   orbit3d = false;

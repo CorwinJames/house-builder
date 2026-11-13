@@ -1458,6 +1458,31 @@ export function createPlanView(canvas, initialHouse) {
         ctx.restore();
       }
     }
+    if (overlay.selection?.type === "furniture") {
+      const item = (house.furniture || []).find((entry) => entry.id === overlay.selection.id);
+      if (item) {
+        trace(furnitureFootprint(item));
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (overlay.selection?.type === "siteFeature" || overlay.selection?.type === "planLabel") {
+      const list = overlay.selection.type === "siteFeature" ? house.siteFeatures : house.planLabels;
+      const item = (list || []).find((entry) => entry.id === overlay.selection.id);
+      if (item) {
+        const spot = worldToScreen(item.x, item.y);
+        ctx.save();
+        ctx.strokeStyle = "#2F5D45";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(spot.x, spot.y, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
     for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
     for (const ghost of overlay.suggestMarks || []) drawPlaceGhost(ghost, true);

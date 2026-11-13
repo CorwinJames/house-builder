@@ -11,7 +11,7 @@ import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
 import { roomGroundLine } from "../build/annotations.js";
-import { areaKind } from "../build/areas.js";
+import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
  * 3D model. Plan +x (east) is Three.js +X, plan +y (north) is Three.js −Z,
@@ -310,9 +310,11 @@ export function createView3d(canvas, initialHouse) {
     const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
     const ground = hitGround ? sceneToPlan(groundHit.x, groundHit.y, groundHit.z) : null;
     const hits = raycaster.intersectObjects(scene.children, true);
-    const meshHit = hits.find((item) => item.object.userData?.pickSurface || item.object.userData?.wallId);
+    const meshHit = firstModelHit(hits);
     const surface = meshHit ? sceneToPlan(meshHit.point.x, meshHit.point.y, meshHit.point.z) : null;
-    return { ground, surface, pick: meshHit?.object.userData?.pick || null };
+    const pick = meshHit?.object.userData?.pick
+      || (meshHit?.object.userData?.wallId ? { type: "wall", id: meshHit.object.userData.wallId } : null);
+    return { ground, surface, pick };
   }
 
   const raycaster = new THREE.Raycaster();
@@ -334,7 +336,11 @@ export function createView3d(canvas, initialHouse) {
     const hit = planFromEvent(event);
     if (!hit?.ground && !hit?.surface) return;
     editingGesture = !!buildHooks?.down?.(event, hit.ground, { surface: hit.surface, pick: hit.pick });
-  });
+    if (editingGesture) {
+      event.stopPropagation();
+      event.preventDefault();
+    }
+  }, true);
   canvas.addEventListener("pointermove", (event) => {
     if (!activePointers.has(event.pointerId) && editing) {
       const hit = planFromEvent(event);
@@ -387,12 +393,14 @@ export function createView3d(canvas, initialHouse) {
     pointerDown = null;
     if (moved > 6 || !onPick) return;
     const hit = planFromEvent(event);
-    const wallId = hit?.pick?.type === "wall" ? hit.pick.id : null;
-    if (wallId) onPick(wallId);
-    else if (hit?.surface) {
+    if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel")) {
+      onPick(hit.pick);
+      return;
+    }
+    if (hit?.surface) {
       const hits = raycaster.intersectObjects(scene.children, true);
       const wall = hits.find((item) => item.object.userData?.wallId);
-      onPick(wall?.object.userData.wallId || null);
+      onPick(wall?.object.userData.wallId ? { type: "wall", id: wall.object.userData.wallId } : null);
     }
   }
   canvas.addEventListener("pointerup", endEditPointer);
@@ -403,6 +411,7 @@ export function createView3d(canvas, initialHouse) {
   canvas.addEventListener("wheel", (event) => {
     if (!editing) return;
     event.preventDefault();
+    event.stopPropagation();
     const offset = camera.position.clone().sub(controls.target);
     const next = THREE.MathUtils.clamp(offset.length() * Math.exp(event.deltaY * 0.0012), controls.minDistance, controls.maxDistance);
     camera.position.copy(controls.target).add(offset.normalize().multiplyScalar(next));
@@ -424,18 +433,44 @@ export function createView3d(canvas, initialHouse) {
       minY = Math.min(minY, point.y);
       maxY = Math.max(maxY, point.y);
     };
-    for (const wall of house.walls || []) {
-      add(wall.start);
-      add(wall.end);
-    }
-    for (const room of house.rooms || []) {
+    const rooms = roomsToFrame(house);
+    const built = (house.rooms || []).filter((room) => {
+      const kind = areaKind(room);
+      return kind === "heated" || kind === "covered";
+    });
+    const walled = (house.walls || []).length > 0 && built.length > 0;
+    for (const room of rooms) {
       for (const point of room.polygon || []) add(point);
     }
+    if (walled) {
+      let addedWall = false;
+      for (const wall of house.walls) {
+        const mid = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+        if (!rooms.some((room) => nearRoom(room, mid, 4))) continue;
+        add(wall.start);
+        add(wall.end);
+        addedWall = true;
+      }
+      if (!addedWall) {
+        for (const wall of house.walls) {
+          add(wall.start);
+          add(wall.end);
+        }
+      }
+    } else {
+      for (const wall of house.walls || []) {
+        add(wall.start);
+        add(wall.end);
+      }
+    }
     const drawn = Number.isFinite(minX);
-    if (includePad || !drawn) {
-      const pad = house.footprint || {};
+    const pad = house.footprint || {};
+    const padW = Number(pad.width) || 36;
+    const padD = Number(pad.depth) || 24;
+    const span = drawn ? Math.hypot(maxX - minX, maxY - minY) : 0;
+    if (!drawn || (includePad && Math.hypot(padW, padD) <= Math.max(span, 1) * 1.8)) {
       add({ x: 0, y: 0 });
-      add({ x: Number(pad.width) || 36, y: Number(pad.depth) || 24 });
+      add({ x: padW, y: padD });
     }
     if (!Number.isFinite(minX)) return null;
     return { minX, maxX, minY, maxY };
@@ -477,6 +512,28 @@ export function createView3d(canvas, initialHouse) {
     controls.target.set(cx, (lookDown ? 1.2 : 4) + lift, cz);
     if (lookDown) camera.position.set(cx + height * 0.03, height + lift, cz + height * 0.1);
     else camera.position.set(cx - height * 0.72, height * 0.5, cz + height * 0.86);
+    settleCamera();
+  }
+
+  function settleCamera() {
+    const dist = Math.max(1, camera.position.distanceTo(controls.target));
+    const fog = scene.fog;
+    if (fog) {
+      fog.far = Math.max(fog.far || 900, dist * 1.45, 900);
+      const nearCap = Math.max(24, dist * 0.2);
+      fog.near = Math.min(fog.near || nearCap, nearCap);
+      if (fog.near >= fog.far * 0.5) fog.near = fog.far * 0.25;
+    }
+    const limit = Math.max(controls.minDistance + 1, (scene.fog?.far || 900) * 0.8);
+    if (dist > limit) {
+      const offset = camera.position.clone().sub(controls.target);
+      offset.setLength(limit);
+      camera.position.copy(controls.target).add(offset);
+    }
+    const placed = Math.max(1, camera.position.distanceTo(controls.target));
+    controls.maxDistance = Math.max(controls.maxDistance || 0, placed * 1.25, limit);
+    camera.far = Math.max(camera.far, (scene.fog?.far || 900) * 2.2, placed * 8);
+    camera.updateProjectionMatrix();
     controls.update();
     onChange(readCamera());
   }
@@ -493,12 +550,9 @@ export function createView3d(canvas, initialHouse) {
     },
     setEditing(on) {
       editing = !!on;
-      controls.enabled = !editing;
+      controls.enabled = true;
       canvas.style.cursor = editing ? "crosshair" : "grab";
-      if (!editing) {
-        editingGesture = false;
-        buildHooks?.cancel?.();
-      }
+      if (!editing) editingGesture = false;
     },
     setCutaway(on) {
       const next = !!on;
@@ -598,29 +652,93 @@ function failedView(message) {
   };
 }
 
-function fitGround(nextHouse, ground, scene, camera, controls) {
-  const ring = nextHouse.site?.parcel?.ring;
-  if (!ring?.length) return;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const point of ring) {
-    minX = Math.min(minX, point.x);
-    maxX = Math.max(maxX, point.x);
-    minY = Math.min(minY, point.y);
-    maxY = Math.max(maxY, point.y);
+function addExtent(box, point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+  box.minX = Math.min(box.minX, point.x);
+  box.maxX = Math.max(box.maxX, point.x);
+  box.minY = Math.min(box.minY, point.y);
+  box.maxY = Math.max(box.maxY, point.y);
+}
+
+function planExtent(nextHouse) {
+  const box = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const point of nextHouse.site?.parcel?.ring || []) addExtent(box, point);
+  for (const wall of nextHouse.walls || []) {
+    addExtent(box, wall.start);
+    addExtent(box, wall.end);
   }
-  const radius = Math.hypot(maxX - minX, maxY - minY) / 2 + 30;
+  for (const room of nextHouse.rooms || []) {
+    for (const point of room.polygon || []) addExtent(box, point);
+  }
+  for (const item of nextHouse.furniture || []) addExtent(box, item);
+  for (const feature of nextHouse.siteFeatures || []) addExtent(box, feature);
+  for (const label of nextHouse.planLabels || []) addExtent(box, label);
+  const pad = nextHouse.footprint || {};
+  if (Number.isFinite(Number(pad.width)) && Number.isFinite(Number(pad.depth))) {
+    addExtent(box, { x: 0, y: 0 });
+    addExtent(box, { x: Number(pad.width), y: Number(pad.depth) });
+  }
+  if (!Number.isFinite(box.minX)) return null;
+  return box;
+}
+
+/** Heated and covered rooms, plus small site rooms. Study drawings and huge site outlines stay out of the frame when a walled building exists. */
+function roomsToFrame(nextHouse) {
+  const rooms = nextHouse.rooms || [];
+  const built = rooms.filter((room) => {
+    const kind = areaKind(room);
+    return kind === "heated" || kind === "covered";
+  });
+  const walled = (nextHouse.walls || []).length > 0 && built.length > 0;
+  if (!walled) {
+    const kept = rooms.filter((room) => areaKind(room) !== "study");
+    return kept.length ? kept : rooms;
+  }
+  const core = boundsOf(built);
+  const coreSpan = core ? Math.hypot(core.width, core.depth) : 1;
+  const chosen = [...built];
+  for (const room of rooms) {
+    if (areaKind(room) !== "site") continue;
+    const box = boundsOf([room]);
+    if (!box) continue;
+    if (Math.hypot(box.width, box.depth) > coreSpan * 1.75) continue;
+    chosen.push(room);
+  }
+  return chosen;
+}
+
+function piecePick(object) {
+  const pick = object?.userData?.pick;
+  return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall"));
+}
+
+function firstModelHit(hits) {
+  for (const hit of hits) {
+    const data = hit.object?.userData;
+    if (!data) continue;
+    if (piecePick(hit.object) || data.pickSurface || data.wallId) return hit;
+  }
+  return null;
+}
+
+function fitGround(nextHouse, ground, scene, camera, controls) {
+  const box = planExtent(nextHouse);
+  if (!box) return;
+  const width = Math.max(1, box.maxX - box.minX);
+  const depth = Math.max(1, box.maxY - box.minY);
+  const cx = (box.minX + box.maxX) / 2;
+  const cz = -((box.minY + box.maxY) / 2);
+  const radius = Math.hypot(width, depth) / 2 + 48;
+  const reach = Math.hypot(cx, cz) + radius;
   ground.geometry.dispose();
   ground.geometry = new THREE.CircleGeometry(Math.max(180, radius), 64);
-  ground.position.set((minX + maxX) / 2, -0.04, -((minY + maxY) / 2));
-  const far = Math.max(900, radius * 2.4);
-  scene.fog.near = far * 0.28;
+  ground.position.set(cx, -0.04, cz);
+  const far = Math.max(900, radius * 2.6, reach * 1.5);
+  scene.fog.near = Math.max(30, Math.min(far * 0.22, Math.max(80, radius * 0.3)));
   scene.fog.far = far;
-  camera.far = far * 2;
+  camera.far = Math.max(camera.far, far * 2.2);
   camera.updateProjectionMatrix();
-  controls.maxDistance = Math.max(170, radius * 1.6);
+  controls.maxDistance = Math.max(170, radius * 1.8, far * 0.85);
 }
 
 function rammedEarthTexture() {
@@ -973,6 +1091,7 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
 
 function roomFloor(room, materials) {
   if (!room.polygon || room.polygon.length < 3) return new THREE.Group();
+  if (areaKind(room) === "study") return studyOverlay(room);
   const shape = new THREE.Shape();
   const [first, ...rest] = room.polygon;
   shape.moveTo(first.x, first.y);
@@ -984,6 +1103,25 @@ function roomFloor(room, materials) {
   mesh.position.y = 0.03;
   mesh.receiveShadow = true;
   mesh.userData.pickSurface = true;
+  return mesh;
+}
+
+function studyOverlay(room) {
+  const shape = new THREE.Shape();
+  const [first, ...rest] = room.polygon;
+  shape.moveTo(first.x, first.y);
+  for (const point of rest) shape.lineTo(point.x, point.y);
+  const geometry = new THREE.ShapeGeometry(shape);
+  geometry.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+    color: 0x8d7b66,
+    transparent: true,
+    opacity: 0.14,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  }));
+  mesh.position.y = 0.08;
+  mesh.raycast = () => {};
   return mesh;
 }
 
@@ -1011,6 +1149,7 @@ function addAnnotations(house, parent) {
     mesh.position.set(item.x, height / 2, -item.y);
     mesh.rotation.y = ((item.rotation || 0) * Math.PI) / 180;
     mesh.castShadow = true;
+    mesh.userData.pick = { type: "furniture", id: item.id };
     parent.add(mesh);
   }
   for (const feature of house.siteFeatures || []) {
@@ -1041,6 +1180,7 @@ function addAnnotations(house, parent) {
       );
       mesh.position.set(feature.x, 1.2, -feature.y);
     }
+    mesh.userData.pick = { type: "siteFeature", id: feature.id };
     parent.add(mesh);
     if (feature.kind === "tree" || feature.kind === "garden" || feature.kind === "other") continue;
     const label = makeSprite(feature.name, false, { priority: 1, px: 30 });
@@ -1048,9 +1188,17 @@ function addAnnotations(house, parent) {
     parent.add(label);
   }
   for (const label of house.planLabels || []) {
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xf6f1e8, transparent: true, opacity: 0, depthWrite: false }),
+    );
+    marker.position.set(label.x, 2.2, -label.y);
+    marker.userData.pick = { type: "planLabel", id: label.id };
+    parent.add(marker);
     if (!keptPlanLabel(label.text)) continue;
     const sprite = makeSprite(label.text, false, { priority: 2, px: 32 });
     sprite.position.set(label.x, 5.2, -label.y);
+    sprite.userData.pick = { type: "planLabel", id: label.id };
     parent.add(sprite);
   }
 }
