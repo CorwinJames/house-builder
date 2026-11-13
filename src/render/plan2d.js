@@ -62,6 +62,7 @@ export function createPlanView(canvas, initialHouse) {
   let camera = { cx: 38, cy: 23.5, pxPerFt: 8 };
   let labelBoxes = [];
   let cameraReady = false;
+  let openedFrame = false;
   let ratioFontReady = false;
   const pointers = new Map();
   let drag = null;
@@ -118,11 +119,37 @@ export function createPlanView(canvas, initialHouse) {
     };
   }
 
+  function usableCamera(next) {
+    return !!next
+      && Number.isFinite(next.cx)
+      && Number.isFinite(next.cy)
+      && Number.isFinite(next.pxPerFt)
+      && next.pxPerFt >= 0.5
+      && next.pxPerFt <= 200;
+  }
+
   function applyCameraFromState() {
-    if (state?.plan) {
-      camera = { ...state.plan };
-      cameraReady = true;
+    if (!usableCamera(state?.plan)) return;
+    camera = { cx: state.plan.cx, cy: state.plan.cy, pxPerFt: state.plan.pxPerFt };
+    cameraReady = true;
+  }
+
+  function contentOnScreen() {
+    const { w, h } = size();
+    if (w < 20 || h < 20) return true;
+    const points = [];
+    for (const wall of house.walls || []) {
+      if (wall?.start) points.push(wall.start);
+      if (wall?.end) points.push(wall.end);
     }
+    if (!points.length && house.footprint?.width && house.footprint?.depth) {
+      points.push({ x: 0, y: 0 }, { x: house.footprint.width, y: house.footprint.depth });
+    }
+    if (!points.length) return true;
+    return points.some((point) => {
+      const screen = worldToScreen(point.x, point.y);
+      return screen.x > -80 && screen.y > -80 && screen.x < w + 80 && screen.y < h + 80;
+    });
   }
 
   function fit(notify) {
@@ -131,21 +158,29 @@ export function createPlanView(canvas, initialHouse) {
     const future = state ? isFutureShown(state) : true;
     const siteMode = state?.focus === "site";
     const siteView = siteMode && state?.layers?.site !== false ? buildSite(house) : null;
-    const bounds = siteView?.bounds
-      ? {
-          x0: siteView.bounds.x0 - 20,
-          y0: siteView.bounds.y0 - 20,
-          x1: siteView.bounds.x1 + 20,
-          y1: siteView.bounds.y1 + 20,
-        }
-      : future
-        ? { x0: -6, y0: -8, x1: house.footprint.width + 6, y1: house.footprint.depth + 8 }
-        : {
-            x0: house.phases.phase1.bounds.x0 - 6,
-            y0: house.phases.phase1.bounds.y0 - 6,
-            x1: house.phases.phase1.bounds.x1 + 6,
-            y1: house.phases.phase1.bounds.y1 + 6,
-          };
+    const footW = Number(house.footprint?.width);
+    const footD = Number(house.footprint?.depth);
+    const phaseBox = house.phases?.phase1?.bounds;
+    let bounds;
+    if (siteView?.bounds) {
+      bounds = {
+        x0: siteView.bounds.x0 - 20,
+        y0: siteView.bounds.y0 - 20,
+        x1: siteView.bounds.x1 + 20,
+        y1: siteView.bounds.y1 + 20,
+      };
+    } else if (!future && phaseBox) {
+      bounds = {
+        x0: phaseBox.x0 - 6,
+        y0: phaseBox.y0 - 6,
+        x1: phaseBox.x1 + 6,
+        y1: phaseBox.y1 + 6,
+      };
+    } else if (footW > 0 && footD > 0) {
+      bounds = { x0: -6, y0: -8, x1: footW + 6, y1: footD + 8 };
+    } else {
+      bounds = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    }
     for (const wall of house.walls || []) {
       for (const point of [wall.start, wall.end]) {
         if (!point) continue;
@@ -155,6 +190,7 @@ export function createPlanView(canvas, initialHouse) {
         bounds.y1 = Math.max(bounds.y1, point.y + 6);
       }
     }
+    if (!Number.isFinite(bounds.x0) || bounds.x1 <= bounds.x0 || bounds.y1 <= bounds.y0) return;
     camera.cx = (bounds.x0 + bounds.x1) / 2;
     camera.cy = (bounds.y0 + bounds.y1) / 2;
     camera.pxPerFt = Math.max(
@@ -162,12 +198,14 @@ export function createPlanView(canvas, initialHouse) {
       Math.min((w - 48) / (bounds.x1 - bounds.x0), (h - 120) / (bounds.y1 - bounds.y0)),
     );
     cameraReady = true;
+    if (state) state.plan = { cx: camera.cx, cy: camera.cy, pxPerFt: camera.pxPerFt };
     if (notify) onChange({ ...camera });
     render();
   }
 
   function wallVisible(wall) {
-    if (!state || !isPhaseVisible(wall.phase, state)) return false;
+    if (!state) return true;
+    if (!isPhaseVisible(wall.phase, state)) return false;
     return !!state.layers[wallLayerId(wall)];
   }
 
@@ -182,6 +220,8 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawGrid() {
+    const scale = camera.pxPerFt;
+    if (!(scale > 0) || !Number.isFinite(scale)) return;
     const { w, h } = size();
     const corners = [
       screenToWorld(0, 0),
@@ -193,18 +233,23 @@ export function createPlanView(canvas, initialHouse) {
     const x1 = Math.max(...corners.map((c) => c.x));
     const y0 = Math.min(...corners.map((c) => c.y));
     const y1 = Math.max(...corners.map((c) => c.y));
+    if (![x0, x1, y0, y1].every(Number.isFinite)) return;
     const strokeLines = (step, style, skipMultiplesOf) => {
+      if (!(step > 0)) return;
       ctx.beginPath();
       ctx.strokeStyle = style;
       ctx.lineWidth = 1;
-      for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) {
+      let count = 0;
+      for (let x = Math.ceil(x0 / step) * step; x <= x1 && count < 2000; x += step) {
+        count += 1;
         if (skipMultiplesOf && x % skipMultiplesOf === 0) continue;
         const a = worldToScreen(x, y0);
         const b = worldToScreen(x, y1);
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
       }
-      for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) {
+      for (let y = Math.ceil(y0 / step) * step; y <= y1 && count < 4000; y += step) {
+        count += 1;
         if (skipMultiplesOf && y % skipMultiplesOf === 0) continue;
         const a = worldToScreen(x0, y);
         const b = worldToScreen(x1, y);
@@ -365,9 +410,10 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function drawRooms() {
-    if (!state?.layers.finishes) return;
-    for (const room of house.rooms) {
-      if (!isPhaseVisible(room.phase, state)) continue;
+    if (state?.layers && state.layers.finishes === false) return;
+    for (const room of house.rooms || []) {
+      if (!room?.polygon || room.polygon.length < 3) continue;
+      if (state && !isPhaseVisible(room.phase, state)) continue;
       const future = room.phase === "future";
       ctx.save();
       trace(room.polygon);
@@ -403,7 +449,8 @@ export function createPlanView(canvas, initialHouse) {
     const openings = openingsFor(house, wall);
     const pieces = wallPieces(wall, openings);
     const future = wall.phase === "future";
-    const colors = ASSEMBLY_2D[wall.assembly];
+    const colors = ASSEMBLY_2D[wall.assembly] || ASSEMBLY_2D.framed;
+    if (!colors || !wall?.start || !wall?.end) return;
     for (const piece of pieces) {
       if (piece.kind !== "solid") continue;
       const a = pointAlong(wall, piece.s0);
@@ -864,6 +911,7 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   function render() {
+    try {
     layoutCanvas();
     if (!ratioFontReady && document.fonts?.load) {
       ratioFontReady = true;
@@ -874,6 +922,13 @@ export function createPlanView(canvas, initialHouse) {
     }
     const { w, h } = size();
     if (w < 2 || h < 2) return;
+    if (!usableCamera(camera)) camera = { cx: Number.isFinite(camera.cx) ? camera.cx : 0, cy: Number.isFinite(camera.cy) ? camera.cy : 0, pxPerFt: 8 };
+    if (!openedFrame && w > 20 && h > 20 && !contentOnScreen()) {
+      openedFrame = true;
+      fit(false);
+      return;
+    }
+    if (!openedFrame && w > 20 && h > 20) openedFrame = true;
     labelBoxes = [];
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const pw = Math.round(w * dpr);
@@ -889,15 +944,15 @@ export function createPlanView(canvas, initialHouse) {
     drawGrid();
     drawSiteGround();
     drawRooms();
-    for (const wall of house.walls) {
+    for (const wall of house.walls || []) {
       if (wallVisible(wall)) drawWall(wall);
     }
-    for (const wall of house.walls) {
+    for (const wall of house.walls || []) {
       if (!wallVisible(wall)) continue;
       for (const opening of openingsFor(house, wall)) drawOpening(wall, opening);
     }
     if (state?.layers.framing) {
-      for (const wall of house.walls) {
+      for (const wall of house.walls || []) {
         if (isPhaseVisible(wall.phase, state)) drawStuds(wall);
       }
     }
@@ -914,6 +969,9 @@ export function createPlanView(canvas, initialHouse) {
     drawCompass();
     drawWatermark();
     drawMarkers();
+    } catch (error) {
+      console.error(error);
+    }
   }
 
   function drawStuds(wall) {

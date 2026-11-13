@@ -33,8 +33,36 @@ button:focus-visible {
 
 .shell {
   height: 100dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace { flex: 1 1 auto; }
+
+.drive-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #f3d2c6;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+
+.drive-banner[hidden] { display: none; }
+
+.drive-banner p { margin: 0; font-size: 0.85rem; line-height: 1.35; }
+
+.drive-banner button {
+  border: 0;
+  background: var(--ink);
+  color: #f6f1e8;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  min-height: 32px;
 }
 
 .topbar {
