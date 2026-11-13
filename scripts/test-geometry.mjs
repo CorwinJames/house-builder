@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
 import { snapToGrid, snapAngle, snapDrawingPoint, placePoint } from "../src/build/snap.js";
+import {
+  describeWall,
+  headingDeg,
+  measureLabel,
+  parseAngle,
+  parseLength,
+  plainFeet,
+  pointAt,
+  setWallMeasure,
+} from "../src/build/angle.js";
 import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse } from "../src/build/walls.js";
@@ -64,6 +74,51 @@ check("angle snap locks to 45 degree stops", () => {
   assert.ok(Math.abs(snapped.length - 10) < 0.01);
   const diagonal = snapAngle({ x: 0, y: 0 }, { x: 8, y: 7 }, 0.5);
   assert.equal(diagonal.angle, 45);
+});
+
+check("wall angle is measured east, turning counterclockwise", () => {
+  assert.equal(Math.round(headingDeg({ x: 0, y: 0 }, { x: 10, y: 0 })), 0);
+  assert.equal(Math.round(headingDeg({ x: 0, y: 0 }, { x: 0, y: 10 })), 90);
+  assert.equal(Math.round(headingDeg({ x: 0, y: 0 }, { x: -10, y: 0 })), 180);
+  const north = pointAt({ x: 0, y: 0 }, 10, 90);
+  assert.ok(Math.abs(north.x) < 1e-6);
+  assert.ok(Math.abs(north.y - 10) < 1e-6);
+  assert.equal(parseLength("12 ft 4 in"), 12 + 4 / 12);
+  assert.equal(parseLength("12.5"), 12.5);
+  assert.equal(parseLength("12'4\""), 12 + 4 / 12);
+  assert.equal(parseLength("12 4"), 12 + 4 / 12);
+  assert.equal(parseAngle("37°"), 37);
+  assert.equal(plainFeet(12 + 4 / 12), "12 ft 4 in");
+  assert.equal(measureLabel(12 + 4 / 12, 37, 91), "12 ft 4 in at 37°, 91° from the wall it meets");
+  const house = {
+    walls: [
+      { id: "east", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } },
+      { id: "north", start: { x: 0, y: 0 }, end: { x: 0, y: 8 } },
+    ],
+  };
+  const joined = describeWall(house.walls[1].start, house.walls[1].end, house, "north");
+  assert.equal(Math.round(joined.angle), 90);
+  assert.equal(Math.round(joined.joinAngle), 90);
+  const offset = describeWall({ x: 0, y: 0 }, { x: 10, y: 0 }, {
+    walls: [
+      { id: "south", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } },
+      { id: "east", start: { x: 10.6, y: 0.6 }, end: { x: 10.6, y: 8 } },
+      { id: "more", start: { x: 10, y: 0 }, end: { x: 16, y: 0 } },
+    ],
+  }, "south");
+  assert.ok(offset.joinAngle > 70 && offset.joinAngle < 110, offset.joinAngle);
+  const turned = setWallMeasure({
+    walls: [
+      { id: "a", start: { x: 0, y: 0 }, end: { x: 10, y: 0 } },
+      { id: "b", start: { x: 10, y: 0 }, end: { x: 10, y: 6 } },
+    ],
+  }, "a", 10, 90, "end");
+  const a = turned.walls.find((wall) => wall.id === "a");
+  const b = turned.walls.find((wall) => wall.id === "b");
+  assert.ok(Math.abs(a.start.x) < 1e-6 && Math.abs(a.start.y) < 1e-6);
+  assert.ok(Math.abs(a.end.x) < 1e-6 && Math.abs(a.end.y - 10) < 1e-6);
+  assert.ok(Math.abs(b.start.x - a.end.x) < 1e-6 && Math.abs(b.start.y - a.end.y) < 1e-6);
+  assert.ok(Math.abs(b.end.x - 10) < 1e-6 && Math.abs(b.end.y - 6) < 1e-6);
 });
 
 check("free placement keeps the cursor", () => {

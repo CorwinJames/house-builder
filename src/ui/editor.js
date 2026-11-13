@@ -25,6 +25,16 @@ import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
 import { FINE_GRID_FT, placePoint, projectOntoWall, snapDrawingPoint, snapToGrid } from "../build/snap.js";
 import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
+import {
+  describeWall,
+  formatHeading,
+  freeEndName,
+  parseAngle,
+  parseLength,
+  plainFeet,
+  pointAt,
+  setWallMeasure,
+} from "../build/angle.js";
 import { applyFix, evaluateRules, warningTargets } from "../rules/index.js";
 import { isFutureShown, isPhaseVisible } from "../render/visibility.js";
 import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
@@ -86,7 +96,7 @@ const TOOLS = [
 
 const TOOL_HINTS = {
   select: "Click anything to open its card.",
-  wall: "Drag to draw a wall. It lands where you let go. Snap to grid lines it up.",
+  wall: "Drag to draw a wall. The label shows the length and the angle. Tab types both.",
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
@@ -97,10 +107,10 @@ const TOOL_HINTS = {
 };
 
 const TUTORIAL = [
-  "Drag on the plan to draw a wall. It follows the cursor and lands where you let go.",
+  "Drag on the plan to draw a wall. The label shows the length and the angle. Tab types both.",
   "Room draws a rectangle of walls. The south side suggests rammed earth. The other sides suggest hempcrete.",
   "Door shows only doors. Window shows only windows. Set the size, then drag along a wall.",
-  "Select a wall and drag a round handle. It follows the cursor. Snap to grid lines it up. Undo is on the plan, or Ctrl Z.",
+  "Select a wall and drag a round handle. Tab or the card sets the length and the angle. Snap to grid lines it up.",
   "Electrical places outlets, lights, switches, and the panel. Suggest placements draws ghost outlets you can accept.",
 ];
 
@@ -126,6 +136,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let picks = [];
   let foldedFor = "";
   let gesture = null;
+  let measureOpen = false;
+  let measureTold = false;
   let warnings = [];
   let tutorialStep = 0;
   let longTimer = 0;
@@ -162,8 +174,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     move: onMove,
     up: onUp,
     hover: onHover,
+    label: onLabel,
     cancel: () => {
       window.clearTimeout(longTimer);
+      if (measureOpen) return;
       gesture = null;
     },
   };
@@ -232,10 +246,26 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     paintTutorial();
   });
   document.addEventListener("show-finding", (event) => showFinding(event.detail));
+  document.querySelector("#wall-measure")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    applyMeasure();
+  });
+  document.querySelector("#measure-cancel")?.addEventListener("click", () => cancelMeasure());
+  document.querySelector("#wall-measure")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelMeasure();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Shift") {
       shiftHeld = true;
       paintSnapButton();
+    }
+    if (event.key === "Tab" && mode === "build" && !measureOpen && !typingTarget(event.target) && measureTarget()) {
+      event.preventDefault();
+      openMeasure();
+      return;
     }
     if (typingTarget(event.target)) return;
     const meta = event.metaKey || event.ctrlKey;
@@ -258,6 +288,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       event.preventDefault();
       eraseSelection();
     } else if (event.key === "Escape") {
+      if (measureOpen) {
+        event.preventDefault();
+        cancelMeasure();
+        return;
+      }
       event.preventDefault();
       cancelLive();
       if (gesture?.snapshot) {
@@ -491,7 +526,210 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return extra?.surface || world || null;
   }
 
+  function draggedEndName(current) {
+    const wall = (current?.snapshot || house).walls.find((item) => item.id === current?.hit?.wallId);
+    if (!wall) return "end";
+    const startDist = Math.hypot(wall.start.x - current.hit.point.x, wall.start.y - current.hit.point.y);
+    return startDist < 0.2 ? "start" : "end";
+  }
+
+  function measureTarget() {
+    if (mode !== "build") return null;
+    if (gesture?.kind === "marquee") return null;
+    if (gesture?.kind === "wall" && gesture.start) return { kind: "draft", start: { ...gesture.start } };
+    if (gesture?.kind === "endpoint" && gesture.hit) {
+      return {
+        kind: "wall",
+        id: gesture.hit.wallId,
+        endName: draggedEndName(gesture),
+        baseline: gesture.snapshot,
+      };
+    }
+    if (gesture?.kind === "select" && gesture.hit?.type === "wall") {
+      const wall = (gesture.snapshot || house).walls.find((item) => item.id === gesture.hit.id);
+      if (!wall) return null;
+      return {
+        kind: "wall",
+        id: wall.id,
+        endName: freeEndName(wall, gesture.snapshot || house),
+        baseline: gesture.snapshot,
+      };
+    }
+    if (gesture) return null;
+    if (selection?.type === "wall" && picks.length === 1) {
+      const wall = house.walls.find((item) => item.id === selection.id);
+      if (!wall) return null;
+      return { kind: "wall", id: wall.id, endName: freeEndName(wall, house), baseline: null };
+    }
+    return null;
+  }
+
+  function fromWallMeasure(wall, was) {
+    const info = describeWall(wall.start, wall.end, house, wall.id);
+    info.at = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+    if (was != null) info.text = `${info.text} · was ${plainFeet(was)}`;
+    return info;
+  }
+
+  function wallMeasure() {
+    if (mode !== "build") return null;
+    if (gesture?.kind === "wall" && gesture.end) {
+      const info = describeWall(gesture.start, gesture.end, house, null);
+      info.at = {
+        x: (gesture.start.x + gesture.end.x) / 2,
+        y: (gesture.start.y + gesture.end.y) / 2,
+      };
+      return info;
+    }
+    if (gesture?.kind === "endpoint" && gesture.hit) {
+      const source = gesture.moved ? house : (gesture.snapshot || house);
+      const wall = source.walls.find((item) => item.id === gesture.hit.wallId);
+      return wall ? fromWallMeasure(wall, null) : null;
+    }
+    if (gesture?.kind === "select" && gesture.hit?.type === "wall") {
+      const wall = house.walls.find((item) => item.id === gesture.hit.id);
+      return wall ? fromWallMeasure(wall, gesture.moved ? gesture.wasLength : null) : null;
+    }
+    if (gesture) return null;
+    if (selection?.type === "wall" && picks.length === 1) {
+      const wall = house.walls.find((item) => item.id === selection.id);
+      return wall ? fromWallMeasure(wall, null) : null;
+    }
+    return null;
+  }
+
+  function hideMeasure() {
+    const form = document.querySelector("#wall-measure");
+    if (form) form.hidden = true;
+    measureOpen = false;
+  }
+
+  function placeMeasureForm() {
+    const form = document.querySelector("#wall-measure");
+    if (!form || form.hidden) return;
+    const box = plan.measureLabelBox?.();
+    const planCanvas = document.querySelector("#plan-canvas");
+    const modelCanvas = document.querySelector("#model-canvas");
+    const view = getViewState().view;
+    const planVisible = planCanvas && planCanvas.clientWidth > 20 && view !== "model";
+    const anchor = (view === "model" ? modelCanvas : planCanvas)?.getBoundingClientRect();
+    const boxOnScreen = planVisible && box && box.width > 0
+      && box.left < window.innerWidth - 8
+      && box.top < window.innerHeight - 8
+      && box.left + box.width > 8
+      && box.top + box.height > 8;
+    const left = boxOnScreen ? box.left + box.width + 8 : (anchor?.left || 16) + 16;
+    const top = boxOnScreen ? box.top : (anchor?.top || 16) + 16;
+    form.style.left = `${Math.max(8, Math.min(left, window.innerWidth - 296))}px`;
+    form.style.top = `${Math.max(8, Math.min(top, window.innerHeight - 220))}px`;
+  }
+
+  function openMeasure() {
+    const target = measureTarget();
+    const info = wallMeasure();
+    const form = document.querySelector("#wall-measure");
+    if (!target || !info || !form) return false;
+    form.querySelector("#measure-length").value = plainFeet(info.length);
+    form.querySelector("#measure-angle").value = formatHeading(info.angle).replace("°", "");
+    form.querySelector("#measure-join").textContent = info.joinAngle == null
+      ? "0° points east. The angle turns counterclockwise."
+      : `${Math.round(info.joinAngle)}° from the wall it meets. 0° points east. The angle turns counterclockwise.`;
+    form.hidden = false;
+    measureOpen = true;
+    placeMeasureForm();
+    requestAnimationFrame(() => placeMeasureForm());
+    const lengthInput = form.querySelector("#measure-length");
+    lengthInput.focus();
+    lengthInput.select();
+    if (!measureTold) {
+      measureTold = true;
+      announce("Type the length and the angle, then press Enter. 0° points east, and the angle turns counterclockwise. Esc cancels.", false);
+    }
+    return true;
+  }
+
+  function onLabel() {
+    if (mode !== "build") return false;
+    if (measureOpen) {
+      document.querySelector("#measure-length")?.focus();
+      return true;
+    }
+    return openMeasure();
+  }
+
+  function cancelMeasure() {
+    hideMeasure();
+    cancelLive();
+    if (gesture?.snapshot) {
+      house = gesture.snapshot;
+      plan.setHouse(house);
+      model.setHouse?.(house);
+    }
+    gesture = null;
+    publish();
+  }
+
+  function finishWall(current) {
+    const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
+    const added = addWall(house, current.start, current.end, chosen);
+    if (added.house !== house) {
+      if (added.createdId) choose({ type: "wall", id: added.createdId });
+      commit(syncRooms(added.house));
+      announce("Drew a wall.");
+    } else {
+      warnings = added.warnings;
+      announce(added.warnings?.[0]?.message || "That wall wasn't drawn.", false);
+      publish();
+    }
+  }
+
+  function commitWallMeasure(length, angle, target) {
+    if (!target || length == null || !(length > 0) || angle == null || Number.isNaN(angle)) {
+      announce("Type a length, such as 12 ft 4 in, and an angle, such as 37.", false);
+      return false;
+    }
+    if (length < 0.45) {
+      announce("That wall is too short to keep.", false);
+      return false;
+    }
+    if (target.kind === "draft") {
+      const end = pointAt(target.start, length, angle);
+      const current = gesture;
+      hideMeasure();
+      gesture = null;
+      cancelLive();
+      if (!current) return false;
+      current.end = { ...(current.end || {}), x: end.x, y: end.y, length };
+      current.moved = true;
+      finishWall(current);
+      return true;
+    }
+    flushLive();
+    const source = target.baseline && gesture?.moved ? house : (target.baseline || house);
+    const baseline = target.baseline;
+    const next = setWallMeasure(source, target.id, length, angle, target.endName);
+    hideMeasure();
+    gesture = null;
+    cancelLive();
+    const changed = commit(syncRooms(next), baseline, "setting the length and angle");
+    if (changed) announce("Set the length and angle.");
+    else announce("That length and angle are already set.", false);
+    publish();
+    return changed;
+  }
+
+  function applyMeasure() {
+    const form = document.querySelector("#wall-measure");
+    if (!form) return;
+    commitWallMeasure(
+      parseLength(form.querySelector("#measure-length").value),
+      parseAngle(form.querySelector("#measure-angle").value),
+      measureTarget(),
+    );
+  }
+
   function onDown(event, world, extra) {
+    if (measureOpen) cancelMeasure();
     world = pointFor(tool, world, extra);
     if (!world || mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
     window.clearTimeout(longTimer);
@@ -629,6 +867,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function onMove(event, world, extra) {
     world = pointFor(tool, world, extra);
+    if (measureOpen) return;
     if (!gesture || !world) return;
     if (Math.hypot(event.clientX - (gesture.clientX || event.clientX), event.clientY - (gesture.clientY || event.clientY)) > 8) {
       window.clearTimeout(longTimer);
@@ -712,6 +951,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function onUp(event, world) {
     window.clearTimeout(longTimer);
+    if (measureOpen) return;
     flushLive();
     const current = gesture;
     gesture = null;
@@ -722,15 +962,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     if (current.kind === "wall" && current.moved && current.end) {
-      const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
-      const added = addWall(house, current.start, current.end, chosen);
-      if (added.house !== house) {
-        commit(syncRooms(added.house));
-        announce("Drew a wall.");
-      } else {
-        warnings = added.warnings;
-        announce(added.warnings?.[0]?.message || "That wall wasn't drawn.", false);
-      }
+      finishWall(current);
     } else if (current.kind === "room" && current.moved && current.end) {
       const added = addRoomRectangle(house, current.start, current.end, assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID);
       if (added.house !== house) {
@@ -1370,6 +1602,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function makeOverlay() {
     const targets = warningTargets(warnings);
+    const measure = wallMeasure();
     const draftAssembly = gesture?.kind === "wall" && gesture.end
       ? assemblyById[suggestAssemblyId(gesture.start, gesture.end, assemblyId, assemblyExplicit, outwardForWall(gesture.start, gesture.end))]
       : null;
@@ -1388,7 +1621,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         start: gesture.start,
         end: gesture.end,
         color: draftAssembly?.swatch,
-        lengthLabel: gesture.end.label || formatFeetFine(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)).construction,
+        lengthLabel: measure?.text || gesture.end.label || formatFeetFine(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)).construction,
         ticks: gesture.end.ticks || [],
       } : null,
       guides: guidesOn ? guideBoxes() : [],
@@ -1408,30 +1641,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         width: catalogItem().width,
         ok: (gesture?.place || hoverPlace).ok,
       } : null,
-      moveLabel: moveLabel(),
+      measure,
+      moveLabel: moveLabel(measure),
     };
   }
 
-  function moveLabel() {
-    if (gesture?.kind === "endpoint" && gesture.moved && gesture.hit) {
-      const wall = house.walls.find((item) => item.id === gesture.hit.wallId);
-      if (!wall) return null;
-      return {
-        x: (wall.start.x + wall.end.x) / 2,
-        y: (wall.start.y + wall.end.y) / 2,
-        text: formatFeetFine(wallLength(wall)).construction,
-      };
-    }
-    if (gesture?.kind !== "select" || !gesture.moved || gesture.hit?.type !== "wall") return null;
-    const wall = house.walls.find((item) => item.id === gesture.hit.id);
-    if (!wall) return null;
-    const now = formatFeetFine(wallLength(wall)).construction;
-    const was = formatFeetFine(gesture.wasLength || wallLength(wall)).construction;
-    return {
-      x: (wall.start.x + wall.end.x) / 2,
-      y: (wall.start.y + wall.end.y) / 2,
-      text: `${now} · was ${was}`,
-    };
+  function moveLabel(measure) {
+    if (!measure?.at || gesture?.kind === "wall") return null;
+    return { x: measure.at.x, y: measure.at.y, text: measure.text };
   }
 
   function publish() {
@@ -1482,8 +1699,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return `Water tool. Click a wall to place the ${fixtureSpec(fixtureKind).name.toLowerCase()}.${orbitNote}`;
     }
     const lines = {
-      select: "Select tool. Drag a wall handle and it follows the cursor. Snap to grid lines it up. Drag a box on empty plan to choose several items. Hold Shift and drag to add. Shift-click adds or removes one. Delete removes the selection.",
-      wall: "Wall tool. Drag to draw a wall. It lands where you let go. Snap to grid lines it up.",
+      select: "Select tool. Drag a wall handle and it follows the cursor. The label shows the length and the angle. Tab or the card types both. Snap to grid lines it up. Drag a box on empty plan to choose several items. Hold Shift and drag to add. Shift-click adds or removes one. Delete removes the selection.",
+      wall: "Wall tool. Drag to draw a wall. The label shows the length and the angle. Tab types both. It lands where you let go.",
       room: "Room tool. Drag a rectangle.",
       door: "Door tool. Click a wall to place a door.",
       window: "Window tool. Click a wall to place a window.",
@@ -2381,6 +2598,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function paintInspector() {
+    const active = document.activeElement;
+    if (active && (active.id === "wall-length" || active.id === "wall-angle") && inspector.contains(active)) return;
     if (mode !== "build" || !picks.length) {
       inspector.hidden = true;
       inspector.innerHTML = "";
@@ -2403,6 +2622,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!wall) { inspector.hidden = true; syncSelectionLayout(); return; }
       const assembly = assemblyById[wall.assemblyId];
       const detail = formatFeetFine(wallLength(wall));
+      const info = describeWall(wall.start, wall.end, house, wall.id);
+      const joinLine = info.joinAngle == null
+        ? "0° points east. The angle turns counterclockwise."
+        : `${Math.round(info.joinAngle)}° from the wall it meets. 0° points east. The angle turns counterclockwise.`;
       const linked = (house.constraints || []).find((item) => item.targetId === wall.id);
       const readout = linked && constraintReadout(house, linked, house.customRatios || []);
       const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("");
@@ -2413,13 +2636,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       inspector.innerHTML = `
         ${gameHead("Wall", warnings.filter((item) => item.target?.id === wall.id))}
         ${statTiles([
-          { icon: "↔", value: detail.construction, label: "Length" },
+          { icon: "↔", value: plainFeet(detail.roundedFeet), label: "Length" },
+          { icon: "∠", value: formatHeading(info.angle), label: "Angle" },
           { icon: "↕", value: `${wall.height} ft`, label: "Height" },
           { icon: "▭", value: assembly?.short || wall.assembly, label: "Assembly" },
         ])}
+        <label>Length <input id="wall-length" value="${escapeAttr(plainFeet(info.length))}" autocomplete="off" /></label>
+        <label>Angle (°) <input id="wall-angle" value="${escapeAttr(formatHeading(info.angle).replace("°", ""))}" autocomplete="off" /></label>
+        <p class="fine">${escapeHtml(joinLine)}</p>
+        <button type="button" id="set-wall-measure">Set length and angle</button>
         <p class="fine">${assembly?.note || ""}</p>
         ${linked ? `<p>Proportion: ${readout?.badge || "linked"}${readout?.exact ? " · exact" : ""}</p><button type="button" id="unlink">Unlink</button>` : `
-          <label>Length <select id="prop-op"><option value="multiply">×</option><option value="divide">÷</option></select>
+          <label>Proportion <select id="prop-op"><option value="multiply">×</option><option value="divide">÷</option></select>
             <select id="prop-ratio">${ratioOptions}<option value="custom">Custom</option></select></label>
           <label>of <select id="prop-ref">${wallOptions}</select></label>
           <label>Custom <input id="custom-value" type="number" min="0.05" step="0.001" value="1.5" /></label>
@@ -2441,6 +2669,27 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Delete wall")}
       `;
+      const applyFromInspector = () => {
+        const lengthInput = inspector.querySelector("#wall-length");
+        const angleInput = inspector.querySelector("#wall-angle");
+        const length = parseLength(lengthInput.value);
+        const angle = parseAngle(angleInput.value);
+        const live = measureTarget();
+        const target = live?.kind === "wall" && live.id === wall.id
+          ? live
+          : { kind: "wall", id: wall.id, endName: freeEndName(wall, house), baseline: null };
+        lengthInput.blur();
+        angleInput.blur();
+        commitWallMeasure(length, angle, target);
+      };
+      inspector.querySelector("#set-wall-measure")?.addEventListener("click", applyFromInspector);
+      for (const field of ["#wall-length", "#wall-angle"]) {
+        inspector.querySelector(field)?.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          applyFromInspector();
+        });
+      }
       inspector.querySelector("#unlink")?.addEventListener("click", () => {
         commit(unlink(house, wall.id));
         publish();

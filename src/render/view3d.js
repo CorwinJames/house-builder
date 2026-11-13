@@ -979,14 +979,46 @@ function clearGroup(group) {
   }
 }
 
+function addPlanArc(group, x, y, fromDeg, toDeg, radius, shorter) {
+  let sweep = ((toDeg - fromDeg) % 360 + 360) % 360;
+  if (shorter && sweep > 180) sweep -= 360;
+  if (Math.abs(sweep) < 0.5) return;
+  const steps = Math.max(6, Math.round(Math.abs(sweep) / 8));
+  const points = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const deg = fromDeg + (sweep * i) / steps;
+    const rad = (deg * Math.PI) / 180;
+    points.push(new THREE.Vector3(x + Math.cos(rad) * radius, 0.35, -(y + Math.sin(rad) * radius)));
+  }
+  group.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color: shorter ? 0x9c5b2a : 0x2f5d45 }),
+  ));
+}
+
 function syncGhost(group, house, overlay) {
   clearGroup(group);
   if (!overlay) return;
-  const lengthText = overlay.moveLabel?.text || overlay.draft?.lengthLabel;
-  const lengthAt = overlay.moveLabel || (overlay.draft?.start && overlay.draft?.end ? {
+  const measure = overlay.measure;
+  const lengthText = measure?.text || overlay.moveLabel?.text || overlay.draft?.lengthLabel;
+  const lengthAt = overlay.moveLabel || measure?.at || (overlay.draft?.start && overlay.draft?.end ? {
     x: (overlay.draft.start.x + overlay.draft.end.x) / 2,
     y: (overlay.draft.start.y + overlay.draft.end.y) / 2,
   } : null);
+  if (measure?.arc && measure.length > 0.2) {
+    addPlanArc(group, measure.arc.x, measure.arc.y, 0, measure.arc.to, 4.5, false);
+    group.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(measure.arc.x + 0.8, 0.35, -measure.arc.y),
+        new THREE.Vector3(measure.arc.x + 6, 0.35, -measure.arc.y),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0x2f5d45 }),
+    ));
+    const east = makeSprite("east", false, { priority: 1, px: 22 });
+    east.position.set(measure.arc.x + 6.6, 1.2, -measure.arc.y);
+    group.add(east);
+    if (measure.join) addPlanArc(group, measure.join.x, measure.join.y, measure.join.from, measure.join.to, 6.5, true);
+  }
   if (lengthText && lengthAt) {
     const label = makeSprite(String(lengthText), false, { priority: 0, px: 28 });
     label.position.set(lengthAt.x, 11, -lengthAt.y);
