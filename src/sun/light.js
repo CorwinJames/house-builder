@@ -9,12 +9,15 @@
  *   openings, on walls where outside is on the sunny side and a room is on the other.
  * - The patch on the floor is the opening, from its sill to its head, pushed
  *   along the sun's direction down to the floor, then trimmed to that room.
+ * - Skylights let sun in from the ceiling: the opening, pushed along the sun
+ *   from ceiling height down to the floor, then trimmed to the room below.
  * - Walls cast shadows outside: each wall's top edge, pushed along the sun to the ground.
  * It does not follow light through a second window, bounce it, or account
  * for the roof overhang, trees, or the slope of the ground.
  */
 
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
+import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
 
 const DEFAULT_HEIGHT = 10;
 
@@ -86,6 +89,22 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
     patches.push({
       openingId: opening.id,
       wallId: wall.id,
+      roomId: room.id,
+      polygon,
+      area: clippedArea(polygon, room.polygon),
+    });
+  }
+  const ceiling = ceilingHeight(house);
+  const dx = (-v.x / v.z) * ceiling;
+  const dy = (-v.y / v.z) * ceiling;
+  for (const skylight of house.skylights || []) {
+    const room = roomAt(rooms, skylight);
+    if (!room) continue;
+    const polygon = skylightFootprint(skylight).map((point) => ({ x: point.x + dx, y: point.y + dy }));
+    patches.push({
+      openingId: skylight.id,
+      skylightId: skylight.id,
+      wallId: null,
       roomId: room.id,
       polygon,
       area: clippedArea(polygon, room.polygon),

@@ -14,6 +14,7 @@ import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
 import { createSunRig } from "./sun3d.js";
+import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -114,6 +115,9 @@ export function createView3d(canvas, initialHouse) {
   let fullRoof = buildRoof(house, true);
   roofPivot.add(phaseRoof);
   roofPivot.add(fullRoof);
+  // With the roof hidden, skylights show as outlines at ceiling height.
+  let skylightOutlines = buildSkylightOutlines(house);
+  scene.add(skylightOutlines);
 
   let phaseSlab = buildSlab(house, false);
   let fullSlab = buildSlab(house, true);
@@ -445,6 +449,10 @@ export function createView3d(canvas, initialHouse) {
     fullRoof = buildRoof(house, true);
     roofPivot.add(phaseRoof);
     roofPivot.add(fullRoof);
+    disposeObject(skylightOutlines);
+    scene.remove(skylightOutlines);
+    skylightOutlines = buildSkylightOutlines(house);
+    scene.add(skylightOutlines);
     disposeObject(phaseSlab);
     disposeObject(fullSlab);
     scene.remove(phaseSlab);
@@ -456,7 +464,7 @@ export function createView3d(canvas, initialHouse) {
     buildHouse(house, buckets, futureBuckets, materials, wood, { cutaway });
     fitGround(house, ground, scene, camera, controls);
     if (state) applyVisibility(state);
-    sunRig.apply(sunNow, house, state);
+    applySun();
     applyRoof();
     paintSelection();
   }
@@ -478,10 +486,23 @@ export function createView3d(canvas, initialHouse) {
     });
   }
 
+  /** Sun and shade on: the shadow-only stand-ins (with skylight holes) shade the rooms, not the roof. */
+  function applySun() {
+    sunRig.apply(sunNow, house, state);
+    roofPivot.traverse((obj) => {
+      if (obj.userData?.roofSurface) obj.castShadow = !sunNow;
+    });
+  }
+
   function applyRoof() {
     const show = state?.roof !== false && !cutaway;
     const ghost = show && !!state?.building;
     roofPivot.visible = show;
+    skylightOutlines.visible = !show || ghost;
+    const futureOn = state ? isFutureShown(state) : false;
+    for (const child of skylightOutlines.children) {
+      if (child.userData?.phase === "future") child.visible = futureOn;
+    }
     roofPivot.traverse((obj) => {
       if (obj.isSprite) {
         obj.userData.roofLabel = true;
@@ -591,7 +612,7 @@ export function createView3d(canvas, initialHouse) {
     pointerDown = null;
     if (moved > 6 || !onPick) return;
     const hit = planFromEvent(event);
-    if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel")) {
+    if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel" || hit.pick.type === "skylight")) {
       onPick(hit.pick, event);
       return;
     }
@@ -744,7 +765,7 @@ export function createView3d(canvas, initialHouse) {
     /** The sun for the Sun and shade layer (from currentSun), or null for everyday light. */
     setSun(next) {
       sunNow = next || null;
-      sunRig.apply(sunNow, house, state);
+      applySun();
     },
     setState(next) {
       state = next;
@@ -951,7 +972,7 @@ function roomsToFrame(nextHouse) {
 
 function piecePick(object) {
   const pick = object?.userData?.pick;
-  return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall"));
+  return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall" || pick.type === "skylight"));
 }
 
 /** True only if this object and every parent are visible. A hidden layer can't be clicked. */
@@ -1750,10 +1771,12 @@ function buildRoof(house, futureShown) {
     );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.userData.roofSurface = true;
     group.add(mesh);
     const span = (footprint.x1 - footprint.x0) * (footprint.y1 - footprint.y0);
     if (!largest || span > largest.span) largest = { footprint, span };
   }
+  addRoofSkylights(house, group, futureShown);
   if (largest) {
     const footprint = largest.footprint;
     const label = makeSprite("Placeholder roof", false, { priority: 1, px: 30 });
@@ -1762,6 +1785,66 @@ function buildRoof(house, futureShown) {
     const rise = ((footprint.y1 - footprint.y0) / 2) * house.roof.pitchRiseOverRun;
     label.position.set(midX, house.roof.plateHeight + rise + 3.2, -midY);
     group.add(label);
+  }
+  return group;
+}
+
+const SKYLIGHT_GLASS = new THREE.MeshStandardMaterial({
+  color: 0xa9d3e6,
+  roughness: 0.08,
+  metalness: 0.35,
+  transparent: true,
+  opacity: 0.7,
+  side: THREE.DoubleSide,
+});
+const SKYLIGHT_FRAME = new THREE.LineBasicMaterial({ color: 0x2f5d73 });
+
+function skylightShown(item, futureShown) {
+  return item.phase !== "future" || futureShown;
+}
+
+/** Glass laid on the roof surface over each skylight, found by dropping a ray onto the roof. */
+function addRoofSkylights(house, group, futureShown) {
+  const surfaces = group.children.filter((child) => child.userData?.roofSurface);
+  if (!surfaces.length) return;
+  for (const mesh of surfaces) mesh.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  for (const item of house.skylights || []) {
+    if (!skylightShown(item, futureShown)) continue;
+    const corners = [];
+    for (const point of skylightFootprint(item)) {
+      ray.set(new THREE.Vector3(point.x, 400, -point.y), down);
+      const hit = ray.intersectObjects(surfaces, false)[0];
+      if (!hit) break;
+      corners.push(new THREE.Vector3(point.x, hit.point.y + 0.18, -point.y));
+    }
+    if (corners.length !== 4) continue;
+    const geometry = new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]);
+    geometry.computeVertexNormals();
+    const glass = new THREE.Mesh(geometry, SKYLIGHT_GLASS.clone());
+    glass.userData.pick = { type: "skylight", id: item.id };
+    group.add(glass);
+    const frame = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), SKYLIGHT_FRAME);
+    group.add(frame);
+  }
+}
+
+/** Skylight outlines at ceiling height, for when the roof is hidden or ghosted. */
+function buildSkylightOutlines(house) {
+  const group = new THREE.Group();
+  const height = ceilingHeight(house) + 0.05;
+  for (const item of house.skylights || []) {
+    const corners = skylightFootprint(item).map((point) => new THREE.Vector3(point.x, height, -point.y));
+    const glass = new THREE.Mesh(
+      new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
+      new THREE.MeshBasicMaterial({ color: 0xa9d3e6, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    glass.userData.pick = { type: "skylight", id: item.id };
+    glass.userData.phase = item.phase;
+    group.add(glass);
+    const frame = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), SKYLIGHT_FRAME);
+    group.add(frame);
   }
   return group;
 }

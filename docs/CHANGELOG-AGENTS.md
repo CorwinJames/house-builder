@@ -3,6 +3,8 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
+2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/34 | Skylights: a Skylight tool (2 × 2, 2 × 4, 4 × 4, 4 × 6 ft) that drops one into the roof over a room; select, drag, copy, resize, turn, delete. Sun and shade counts them: sun patches on the floor below in plan and 3D, softer shade under them for sky daylight, glass on the 3D roof, cooler daylight fill in rooms that have them. | Not in the cost yet. Light shaft through the attic not modelled.
+
 2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/33 | Sun simulation for Sophie: a Sun and shade layer (off by default, hidden while building unless "Keep on while building"). With a real lot: date, time and presets from the lot's location. Without one: a dial, direction and height sliders, or drag the sun on the plan. Plan shows shade, wall shadows and warm sun patches through windows; 3D moves the sun light, shades rooms even in Cutaway, warmer when low, with soft bounce in sunlit rooms. | No roof overhangs, trees or terrain in the shading yet. Airflow half of stage 10 not started.
 
 2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/32 | From Sophie's second recording: dropping one wall end with Clip on also clipped the wall's other end (which was only laid on). Now only the dropped end clips. The floating length label no longer catches clicks meant for walls under it. Long toasts wrap so their button stays on screen. | Waiting to hear whether this matches what Sophie expected.

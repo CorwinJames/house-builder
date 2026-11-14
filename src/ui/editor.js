@@ -26,6 +26,7 @@ import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
+import { SKYLIGHT_SIZES, makeSkylight, roomUnder, skylightFootprint, skylightSize } from "../build/skylights.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
@@ -96,6 +97,7 @@ const TOOLS = [
   { id: "room", label: "Room", icon: "▢", tip: "Drag a rectangle of walls" },
   { id: "door", label: "Door", icon: "⌂", tip: "Drag a door along a wall" },
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
+  { id: "skylight", label: "Skylight", icon: "◫", tip: "Click inside a room to put a skylight in its roof" },
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
   { id: "plumbing", label: "Water", icon: "💧", tip: "Place sinks, toilets, and the entry" },
   { id: "site", label: "Site", icon: "🌳", tip: "Place the well, tank, and field" },
@@ -103,12 +105,16 @@ const TOOLS = [
   { id: "erase", label: "Delete", icon: "✕", tip: "Click something to remove it" },
 ];
 
+/** Plan pieces that sit at a point: their house key, for move, copy, and paste. */
+const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights" };
+
 const TOOL_HINTS = {
   select: "Click anything to open its card.",
   wall: "Drag to draw a wall. The label shows the length and the angle. Tab types both.",
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
+  skylight: "Pick a size, then click inside a room. Turn on Sun and shade to see the light it lets in.",
   electrical: "Click a wall to place a device. Other systems fade.",
   plumbing: "Click a wall to place a fixture. Other systems fade.",
   site: "",
@@ -170,6 +176,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let fixtureKind = "kitchen-sink";
   let siteKind = "well";
   let figureKind = "person";
+  let skylightSizeId = "2x4";
   let siteGhosts = [];
   let hoverWorld = null;
   let advancedOn = false;
@@ -225,7 +232,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -599,6 +606,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!inside(world, footprint)) continue;
       consider("furniture", item.id, Math.abs(polygonArea(footprint)) || 1);
     }
+    for (const skylight of house.skylights || []) {
+      if (!phaseOk(skylight)) continue;
+      const footprint = skylightFootprint(skylight);
+      if (!inside(world, footprint)) continue;
+      // Skylights sit over furniture on the plan, so they win ties.
+      consider("skylight", skylight.id, (Math.abs(polygonArea(footprint)) || 1) * 0.5);
+    }
     for (const feature of house.siteFeatures || []) {
       const radius = Math.max(1.5, (feature.size || 6) / 2);
       if (Math.hypot(world.x - feature.x, world.y - feature.y) > radius) continue;
@@ -631,7 +645,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pointFor(activeTool, world, extra) {
-    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale") return world || extra?.surface || null;
+    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale" || activeTool === "skylight") return world || extra?.surface || null;
     return extra?.surface || world || null;
   }
 
@@ -904,6 +918,28 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       };
       publish();
       armPan();
+      return true;
+    }
+    if (tool === "skylight") {
+      if (!world) return true;
+      const piece = hitPiece(world);
+      if (piece?.type === "skylight") {
+        choose(piece);
+        publish();
+        return true;
+      }
+      if (!roomUnder(house, world)) {
+        announce("Skylights go in the roof over a room. Click inside a room.", false);
+        return true;
+      }
+      const skylight = makeSkylight(house, world, skylightSizeId, nextId("skylight"));
+      const next = cloneHouse(house);
+      next.skylights = [...(next.skylights || []), skylight];
+      commit(next, house, "adding a skylight");
+      choose({ type: "skylight", id: skylight.id });
+      const room = house.rooms.find((item) => item.id === skylight.roomId);
+      announce(`Added a ${skylightSize(skylightSizeId).label} skylight${room?.name ? ` over the ${room.name.toLowerCase()}` : ""}. Turn on Sun and shade to see its light.`);
+      publish();
       return true;
     }
     if (tool === "scale") {
@@ -1223,7 +1259,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function pieceSelection(pick) {
     if (!pick?.type || !pick.id) return null;
-    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel") return null;
+    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel" && pick.type !== "skylight") return null;
     return { type: pick.type, id: pick.id };
   }
 
@@ -1419,7 +1455,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function movablePiece(hit, doc = house) {
     if (!hit?.type) return false;
-    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel") return true;
+    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel" || hit.type === "skylight") return true;
     if (hit.type !== "room") return false;
     const room = (doc?.rooms || house.rooms || []).find((item) => item.id === hit.id);
     const kind = areaKind(room || {});
@@ -1443,11 +1479,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       return next;
     }
-    const key = hit.type === "furniture" ? "furniture" : hit.type === "siteFeature" ? "siteFeatures" : "planLabels";
+    const key = PIECE_KEYS[hit.type] || "planLabels";
     const item = (next[key] || []).find((entry) => entry.id === hit.id);
     if (!item) return next;
     item.x += shift;
     item.y += nudge;
+    if (hit.type === "skylight") {
+      const room = roomUnder(next, item);
+      if (room) item.roomId = room.id;
+      else delete item.roomId;
+    }
     return next;
   }
 
@@ -1717,6 +1758,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (sel.type === "furniture") return (doc.furniture || []).some((item) => item.id === sel.id);
     if (sel.type === "siteFeature") return (doc.siteFeatures || []).some((item) => item.id === sel.id);
     if (sel.type === "planLabel") return (doc.planLabels || []).some((item) => item.id === sel.id);
+    if (sel.type === "skylight") return (doc.skylights || []).some((item) => item.id === sel.id);
     if (sel.type === "entry") return !!doc.plumbing?.entry;
     return false;
   }
@@ -1850,6 +1892,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!phaseOk(item)) continue;
       if (polyHitsRect(furnitureFootprint(item), rect)) add("furniture", item.id);
     }
+    for (const item of house.skylights || []) {
+      if (!phaseOk(item)) continue;
+      if (polyHitsRect(skylightFootprint(item), rect)) add("skylight", item.id);
+    }
     for (const item of house.siteFeatures || []) {
       if (!phaseOk(item)) continue;
       if (pointInRect(item, rect, Math.max(1.5, (item.size || 3) / 2))) add("siteFeature", item.id);
@@ -1902,6 +1948,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return areaKind(room || {}) === "heated" ? "room" : "drawing";
     }
     if (item.type === "furniture") return "furniture";
+    if (item.type === "skylight") return "skylight";
     if (item.type === "siteFeature") return "site mark";
     if (item.type === "planLabel") return "note";
     if (item.type === "device") return "device";
@@ -1965,7 +2012,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     announce(`Redid ${note}.`, false);
   }
 
-  const COPY_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels" };
+  const COPY_KEYS = PIECE_KEYS;
 
   function openingCenter(doc, opening) {
     const wall = (doc.walls || []).find((item) => item.id === opening.wallId);
@@ -1976,6 +2023,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (type === "opening") return item.type === "window" ? "window" : "door";
     if (type === "furniture") return String(item.name || "figure").toLowerCase();
     if (type === "planLabel") return "label";
+    if (type === "skylight") return "skylight";
     return String(item.kind || "mark").toLowerCase();
   }
 
@@ -1996,7 +2044,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       else skipped += 1;
     }
     if (!items.length) {
-      announce("Copy works for doors, windows, scale figures, labels, and site marks. Walls and rooms can't be copied yet.", false);
+      announce("Copy works for doors, windows, skylights, scale figures, labels, and site marks. Walls and rooms can't be copied yet.", false);
       return;
     }
     const anchor = {
@@ -2037,6 +2085,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const key = COPY_KEYS[entry.type];
       if (!key) continue;
       const copy = { ...structuredClone(entry.data), id: nextId(entry.type === "planLabel" ? "label" : entry.type), x: point.x, y: point.y };
+      if (entry.type === "skylight") {
+        const room = roomUnder(next, copy);
+        if (room) copy.roomId = room.id;
+        else delete copy.roomId;
+      }
       next[key] = [...(next[key] || []), copy];
       made.push({ type: entry.type, id: copy.id });
     }
@@ -2082,6 +2135,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const furniture = idsOf(items, "furniture");
     const features = idsOf(items, "siteFeature");
     const labels = idsOf(items, "planLabel");
+    const skylights = idsOf(items, "skylight");
     const devices = idsOf(items, "device");
     const fixtures = idsOf(items, "fixture");
     let next = cloneHouse(house);
@@ -2093,6 +2147,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (furniture.size) next.furniture = dropIds(next.furniture, furniture);
     if (features.size) next.siteFeatures = dropIds(next.siteFeatures, features);
     if (labels.size) next.planLabels = dropIds(next.planLabels, labels);
+    if (skylights.size) next.skylights = dropIds(next.skylights, skylights);
     if (devices.size && next.electrical) next.electrical.devices = dropIds(next.electrical.devices, devices);
     if (idsOf(items, "panel").size && next.electrical) next.electrical.panel = null;
     if (fixtures.size && next.plumbing) next.plumbing.fixtures = dropIds(next.plumbing.fixtures, fixtures);
@@ -2203,7 +2258,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     model.setOverlay?.(overlay);
     model.setSelection?.(mode === "build" ? picks.map((item) => ({ ...item })) : null);
     model.setSelected?.(mode === "build" && picks.length === 1 && picks[0].type === "wall" ? picks[0].id : null);
-    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing", "scale"].includes(tool) ? "crosshair" : "");
+    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing", "scale", "skylight"].includes(tool) ? "crosshair" : "");
     paintCoach();
   }
 
@@ -2384,6 +2439,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       });
       box.querySelectorAll("[data-skip-site]").forEach((button) => {
         button.addEventListener("click", () => skipSiteGhosts([button.dataset.skipSite]));
+      });
+      return;
+    }
+    if (tool === "skylight") {
+      box.innerHTML = `
+        <section class="opt-section">
+          <p class="opt-label">Skylight size</p>
+          <div class="swatch-row">${SKYLIGHT_SIZES.map((item) => `<button type="button" class="chip" data-skylight-size="${item.id}" aria-pressed="${item.id === skylightSizeId}">${item.label}</button>`).join("")}</div>
+          <p class="fine opt-hint">Click inside a room to put one in its roof. Select it to resize, turn, or drag it.</p>
+        </section>`;
+      box.querySelectorAll("[data-skylight-size]").forEach((button) => {
+        button.addEventListener("click", () => {
+          skylightSizeId = button.dataset.skylightSize;
+          publish();
+        });
       });
       return;
     }
@@ -3346,6 +3416,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         commit(next);
         publish();
       });
+    } else if (selection.type === "skylight") {
+      paintSkylightInspector();
+      syncSelectionLayout();
+      return;
     } else if (selection.type === "furniture" || selection.type === "siteFeature" || selection.type === "planLabel") {
       paintPieceInspector();
       syncSelectionLayout();
@@ -3494,6 +3568,44 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       <p>${escapeHtml(detail)}</p>
       ${quietDelete(remove)}
     `;
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+  }
+
+  function paintSkylightInspector() {
+    const item = (house.skylights || []).find((entry) => entry.id === selection.id);
+    if (!item) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const room = house.rooms.find((entry) => entry.id === item.roomId);
+    const sizeLabel = `${formatFeetFine(item.width).construction} × ${formatFeetFine(item.depth).construction}`;
+    const current = SKYLIGHT_SIZES.find((size) => size.width === item.width && size.depth === item.depth);
+    inspector.innerHTML = `
+      ${gameHead("Skylight", [])}
+      <p>${escapeHtml(sizeLabel)}${room?.name ? ` over the ${escapeHtml(room.name.toLowerCase())}` : ", not over a room"}. Drag it to move it.</p>
+      <div class="swatch-row">${SKYLIGHT_SIZES.map((size) => `<button type="button" class="chip" data-sky-size="${size.id}" aria-pressed="${current?.id === size.id}">${size.label}</button>`).join("")}
+        <button type="button" class="chip" id="sky-turn">Turn 90°</button></div>
+      ${quietDelete("Delete skylight")}
+    `;
+    const change = (fn, note) => {
+      const next = cloneHouse(house);
+      const target = (next.skylights || []).find((entry) => entry.id === item.id);
+      if (!target) return;
+      fn(target);
+      commit(next, house, note);
+      publish();
+    };
+    inspector.querySelectorAll("[data-sky-size]").forEach((button) => {
+      button.addEventListener("click", () => change((target) => {
+        const size = skylightSize(button.dataset.skySize);
+        target.width = size.width;
+        target.depth = size.depth;
+      }, "resizing a skylight"));
+    });
+    inspector.querySelector("#sky-turn").addEventListener("click", () => change((target) => {
+      target.rotation = ((target.rotation || 0) + 90) % 180;
+    }, "turning a skylight"));
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
   }
 
