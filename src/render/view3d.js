@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { ASSEMBLY_3D, FINISH_3D } from "../theme.js";
 import { formatFeet } from "../lib/format.js";
 import { openingsFor, wallLength, wallPieces } from "../lib/geom.js";
+import { pieceOutline, wallJoints } from "../build/joins.js";
 import { LAYER_IDS, wallLayerId } from "../layers.js";
 import { planToScene, sceneToPlan } from "../build/space.js";
 import { SETBACKS } from "../site/design.js";
@@ -1181,11 +1182,12 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
     const label = roomLabel(room);
     if (label) labels.add(label);
   }
+  const joints = wallJoints(house.walls);
   for (const wall of house.walls) {
     const layer = wallLayerId(wall);
     const parent = wall.phase === "future" ? futureBuckets[layer] : buckets[layer];
     const mats = wall.phase === "future" ? materials.ghost : materials.solid;
-    addWallMeshes(wall, openingsFor(house, wall), parent, mats, cap);
+    addWallMeshes(wall, openingsFor(house, wall), parent, mats, cap, joints.get(wall.id));
     const frameParent = wall.phase === "future" ? futureBuckets.framing : buckets.framing;
     addOpeningFrames(wall, openingsFor(house, wall), frameParent, wood, wall.phase === "future", cap);
   }
@@ -1330,7 +1332,43 @@ function centroid(polygon) {
   return { x: cx / (3 * areaTwice), y: cy / (3 * areaTwice) };
 }
 
-function addWallMeshes(wall, openings, parent, mats, cap = Infinity) {
+/** A straight-sided block from a plan outline, between two heights. */
+function prismGeometry(outline, z0, z1) {
+  const pts = outline.map((point) => ({ x: point.x, z: -point.y }));
+  // Wind the base counterclockwise seen from above (+Y) so faces point out.
+  let area = 0;
+  for (let i = 0; i < pts.length; i += 1) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    area += a.x * b.z - b.x * a.z;
+  }
+  if (area > 0) pts.reverse();
+  const positions = [];
+  const uvs = [];
+  // UVs run 0 to 1 up each side, like a box face, so the rammed-earth bands match.
+  const tri = (a, b, c, ua = [0, 0], ub = [0, 0], uc = [0, 0]) => {
+    positions.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+    uvs.push(ua[0], ua[1], ub[0], ub[1], uc[0], uc[1]);
+  };
+  const lo = pts.map((p) => [p.x, z0, p.z]);
+  const hi = pts.map((p) => [p.x, z1, p.z]);
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    tri(hi[0], hi[i], hi[i + 1]);
+    tri(lo[0], lo[i + 1], lo[i]);
+  }
+  for (let i = 0; i < pts.length; i += 1) {
+    const j = (i + 1) % pts.length;
+    tri(lo[i], lo[j], hi[j], [0, 0], [1, 0], [1, 1]);
+    tri(lo[i], hi[j], hi[i], [0, 0], [1, 1], [0, 1]);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function addWallMeshes(wall, openings, parent, mats, cap = Infinity, joint = null) {
   const dx = wall.end.x - wall.start.x;
   const dy = wall.end.y - wall.start.y;
   const len = wallLength(wall) || 1;
@@ -1353,10 +1391,25 @@ function addWallMeshes(wall, openings, parent, mats, cap = Infinity) {
     parent.add(mesh);
   }
 
+  // A stretch that reaches a wall end takes that end's corner shape,
+  // so walls that meet close up instead of leaving a notch.
+  function placeJoined(s0, s1, z0, z1, material) {
+    const top = Math.min(z1, cap);
+    if (top - z0 < 0.05) return;
+    const outline = pieceOutline(wall, s0, s1, joint);
+    const mesh = new THREE.Mesh(prismGeometry(outline, z0, top), material.clone());
+    mesh.castShadow = material.transparent !== true;
+    mesh.receiveShadow = true;
+    mesh.userData.wallId = wall.id;
+    parent.add(mesh);
+  }
+
   for (const piece of wallPieces(wall, openings)) {
     if (piece.kind === "solid") {
       const z0 = piece.z0 === 0 ? 0.02 : piece.z0;
-      place(piece.s0, piece.s1, z0, piece.z1, wall.thickness, mats[wall.assembly]);
+      const atEnd = piece.s0 <= 1e-3 || piece.s1 >= len - 1e-3;
+      if (joint && atEnd) placeJoined(piece.s0, piece.s1, z0, piece.z1, mats[wall.assembly]);
+      else place(piece.s0, piece.s1, z0, piece.z1, wall.thickness, mats[wall.assembly]);
       continue;
     }
     if (piece.kind === "window") {

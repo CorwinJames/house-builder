@@ -18,9 +18,9 @@ export function gameHead(title, issues) {
 
 export function statTiles(tiles) {
   return `<div class="stat-row">${tiles.filter(Boolean).map((tile) => `
-    <div class="stat-tile" title="${escapeHtml(tile.title || tile.label)}">
-      <span class="stat-top"><span class="stat-icon" aria-hidden="true">${tile.icon}</span><span class="stat-value">${escapeHtml(tile.value)}</span></span>
-      <span class="stat-label">${escapeHtml(tile.label)}</span>
+    <div class="stat-tile" title="${escapeHtml(tile.title || `${tile.label}: ${tile.value}`)}">
+      <span class="stat-value">${escapeHtml(tile.value)}</span>
+      <span class="stat-label"><span class="stat-icon" aria-hidden="true">${tile.icon}</span> ${escapeHtml(tile.label)}</span>
     </div>`).join("")}</div>`;
 }
 

@@ -38,7 +38,51 @@ app.innerHTML = `
         </svg>
         <h1>House Builder</h1>
       </div>
-      <p class="sample-chip" hidden>Sample layout · not a final design</p>
+      <div class="app-menu" id="app-menu">
+        <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
+          <button type="button" data-mode="view">View</button>
+          <button type="button" data-mode="build">Build</button>
+        </div>
+        <div class="controls">
+          <div class="seg" id="phase-seg" role="group" aria-label="Which phase to show">
+            <button type="button" data-phase="phase1">Phase 1</button>
+            <button type="button" data-phase="full">Full house</button>
+          </div>
+          <div class="seg" id="view-seg" role="group" aria-label="Plan or 3D">
+            <button type="button" data-view="plan">Plan</button>
+            <button type="button" data-view="split" class="wide-only">Split</button>
+            <button type="button" data-view="model">3D</button>
+          </div>
+          <button type="button" class="layers-btn" id="layers-btn" aria-expanded="false">Layers</button>
+        </div>
+        <div class="controls-end">
+          <button type="button" id="save-status" class="save-status" hidden></button>
+          <details class="file-menu" id="file-menu">
+            <summary>File</summary>
+            <div class="file-menu-panel">
+              <p class="menu-label">Plan</p>
+              <button type="button" id="menu-new">New plan</button>
+              <button type="button" id="drive-open">Open…</button>
+              <button type="button" id="drive-save">Save</button>
+              <p class="menu-label">Drive</p>
+              <button type="button" id="drive-save-as">Save as…</button>
+              <button type="button" id="drive-share">Share with…</button>
+              <p class="menu-label">This device</p>
+              <button type="button" id="export-json">Export JSON</button>
+              <button type="button" id="export-materials-csv">Export materials CSV</button>
+              <button type="button" id="export-materials-json">Export materials JSON</button>
+              <button type="button" id="import-json">Import JSON</button>
+              <button type="button" id="import-site">Import parcel JSON</button>
+              <button type="button" id="reset-sample">Reset to sample</button>
+            </div>
+          </details>
+          <div id="account" class="account"></div>
+          <input id="import-file" type="file" accept="application/json,.json" hidden />
+          <input id="import-site-file" type="file" accept="application/json,.json" hidden />
+        </div>
+      </div>
+      <p id="status-meta" class="status-meta"></p>
+      <p class="sample-chip" hidden title="Sample layout · not a final design">Sample · not final</p>
       <button type="button" id="cost-chip" class="cost-chip" title="Materials and labor">
         <span id="cost-figure">—</span>
         <span id="cost-note"></span>
@@ -47,84 +91,12 @@ app.innerHTML = `
         <span id="warn-count">0</span>
       </button>
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="app-menu">Menu</button>
-      <div class="app-menu" id="app-menu">
-      <div class="mode-switch" id="mode-seg" role="group" aria-label="View or build">
-        <button type="button" data-mode="view">View</button>
-        <button type="button" data-mode="build">Build</button>
-      </div>
-      <div class="controls">
-        <div class="seg" id="phase-seg" role="group" aria-label="Which phase to show">
-          <button type="button" data-phase="phase1">Phase 1</button>
-          <button type="button" data-phase="full">Full house</button>
-        </div>
-        <div class="seg" id="view-seg" role="group" aria-label="Plan or 3D">
-          <button type="button" data-view="plan">Plan</button>
-          <button type="button" data-view="split" class="wide-only">Split</button>
-          <button type="button" data-view="model">3D</button>
-        </div>
-        <button type="button" class="layers-btn" id="layers-btn" aria-expanded="false">Layers</button>
-        <button type="button" class="toolbar-btn" id="toolbar-new">New plan</button>
-        <button type="button" class="toolbar-btn" id="toolbar-open">Open</button>
-        <button type="button" class="toolbar-btn" id="toolbar-save">Save</button>
-        <details class="file-menu" id="file-menu">
-          <summary>File</summary>
-          <div class="file-menu-panel">
-            <p class="menu-label">Plan</p>
-            <button type="button" id="menu-new">New plan</button>
-            <p class="menu-label">Drive</p>
-            <button type="button" id="drive-save">Save to Drive</button>
-            <button type="button" id="drive-save-as">Save as…</button>
-            <button type="button" id="drive-open">Open from Drive</button>
-            <button type="button" id="drive-share">Share with…</button>
-            <p class="menu-label">This device</p>
-            <button type="button" id="export-json">Export JSON</button>
-            <button type="button" id="export-materials-csv">Export materials CSV</button>
-            <button type="button" id="export-materials-json">Export materials JSON</button>
-            <button type="button" id="import-json">Import JSON</button>
-            <button type="button" id="import-site">Import parcel JSON</button>
-            <button type="button" id="reset-sample">Reset to sample</button>
-          </div>
-        </details>
-        <button type="button" id="save-status" class="save-status" hidden></button>
-        <div id="account" class="account"></div>
-        <input id="import-file" type="file" accept="application/json,.json" hidden />
-        <input id="import-site-file" type="file" accept="application/json,.json" hidden />
-      </div>
-      </div>
     </header>
-    <div id="drive-banner" class="drive-banner" hidden>
-      <p>Your Drive plan is waiting. Reconnect to load it. The file in Drive stays as it is.</p>
-      <button type="button" id="drive-banner-load">Load from Drive</button>
-    </div>
-    <div class="workspace">
-      <aside class="layer-panel" id="layer-panel">
-        <div class="sheet-bar">
-          <button type="button" class="icon-btn" id="layers-close" aria-label="Close layers">Close</button>
-        </div>
-        <div id="inspector" class="inspector" hidden></div>
-        <details id="layer-fold" class="layer-fold" open>
-        <summary>Layers</summary>
-        <div class="panel-head">
-          <h2 class="layers-title">Layers</h2>
-        </div>
-        <div class="layer-list" id="layer-list"></div>
-        <div class="legend">
-          <h2>Materials</h2>
-          <div class="swatch-row"><span class="swatch earth"></span> Rammed earth, south walls</div>
-          <div class="swatch-row"><span class="swatch hemp"></span> Hempcrete, other exterior walls</div>
-          <div class="swatch-row"><span class="swatch frame"></span> Wood framing, interior walls</div>
-          <div class="swatch-row"><span class="swatch later"></span> Later wings, dashed</div>
-        </div>
-        </details>
-        <details id="site-fold" class="site-fold">
-          <summary>Lot</summary>
-          <div id="site-card"></div>
-        </details>
-      </aside>
+    <div class="workspace" id="workspace">
       <div class="stage" id="stage" data-view="split">
         <section class="viewport viewport-plan" aria-label="Plan view">
           <div class="plan-frame"><canvas id="plan-canvas"></canvas></div>
-          <div class="hud">
+          <div class="hud glass">
             <span>Plan · north up</span>
             <button type="button" id="fit-plan">Fit</button>
             <button type="button" id="undo" disabled>Undo</button>
@@ -133,38 +105,66 @@ app.innerHTML = `
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
-          <div class="hud"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
+          <div class="hud glass"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
           <p class="webgl-fallback" id="webgl-fallback" hidden></p>
         </section>
         <div id="build-hud" class="build-hud" hidden>
-          <div id="coach-dock" class="coach-dock"></div>
+          <div id="coach-dock" class="coach-dock glass" hidden>
+            <div class="coach">
+              <details id="guide-card" class="guide-card" open>
+                <summary>Guide</summary>
+                <div id="coach-line">Build mode. Pick a tool.</div>
+              </details>
+              <details id="action-history" open>
+                <summary>Recent</summary>
+                <ol id="history-list"></ol>
+              </details>
+            </div>
+          </div>
           <div id="build-tutorial" class="tool-hint" hidden></div>
-          <div id="tool-options" class="tool-options" hidden></div>
-          <div class="tool-dock">
+          <div id="tool-options" class="tool-options glass" hidden></div>
+          <div class="tool-dock glass">
             <div id="tool-row" class="tool-row"></div>
+            <span class="dock-rule" aria-hidden="true"></span>
             <button type="button" id="snap-toggle" class="hud-pill" aria-pressed="false" title="Line up wall ends while you drag">Snap to grid</button>
             <button type="button" id="tidy-shape" class="hud-pill" title="Square the selected walls and round their lengths">Tidy up shape</button>
             <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
             <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>
             <button type="button" id="labor-open" class="hud-pill">Labor</button>
+            <button type="button" id="guide-toggle" class="hud-pill" aria-expanded="false" aria-controls="coach-dock" title="What each tool does, and your recent actions">Guide</button>
             <button type="button" id="details-open" class="hud-pill phone-only">Details</button>
           </div>
         </div>
       </div>
+      <aside class="layer-panel" id="layer-panel">
+        <div class="sheet-bar">
+          <button type="button" class="icon-btn" id="layers-close" aria-label="Close layers">Close</button>
+        </div>
+        <div id="inspector" class="inspector glass" hidden></div>
+        <section class="panel-card glass" id="panel-card">
+          <button type="button" class="panel-collapse" id="panel-collapse" aria-expanded="true" aria-controls="panel-body" title="Hide or show the layers">
+            <span class="panel-collapse-label">Layers</span><span class="chev" aria-hidden="true">‹</span>
+          </button>
+          <div class="panel-body" id="panel-body">
+            <details id="layer-fold" class="layer-fold" open>
+            <summary>Layers</summary>
+            <div class="layer-list" id="layer-list"></div>
+            <div class="legend">
+              <h2>Materials</h2>
+              <div class="swatch-row"><span class="swatch earth"></span> Rammed earth, south walls</div>
+              <div class="swatch-row"><span class="swatch hemp"></span> Hempcrete, other exterior walls</div>
+              <div class="swatch-row"><span class="swatch frame"></span> Wood framing, interior walls</div>
+              <div class="swatch-row"><span class="swatch later"></span> Later wings, dashed</div>
+            </div>
+            </details>
+            <details id="site-fold" class="site-fold">
+              <summary>Lot</summary>
+              <div id="site-card"></div>
+            </details>
+          </div>
+        </section>
+      </aside>
     </div>
-    <footer class="statusbar" id="status">
-      <div class="coach">
-        <details id="guide-card" class="guide-card" open>
-          <summary>Guide</summary>
-          <div id="coach-line">Build mode. Pick a tool.</div>
-        </details>
-        <details id="action-history">
-          <summary>Recent</summary>
-          <ol id="history-list"></ol>
-        </details>
-      </div>
-      <p id="status-meta"></p>
-    </footer>
   </div>
   <div id="budget-toast" class="budget-toast" hidden></div>
   <div id="app-toast" class="app-toast" hidden></div>
@@ -283,7 +283,7 @@ warningsUi = attachWarnings({
   getHouse: () => editor.house(),
   getPhase: () => state.phase,
   plan,
-  replaceHouse: (next) => editor.loadHouse(next),
+  replaceHouse: (next) => editor.loadHouse(next, { keepView: true }),
 });
 costs = attachCosts({
   getHouse: () => editor.house(),
@@ -320,17 +320,32 @@ function wide() {
   return wideQuery.matches;
 }
 
-function dockCoach() {
-  const coach = document.querySelector(".coach");
+/** The Guide and Recent list stay out of the way until the Guide pill opens them. */
+function syncGuide() {
   const dock = document.querySelector("#coach-dock");
-  const footer = document.querySelector("#status");
-  if (!coach || !dock || !footer) return;
-  const building = editor?.mode() === "build";
-  if (building) {
-    if (coach.parentElement !== dock) dock.append(coach);
-  } else if (coach.parentElement !== footer) {
-    footer.insertBefore(coach, footer.firstChild);
-  }
+  const toggle = document.querySelector("#guide-toggle");
+  if (!dock || !toggle) return;
+  const open = !!state.guideOpen;
+  dock.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * The layer panel floats over the plan, so opening or hiding it never resizes
+ * the drawing. The selection card stays up while the layers are hidden.
+ */
+function syncPanel() {
+  const panel = document.querySelector("#layer-panel");
+  const button = document.querySelector("#panel-collapse");
+  if (!panel || !button) return;
+  const collapsed = !!state.panelCollapsed && wide();
+  panel.classList.toggle("collapsed", collapsed);
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.title = collapsed ? "Show the layers" : "Hide the layers";
+  const inspecting = !document.querySelector("#inspector")?.hidden;
+  const panelWide = wide() && (!collapsed || inspecting);
+  document.querySelector("#workspace")?.classList.toggle("panel-wide", panelWide);
+  plan?.setInsets?.({ left: panelWide && effectiveView() !== "model" ? 290 : 0 });
 }
 
 function effectiveView() {
@@ -372,10 +387,14 @@ function syncControls() {
   }
   document.querySelector("#stage").dataset.view = view;
   const meta = document.querySelector("#status-meta");
-  if (meta) meta.textContent = statusText();
+  if (meta) {
+    meta.textContent = statusText();
+    meta.title = meta.textContent;
+  }
   const sampleChip = document.querySelector(".sample-chip");
   if (sampleChip && editor) sampleChip.hidden = !editor.house()?.sample;
-  dockCoach();
+  syncGuide();
+  syncPanel();
   const hint = document.querySelector("#hint");
   if (hint) hint.hidden = !!state.hintDismissed;
   const showPanel = panelOpen && !wide();
@@ -448,7 +467,11 @@ function frameBuildIfNeeded() {
   const phone = !wide();
   const pendingImport = frameImportPending;
   const house = editor.house();
-  const key = `${building}:${shows3d}:${view}:${phone}:${house?.id || ""}:${house?.walls?.length || 0}:${house?.rooms?.length || 0}:${pendingImport ? "import" : ""}`;
+  // Edits never move the camera. Adding, moving, or deleting walls, rooms, or
+  // anything else leaves the plan and the 3D view exactly where they were.
+  // Only a different plan (New plan, Open, Import) frames itself again.
+  const docKey = house?.id || "";
+  const key = `${building}:${shows3d}:${view}:${phone}:${docKey}:${pendingImport ? "import" : ""}`;
   if (key === frameKey && !pendingImport) {
     holdView = false;
     return;
@@ -458,8 +481,9 @@ function frameBuildIfNeeded() {
     holdView = false;
     return;
   }
+  const newDoc = frameKey !== "" && !frameKey.includes(`:${docKey}:`);
   frameKey = key;
-  if (building) plan.fit?.();
+  if (newDoc) plan.fit?.();
   if (pendingImport && !shows3d) return;
   const imported = pendingImport && shows3d;
   if (imported) frameImportPending = false;
@@ -533,6 +557,17 @@ document.querySelector("#app-menu").addEventListener("click", (event) => {
   if (event.target.closest("summary")) return;
   if (event.target.closest("button")) closePhoneMenu();
 });
+document.querySelector("#guide-toggle").addEventListener("click", () => {
+  state.guideOpen = !state.guideOpen;
+  saveViewState(state);
+  syncGuide();
+});
+document.querySelector("#panel-collapse").addEventListener("click", () => {
+  state.panelCollapsed = !state.panelCollapsed;
+  saveViewState(state);
+  syncPanel();
+  document.dispatchEvent(new CustomEvent("app-toast", { detail: { text: state.panelCollapsed ? "Layers hidden" : "Layers shown" } }));
+});
 document.querySelector("#details-open").addEventListener("click", () => {
   panelOpen = true;
   syncControls();
@@ -587,9 +622,6 @@ document.querySelector("#cutaway-3d").addEventListener("click", () => {
   cutaway3d = !cutaway3d;
   publish();
 });
-document.querySelector("#toolbar-open").addEventListener("click", () => document.querySelector("#drive-open").click());
-document.querySelector("#toolbar-save").addEventListener("click", () => document.querySelector("#drive-save").click());
-document.querySelector("#toolbar-new").addEventListener("click", openNewPlan);
 document.querySelector("#menu-new").addEventListener("click", openNewPlan);
 document.querySelector("#new-plan-dialog [data-close]").addEventListener("click", () => document.querySelector("#new-plan-dialog").close());
 document.querySelector("#new-blank").addEventListener("click", () => startNew("blank"));
@@ -603,7 +635,7 @@ function openNewPlan() {
     ? (account.isSignedIn()
       ? "This plan has unsaved changes. A new Drive file keeps this copy, then the plan on screen is replaced."
       : "This plan has unsaved changes on this device. Starting a new plan discards them. Export JSON from the File menu if you want a copy.")
-    : "The plan on screen is replaced. Open and Save stay next to New plan.";
+    : "The plan on screen is replaced. Open and Save are in the File menu.";
   document.querySelector("#new-plan-dialog").showModal();
 }
 

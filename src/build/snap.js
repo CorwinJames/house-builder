@@ -149,11 +149,22 @@ export function snapAngleNear(origin, point, grid, toleranceDeg = ANGLE_TOLERANC
 }
 
 /**
- * Place a wall end. With snap off, the point is the cursor.
+ * Place a wall end. With snap off, the point is the cursor, except that an
+ * existing wall end within `endMagnetFeet` always pulls it on, so walls join cleanly.
  * With snap on, a nearby wall wins, then a close 0/45/90 angle, then a fine grid.
  */
-export function placePoint(point, { snap = false, grid = FINE_GRID_FT, walls = [], origin = null, magnetFeet = 0 } = {}) {
+export function placePoint(point, { snap = false, grid = FINE_GRID_FT, walls = [], origin = null, magnetFeet = 0, endMagnetFeet = 0 } = {}) {
   const lengthFrom = (x, y) => (origin ? Math.hypot(x - origin.x, y - origin.y) : 0);
+  if (endMagnetFeet > 0) {
+    const ends = [];
+    for (const wall of walls) {
+      if (!wall?.start || !wall?.end) continue;
+      ends.push({ x: wall.start.x, y: wall.start.y, kind: "end" });
+      ends.push({ x: wall.end.x, y: wall.end.y, kind: "end" });
+    }
+    const end = nearestMagnet(point, ends, endMagnetFeet);
+    if (end) return { x: end.x, y: end.y, snapped: "end", length: lengthFrom(end.x, end.y) };
+  }
   if (!snap) return { x: point.x, y: point.y, snapped: "free", length: lengthFrom(point.x, point.y) };
   if (magnetFeet > 0) {
     const magnets = [];
