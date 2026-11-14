@@ -1,5 +1,5 @@
 import { formatFeetFine } from "../lib/format.js";
-import { moveEndpointGroup } from "./walls.js";
+import { moveEnd } from "./walls.js";
 
 /** Endpoints this close are the same point and move together. */
 export const JOIN_FT = 0.35;
@@ -147,8 +147,8 @@ export function describeWall(start, end, house, ignoreId) {
 export function setWallMeasure(house, wallId, length, angleDeg, endName = "end") {
   const wall = (house.walls || []).find((item) => item.id === wallId);
   if (!wall?.start || !wall?.end || !(length > 0) || angleDeg == null) return house;
-  if (endName === "start") return moveEndpointGroup(house, wall.start, pointAt(wall.end, length, angleDeg + 180), JOIN_FT);
-  return moveEndpointGroup(house, wall.end, pointAt(wall.start, length, angleDeg), JOIN_FT);
+  if (endName === "start") return moveEnd(house, wall.id, "start", pointAt(wall.end, length, angleDeg + 180));
+  return moveEnd(house, wall.id, "end", pointAt(wall.start, length, angleDeg));
 }
 
 /** The end that is not holding a corner, or the end when both do. */

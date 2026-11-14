@@ -108,7 +108,7 @@ app.innerHTML = `
           <div class="hud glass"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="walk-3d" aria-pressed="false" title="Stand inside at eye height and walk around">Walk</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
           <p class="webgl-fallback" id="webgl-fallback" hidden></p>
           <div class="walk-help glass" id="walk-help" hidden>
-            <p><strong>Walking at eye height (5 ft 6 in).</strong> W A S D or the arrow keys to walk, Shift to go faster, drag to look. Esc or Walk to stop.</p>
+            <p><strong>Walking at eye height (5 ft 6 in).</strong> W A S D or the arrow keys to walk, Shift to go faster, drag to look. Drag the “You” dot on the plan to stand somewhere else. Esc or Walk to stop.</p>
             <div class="walk-pad" aria-label="Walk">
               <button type="button" data-walk="ArrowLeft" aria-label="Turn left">↺</button>
               <button type="button" data-walk="KeyW" aria-label="Forward">▲</button>
@@ -137,6 +137,10 @@ app.innerHTML = `
           <div class="tool-dock glass">
             <div id="tool-row" class="tool-row"></div>
             <span class="dock-rule" aria-hidden="true"></span>
+            <div class="join-seg" id="join-mode" role="group" aria-label="When a wall touches another wall" title="Lay on: walls touch but stay separate. Clip on: they become one piece. Hold Option to switch for one drag.">
+              <button type="button" data-join="lay" aria-pressed="true">Lay on</button>
+              <button type="button" data-join="clip" aria-pressed="false">Clip on</button>
+            </div>
             <button type="button" id="snap-toggle" class="hud-pill" aria-pressed="false" title="Line up wall ends while you drag">Snap to grid</button>
             <button type="button" id="tidy-shape" class="hud-pill" title="Square the selected walls and round their lengths">Tidy up shape</button>
             <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
@@ -313,7 +317,23 @@ plan.setOnChange((planCamera) => {
   state.plan = planCamera;
   saveViewState(state);
 });
+// Walk-through and the plan: the plan shows where you stand, and dragging that
+// marker moves you. On a wide screen, walking from 3D-only opens Split so the
+// plan is there; leaving the walk puts the view back.
+let walkViewHold = null;
+model.setOnWalkMove?.((pose) => plan?.setWalker?.(pose));
+plan.setOnWalkerMove?.((point) => model?.setWalkPosition?.(point));
 model.setOnWalkChange?.((on) => {
+  if (on && wide() && state.view === "model") {
+    walkViewHold = "model";
+    state.view = "split";
+    publish();
+  } else if (!on && walkViewHold) {
+    state.view = walkViewHold;
+    walkViewHold = null;
+    publish();
+  }
+  if (!on) plan?.setWalker?.(null);
   document.querySelector("#walk-3d")?.setAttribute("aria-pressed", String(on));
   const help = document.querySelector("#walk-help");
   if (help) help.hidden = !on;
@@ -625,6 +645,7 @@ document.querySelector("#import-site-file").addEventListener("change", async (ev
   }
 });
 document.querySelector("#reset-3d").addEventListener("click", () => {
+  if (model?.isWalking?.()) model.setWalking(false);
   model?.resetCamera();
   plan?.fit();
 });
@@ -745,6 +766,18 @@ document.addEventListener("budget-delta", (event) => {
 document.addEventListener("app-toast", (event) => {
   const toast = document.querySelector("#app-toast");
   toast.replaceChildren(document.createTextNode(event.detail.text || ""));
+  const action = event.detail.action;
+  if (action?.label && typeof action.run === "function") {
+    // One click swaps the choice just made (for example, lay on instead of clip on).
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      toast.hidden = true;
+      action.run();
+    });
+    toast.append(" ", button);
+  }
   if (event.detail.undo) {
     const button = document.createElement("button");
     button.type = "button";
@@ -759,7 +792,7 @@ document.addEventListener("app-toast", (event) => {
   placeToast(toast);
   window.clearTimeout(toast._timer);
   const phone = !wide();
-  toast._timer = window.setTimeout(() => { toast.hidden = true; }, event.detail.undo ? (phone ? 2400 : 4200) : (phone ? 1600 : 2400));
+  toast._timer = window.setTimeout(() => { toast.hidden = true; }, action ? (phone ? 4000 : 6000) : event.detail.undo ? (phone ? 2400 : 4200) : (phone ? 1600 : 2400));
 });
 
 document.addEventListener("keydown", (event) => {

@@ -2,6 +2,7 @@ import { wallLength, pointAlong } from "../lib/geom.js";
 import { assemblyById, headerForSpan, assemblyForRender, suggestAssemblyId, DEFAULT_EXTERIOR_ID } from "./catalog.js";
 import { nextId } from "./ids.js";
 import { openingFits } from "./openings.js";
+import { clipTogether, endsAt, partnersOf, pruneJoins, remapSplit, withJoins } from "./clips.js";
 
 export function cloneHouse(house) {
   return JSON.parse(JSON.stringify(house));
@@ -25,7 +26,7 @@ export function withHeader(opening) {
 /** Fill assembly ids and headers on a house that was saved before Stage 2. */
 export function decorateHouse(house) {
   const next = cloneHouse(house);
-  next.schemaVersion = Math.max(7, next.schemaVersion || 2);
+  next.schemaVersion = Math.max(8, next.schemaVersion || 2);
   next.furniture = Array.isArray(next.furniture) ? next.furniture : [];
   next.planLabels = Array.isArray(next.planLabels) ? next.planLabels : [];
   next.siteFeatures = Array.isArray(next.siteFeatures) ? next.siteFeatures : [];
@@ -54,6 +55,8 @@ export function decorateHouse(house) {
   next.constraints = next.constraints || [];
   next.customRatios = next.customRatios || [];
   next.proportion = next.proportion || { ratioId: "golden", module: 8 };
+  withJoins(next);
+  pruneJoins(next);
   return next;
 }
 
@@ -114,6 +117,11 @@ export function splitWall(house, wallId, distance) {
     }
   }
   house.walls.splice(index, 1, keep, born);
+  // The two halves are still one wall, so they stay clipped where they were cut.
+  if (Array.isArray(house.joins)) {
+    remapSplit(house, wall.id, born.id);
+    clipTogether(house, [{ wall: keep.id, end: "end" }, { wall: born.id, end: "start" }]);
+  }
   return { point, keep, born, warnings };
 }
 
@@ -232,7 +240,12 @@ export function makeWall(start, end, assemblyId, phase = "phase1", levelId = "ma
   }, assemblyId);
 }
 
-export function addWall(house, start, end, assemblyId, phase = "phase1") {
+/**
+ * `clip` (default true) clips the new wall's ends onto walls they touch and cuts
+ * a wall it tees into. With `clip: false` the wall is laid on: it touches but
+ * stays its own piece, and nothing is cut.
+ */
+export function addWall(house, start, end, assemblyId, phase = "phase1", { clip = true } = {}) {
   if (dist(start, end) < 0.45) {
     return { house, warnings: [{ id: "short-wall", severity: "warn", message: "That wall is too short to keep.", target: null }] };
   }
@@ -251,11 +264,13 @@ export function addWall(house, start, end, assemblyId, phase = "phase1") {
     };
   }
   next.walls.push(wall);
-  const warnings = resolveJunctions(next, [wall.id]);
+  withJoins(next);
+  const warnings = clip ? resolveJunctions(next, [wall.id]) : [];
+  if (clip) clipTouching(next, [wall.id]);
   return { house: next, warnings, createdId: wall.id };
 }
 
-export function addRoomRectangle(house, a, b, assemblyId) {
+export function addRoomRectangle(house, a, b, assemblyId, { clip = true } = {}) {
   const x0 = Math.min(a.x, b.x);
   const x1 = Math.max(a.x, b.x);
   const y0 = Math.min(a.y, b.y);
@@ -289,8 +304,76 @@ export function addRoomRectangle(house, a, b, assemblyId) {
     current.walls.push(wall);
     ids.push(wall.id);
   }
-  warnings.push(...resolveJunctions(current, ids));
+  withJoins(current);
+  // A room's own four corners are always one piece.
+  const mine = current.walls.filter((wall) => ids.includes(wall.id));
+  for (const wall of mine) {
+    for (const endName of ["start", "end"]) {
+      const touching = endsAt(current, wall[endName]).filter((ref) => ids.includes(ref.wall));
+      if (touching.length > 1) clipTogether(current, touching);
+    }
+  }
+  if (clip) {
+    warnings.push(...resolveJunctions(current, ids));
+    clipTouching(current, current.walls.filter((wall) => ids.includes(wall.id) || !house.walls.some((old) => old.id === wall.id)).map((wall) => wall.id));
+  }
   return { house: current, warnings };
+}
+
+/** Clip every end of these walls onto any wall end it now sits on. Mutates. */
+export function clipTouching(house, wallIds) {
+  withJoins(house);
+  for (const wall of house.walls.filter((item) => wallIds.includes(item.id))) {
+    for (const endName of ["start", "end"]) {
+      const touching = endsAt(house, wall[endName]);
+      if (touching.length > 1) clipTogether(house, touching);
+    }
+  }
+  return house;
+}
+
+/**
+ * Move one wall end. Ends clipped to it come along; ends that are only laid on
+ * stay where they are. A house with no clip list falls back to "everything that
+ * touches", the way plans behaved before clips existed.
+ */
+export function moveEnd(house, wallId, endName, to) {
+  if (!Array.isArray(house.joins)) {
+    const wall = house.walls.find((item) => item.id === wallId);
+    return wall ? moveEndpointGroup(house, wall[endName], to) : cloneHouse(house);
+  }
+  const next = cloneHouse(house);
+  const refs = [{ wall: wallId, end: endName }, ...partnersOf(next, wallId, endName)];
+  for (const ref of refs) {
+    const wall = next.walls.find((item) => item.id === ref.wall);
+    if (wall) wall[ref.end] = { x: to.x, y: to.y };
+  }
+  return next;
+}
+
+/** Ends outside `ids` that are clipped to a moving wall (or, with no clip list, touching one). */
+function attachedEnds(house, ids, tolerance) {
+  if (Array.isArray(house.joins)) {
+    const out = [];
+    for (const wall of house.walls) {
+      if (!ids.has(wall.id)) continue;
+      for (const endName of ["start", "end"]) {
+        for (const ref of partnersOf(house, wall.id, endName)) {
+          if (!ids.has(ref.wall) && !out.some((item) => item.wall === ref.wall && item.end === ref.end)) out.push(ref);
+        }
+      }
+    }
+    return out;
+  }
+  const points = house.walls.filter((wall) => ids.has(wall.id)).flatMap((wall) => [wall.start, wall.end]);
+  const out = [];
+  for (const other of house.walls) {
+    if (ids.has(other.id)) continue;
+    for (const endName of ["start", "end"]) {
+      if (points.some((point) => dist(other[endName], point) <= tolerance)) out.push({ wall: other.id, end: endName });
+    }
+  }
+  return out;
 }
 
 export function moveEndpointGroup(house, point, to, tolerance = 0.25) {
@@ -303,39 +386,24 @@ export function moveEndpointGroup(house, point, to, tolerance = 0.25) {
 }
 
 export function translateWall(house, wallId, dx, dy, tolerance = 0.25) {
-  const next = cloneHouse(house);
-  const wall = next.walls.find((item) => item.id === wallId);
-  if (!wall) return next;
-  const start = { ...wall.start };
-  const end = { ...wall.end };
-  for (const other of next.walls) {
-    if (dist(other.start, start) <= tolerance) other.start = { x: other.start.x + dx, y: other.start.y + dy };
-    else if (dist(other.end, start) <= tolerance) other.end = { x: other.end.x + dx, y: other.end.y + dy };
-    if (other.id === wallId) continue;
-    if (dist(other.start, end) <= tolerance) other.start = { x: other.start.x + dx, y: other.start.y + dy };
-    else if (dist(other.end, end) <= tolerance) other.end = { x: other.end.x + dx, y: other.end.y + dy };
-  }
-  wall.start = { x: start.x + dx, y: start.y + dy };
-  wall.end = { x: end.x + dx, y: end.y + dy };
-  return next;
+  return translateWalls(house, [wallId], dx, dy, tolerance);
 }
 
 /**
  * Move several walls together as one rigid piece. Walls outside the set that
- * were joined to a moving end stretch to stay joined, like a single-wall move.
+ * are clipped to a moving end stretch to stay clipped. Walls that are only laid
+ * on stay put.
  */
 export function translateWalls(house, wallIds, dx, dy, tolerance = 0.25) {
   const ids = new Set(wallIds);
+  const attached = attachedEnds(house, ids, tolerance);
   const next = cloneHouse(house);
-  const moving = next.walls.filter((wall) => ids.has(wall.id));
-  const points = [];
-  for (const wall of moving) points.push({ ...wall.start }, { ...wall.end });
-  for (const other of next.walls) {
-    if (ids.has(other.id)) continue;
-    if (points.some((point) => dist(other.start, point) <= tolerance)) other.start = { x: other.start.x + dx, y: other.start.y + dy };
-    if (points.some((point) => dist(other.end, point) <= tolerance)) other.end = { x: other.end.x + dx, y: other.end.y + dy };
+  for (const ref of attached) {
+    const wall = next.walls.find((item) => item.id === ref.wall);
+    if (wall) wall[ref.end] = { x: wall[ref.end].x + dx, y: wall[ref.end].y + dy };
   }
-  for (const wall of moving) {
+  for (const wall of next.walls) {
+    if (!ids.has(wall.id)) continue;
     wall.start = { x: wall.start.x + dx, y: wall.start.y + dy };
     wall.end = { x: wall.end.x + dx, y: wall.end.y + dy };
   }

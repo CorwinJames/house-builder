@@ -208,7 +208,7 @@ export function createView3d(canvas, initialHouse) {
    */
   const EYE_HEIGHT = 5.5;
   const WALK_SPEED = 4.5;
-  const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), drag: null, last: 0, saved: null, onChange: () => {} };
+  const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), drag: null, last: 0, saved: null, onChange: () => {}, onMove: () => {}, told: "" };
   const walkDir = new THREE.Vector3();
 
   function walkStep(now) {
@@ -227,6 +227,16 @@ export function createView3d(canvas, initialHouse) {
     }
     camera.position.y = EYE_HEIGHT;
     camera.rotation.set(walk.pitch, walk.yaw, 0, "YXZ");
+    tellPose();
+  }
+
+  /** Tell the plan where you stand (plan feet) and which way you face, when it changes. */
+  function tellPose() {
+    const pose = { x: camera.position.x, y: -camera.position.z, yaw: walk.yaw };
+    const key = `${pose.x.toFixed(2)},${pose.y.toFixed(2)},${pose.yaw.toFixed(3)}`;
+    if (key === walk.told) return;
+    walk.told = key;
+    walk.onMove(pose);
   }
 
   function walkStart(planPoint) {
@@ -269,7 +279,9 @@ export function createView3d(canvas, initialHouse) {
       if (walk.saved) applySavedCamera(walk.saved);
       canvas.style.cursor = editing ? "crosshair" : "grab";
     }
+    walk.told = "";
     walk.onChange(on);
+    if (on) tellPose();
   }
 
   // Capture first so the orbit and build handlers never see walk-mode drags.
@@ -489,7 +501,7 @@ export function createView3d(canvas, initialHouse) {
     const groundHit = new THREE.Vector3();
     const hitGround = raycaster.ray.intersectPlane(groundPlane, groundHit);
     const ground = hitGround ? sceneToPlan(groundHit.x, groundHit.y, groundHit.z) : null;
-    const hits = raycaster.intersectObjects(scene.children, true);
+    const hits = raycaster.intersectObjects(scene.children, true).filter((item) => shownInScene(item.object));
     const meshHit = firstModelHit(hits);
     const surface = meshHit ? sceneToPlan(meshHit.point.x, meshHit.point.y, meshHit.point.z) : null;
     const pick = meshHit?.object.userData?.pick
@@ -578,7 +590,7 @@ export function createView3d(canvas, initialHouse) {
       return;
     }
     if (hit?.surface) {
-      const hits = raycaster.intersectObjects(scene.children, true);
+      const hits = raycaster.intersectObjects(scene.children, true).filter((item) => shownInScene(item.object));
       const wall = hits.find((item) => item.object.userData?.wallId);
       onPick(wall?.object.userData.wallId ? { type: "wall", id: wall.object.userData.wallId } : null, event);
     }
@@ -748,6 +760,15 @@ export function createView3d(canvas, initialHouse) {
     setOnWalkChange(fn) {
       walk.onChange = typeof fn === "function" ? fn : () => {};
     },
+    setOnWalkMove(fn) {
+      walk.onMove = typeof fn === "function" ? fn : () => {};
+    },
+    /** Stand somewhere else (plan feet), keeping the way you face. */
+    setWalkPosition(point) {
+      if (!walk.on || !point) return;
+      camera.position.set(point.x, EYE_HEIGHT, -point.y);
+      tellPose();
+    },
     setEditing(on) {
       editing = !!on;
       controls.enabled = true;
@@ -771,12 +792,15 @@ export function createView3d(canvas, initialHouse) {
       paintSelection();
     },
     frameHouse() {
+      if (walk.on) return;
       framePlan(false);
     },
     frameWhole() {
+      if (walk.on) return;
       framePlan(true);
     },
     focus(x, y) {
+      if (walk.on) return;
       const span = 22;
       controls.target.set(x, 4, -y);
       camera.position.set(x - span * 0.7, span * 0.55, -y + span * 0.85);
@@ -784,6 +808,7 @@ export function createView3d(canvas, initialHouse) {
       onChange(readCamera());
     },
     frameParcel() {
+      if (walk.on) return;
       const ring = house.site?.parcel?.ring;
       if (!ring?.length) return;
       let minX = Infinity;
@@ -843,6 +868,8 @@ function failedView(message) {
     isWalking() { return false; },
     walkKey() {},
     setOnWalkChange() {},
+    setOnWalkMove() {},
+    setWalkPosition() {},
     setCutaway() {},
     setBuildHooks() {},
     setOverlay() {},
@@ -913,6 +940,14 @@ function roomsToFrame(nextHouse) {
 function piecePick(object) {
   const pick = object?.userData?.pick;
   return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall"));
+}
+
+/** True only if this object and every parent are visible. A hidden layer can't be clicked. */
+function shownInScene(object) {
+  for (let node = object; node; node = node.parent) {
+    if (node.visible === false) return false;
+  }
+  return true;
 }
 
 function firstModelHit(hits) {

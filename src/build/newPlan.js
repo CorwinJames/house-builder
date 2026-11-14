@@ -60,7 +60,7 @@ export function blankPlan() {
   const width = 36;
   const depth = 24;
   return decorateHouse({
-    schemaVersion: 7,
+    schemaVersion: 8,
     id: `plan-${Date.now().toString(36)}`,
     name: "Untitled plan",
     description: "Blank plan. Draw walls to start.",

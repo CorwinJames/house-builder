@@ -15,6 +15,8 @@ import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse, translateWalls } from "../src/build/walls.js";
 import { snapTranslation } from "../src/build/snap.js";
+import { inferJoins, isClipped, partnersOf, unclipEnd } from "../src/build/clips.js";
+import { moveEnd, clipTouching } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
 import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID, catalogForTool } from "../src/build/catalog.js";
 import { evaluateRules } from "../src/rules/index.js";
@@ -410,6 +412,42 @@ check("a group of walls moves as one piece and clicks onto a wall end", () => {
   const line = snapTranslation([{ x: 5, y: 3 }], [still], 0, -2.8, { radius: 0.5, lines: true });
   assert.equal(line.snapped, "line");
   assert.ok(Math.abs(line.dy + 3) < 1e-9);
+});
+
+check("laid-on walls touch but move on their own; clipped walls move together", () => {
+  const a = jw("a", 0, 0, 10, 0);
+  const b = jw("b", 10, 0, 10, 8);
+  const laid = { walls: [a, b], openings: [], rooms: [], joins: [] };
+  const moved = translateWalls(laid, ["b"], 5, 0);
+  assert.deepEqual(moved.walls.find((w) => w.id === "a").end, { x: 10, y: 0 }, "a laid-on neighbour stays put");
+  const clipped = clipTouching(structuredClone(laid), ["b"]);
+  assert.ok(isClipped(clipped, "a", "end") && isClipped(clipped, "b", "start"));
+  const dragged = translateWalls(clipped, ["b"], 5, 0);
+  assert.deepEqual(dragged.walls.find((w) => w.id === "a").end, { x: 15, y: 0 }, "a clipped neighbour stretches along");
+  const corner = moveEnd(clipped, "b", "start", { x: 12, y: 1 });
+  assert.deepEqual(corner.walls.find((w) => w.id === "a").end, { x: 12, y: 1 }, "moving a clipped corner moves both ends");
+  const loose = moveEnd(laid, "b", "start", { x: 12, y: 1 });
+  assert.deepEqual(loose.walls.find((w) => w.id === "a").end, { x: 10, y: 0 }, "moving a laid-on end leaves the other wall");
+  unclipEnd(clipped, "b", "start");
+  assert.equal(partnersOf(clipped, "a", "end").length, 0);
+});
+
+check("a plan saved before clips treats touching ends as clipped", () => {
+  const joins = inferJoins([jw("a", 0, 0, 10, 0), jw("b", 10.1, 0, 10, 8), jw("c", 30, 0, 40, 0)]);
+  assert.equal(joins.length, 1);
+  assert.equal(joins[0].ends.length, 2);
+  const decorated = decorateHouse(structuredClone(sample));
+  assert.ok(Array.isArray(decorated.joins) && decorated.joins.length > 0, "the sample gets its corners clipped");
+});
+
+check("drawing a wall laid on does not cut the wall it tees into", () => {
+  const house = decorateHouse({ ...structuredClone(sample), walls: [jw("a", 0, 0, 20, 0)].map((w) => ({ ...w, assemblyId: "interior-partition", phase: "phase1", levelId: "main", height: 10 })), openings: [], rooms: [], joins: [] });
+  const laid = addWall(house, { x: 8, y: 0 }, { x: 8, y: 6 }, "interior-partition", "phase1", { clip: false });
+  assert.equal(laid.house.walls.length, 2, "nothing is cut");
+  const clipped = addWall(house, { x: 8, y: 0 }, { x: 8, y: 6 }, "interior-partition", "phase1", { clip: true });
+  assert.equal(clipped.house.walls.length, 3, "clip on cuts it into two");
+  const created = clipped.createdId;
+  assert.ok(isClipped(clipped.house, created, "start"), "and clips the tee");
 });
 
 if (failed) {

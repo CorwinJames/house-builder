@@ -24,7 +24,7 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 2,
-      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. 5 adds optional plumbing fixtures. 6 adds an optional site block. 7 adds optional furniture, plan labels, site features, a per-room ground-level note, and optional areaKind and building on a room. Older files still open."
+      "description": "2 adds assemblies. 3 adds an optional cost block. 4 adds optional electrical devices. 5 adds optional plumbing fixtures. 6 adds an optional site block. 7 adds optional furniture, plan labels, site features, a per-room ground-level note, and optional areaKind and building on a room. 8 adds optional joins: which wall ends are clipped together. Older files still open; their touching ends count as clipped."
     },
     "id": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -70,6 +70,31 @@
     "notes": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "joins": {
+      "type": "array",
+      "description": "Wall ends clipped together, so they move as one. Ends that touch but are not listed are only laid on. Missing in files before schema 8.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ends"],
+        "properties": {
+          "id": { "type": "string" },
+          "ends": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["wall", "end"],
+              "properties": {
+                "wall": { "type": "string" },
+                "end": { "enum": ["start", "end"] }
+              }
+            }
+          }
+        }
+      }
     },
     "furniture": {
       "type": "array",
