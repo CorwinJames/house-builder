@@ -18,6 +18,7 @@ import { detectFaces, syncRooms } from "../src/build/rooms.js";
 import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID, catalogForTool } from "../src/build/catalog.js";
 import { evaluateRules } from "../src/rules/index.js";
 import { polygonArea } from "../src/lib/geom.js";
+import { pieceOutline, wallJoints } from "../src/build/joins.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -313,6 +314,52 @@ check("resolveJunctions is stable on a plain tee", () => {
   });
   resolveJunctions(house, ["a", "b"]);
   assert.ok(house.walls.length >= 3);
+});
+
+const close = (a, b, msg) => {
+  assert.ok(Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6, `${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
+};
+const jw = (id, sx, sy, ex, ey, thickness = 1) => ({ id, start: { x: sx, y: sy }, end: { x: ex, y: ey }, thickness });
+
+check("an L corner closes with a mitered outside corner", () => {
+  const a = jw("a", 0, 0, 10, 0);
+  const b = jw("b", 10, 0, 10, 8);
+  const joints = wallJoints([a, b]);
+  // Wall a runs east. Its left (+n) is north, the inside of the corner.
+  close(joints.get("a").end.left, { x: 9.5, y: 0.5 }, "inside corner");
+  close(joints.get("a").end.right, { x: 10.5, y: -0.5 }, "outside corner");
+  // Wall b shares the same two corner points, so there is no notch and no overlap.
+  close(joints.get("b").start.right, { x: 10.5, y: -0.5 }, "b outside");
+  close(joints.get("b").start.left, { x: 9.5, y: 0.5 }, "b inside");
+  // The free ends stay square.
+  close(joints.get("a").start.left, { x: 0, y: 0.5 }, "free end");
+});
+
+check("a wall that tees into another stops at its face", () => {
+  const a = jw("a", 0, 0, 10, 0);
+  const t = jw("t", 4, 0, 4, 6, 0.5);
+  const outline = pieceOutline(t, 0, 6, wallJoints([a, t]).get("t"));
+  close(outline[0], { x: 3.75, y: 0.5 }, "tee left");
+  close(outline[3], { x: 4.25, y: 0.5 }, "tee right");
+});
+
+check("a straight run of two walls stays square at the join", () => {
+  const a = jw("a", 0, 0, 5, 0);
+  const b = jw("b", 5, 0, 10, 0);
+  const joints = wallJoints([a, b]);
+  close(joints.get("a").end.left, { x: 5, y: 0.5 }, "straight");
+});
+
+check("a wall end near another wall end clicks onto it even with snap off", () => {
+  const walls = [jw("a", 0, 0, 10, 0)];
+  const free = placePoint({ x: 10.3, y: 0.2 }, { walls, snap: false });
+  assert.equal(free.snapped, "free");
+  const joined = placePoint({ x: 10.3, y: 0.2 }, { walls, snap: false, endMagnetFeet: 0.5 });
+  assert.equal(joined.snapped, "end");
+  assert.equal(joined.x, 10);
+  assert.equal(joined.y, 0);
+  const far = placePoint({ x: 12, y: 0.2 }, { walls, snap: false, endMagnetFeet: 0.5 });
+  assert.equal(far.snapped, "free");
 });
 
 if (failed) {

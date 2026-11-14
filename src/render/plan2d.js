@@ -18,6 +18,7 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
+import { pieceOutline, wallJoints } from "../build/joins.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
@@ -64,6 +65,8 @@ export function createPlanView(canvas, initialHouse) {
   let measureLabelHit = null;
   let cameraReady = false;
   let openedFrame = false;
+  // Screen pixels on the left covered by the floating layer panel. Fit frames the house beside it.
+  let insetLeft = 0;
   let ratioFontReady = false;
   const pointers = new Map();
   let drag = null;
@@ -197,12 +200,13 @@ export function createPlanView(canvas, initialHouse) {
       }
     }
     if (!Number.isFinite(bounds.x0) || bounds.x1 <= bounds.x0 || bounds.y1 <= bounds.y0) return;
-    camera.cx = (bounds.x0 + bounds.x1) / 2;
-    camera.cy = (bounds.y0 + bounds.y1) / 2;
+    const inset = insetLeft > 0 && w - insetLeft > 240 ? insetLeft : 0;
     camera.pxPerFt = Math.max(
       2,
-      Math.min((w - 48) / (bounds.x1 - bounds.x0), (h - 120) / (bounds.y1 - bounds.y0)),
+      Math.min((w - 48 - inset) / (bounds.x1 - bounds.x0), (h - 120) / (bounds.y1 - bounds.y0)),
     );
+    camera.cx = (bounds.x0 + bounds.x1) / 2 - inset / 2 / camera.pxPerFt;
+    camera.cy = (bounds.y0 + bounds.y1) / 2;
     cameraReady = true;
     if (state) state.plan = { cx: camera.cx, cy: camera.cy, pxPerFt: camera.pxPerFt };
     if (notify) onChange({ ...camera });
@@ -451,47 +455,85 @@ export function createPlanView(canvas, initialHouse) {
     }
   }
 
-  function drawWall(wall) {
-    const openings = openingsFor(house, wall);
-    const pieces = wallPieces(wall, openings);
-    const future = wall.phase === "future";
-    const colors = ASSEMBLY_2D[wall.assembly] || ASSEMBLY_2D.framed;
-    if (!colors || !wall?.start || !wall?.end) return;
-    for (const piece of pieces) {
+  /** Solid stretches of a wall, outlined with its corner joints. */
+  function wallQuads(wall, joints) {
+    const quads = [];
+    for (const piece of wallPieces(wall, openingsFor(house, wall))) {
       if (piece.kind !== "solid") continue;
-      const a = pointAlong(wall, piece.s0);
-      const b = pointAlong(wall, piece.s1);
-      const quad = segmentQuad(a.x, a.y, b.x, b.y, wall.thickness);
-      ctx.save();
-      trace(quad);
-      ctx.clip();
-      ctx.globalAlpha = future ? 0.42 : 1;
-      ctx.fillStyle = colors.fill;
-      ctx.fillRect(-10000, -10000, 20000, 20000);
-      if (wall.assembly === "rammed-earth") {
-        const ys = quad.map((point) => worldToScreen(point.x, point.y).y);
-        const top = Math.min(...ys);
-        const bot = Math.max(...ys);
-        const step = Math.max(3, 0.42 * camera.pxPerFt);
-        ctx.globalAlpha = future ? 0.28 : 0.45;
-        ctx.strokeStyle = "#6A301C";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let y = top; y < bot; y += step) {
-          ctx.moveTo(-20, y);
-          ctx.lineTo(4000, y);
-        }
-        ctx.stroke();
+      quads.push(pieceOutline(wall, piece.s0, piece.s1, joints.get(wall.id)));
+    }
+    return quads;
+  }
+
+  function fillWallQuad(wall, quad, future) {
+    const colors = ASSEMBLY_2D[wall.assembly] || ASSEMBLY_2D.framed;
+    ctx.save();
+    trace(quad);
+    ctx.clip();
+    ctx.globalAlpha = future ? 0.42 : 1;
+    ctx.fillStyle = colors.fill;
+    ctx.fillRect(-10000, -10000, 20000, 20000);
+    if (wall.assembly === "rammed-earth") {
+      const ys = quad.map((point) => worldToScreen(point.x, point.y).y);
+      const top = Math.min(...ys);
+      const bot = Math.max(...ys);
+      const step = Math.max(3, 0.42 * camera.pxPerFt);
+      ctx.globalAlpha = future ? 0.28 : 0.45;
+      ctx.strokeStyle = "#6A301C";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let y = top; y < bot; y += step) {
+        ctx.moveTo(-20, y);
+        ctx.lineTo(4000, y);
       }
-      ctx.restore();
-      trace(quad);
-      ctx.save();
-      ctx.globalAlpha = future ? 0.75 : 0.9;
-      ctx.setLineDash(future ? [6, 4] : []);
-      ctx.strokeStyle = colors.stroke;
-      ctx.lineWidth = future ? 1.25 : 1;
       ctx.stroke();
-      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Walls that touch read as one wall. Every outline is stroked twice as wide
+   * first, then every fill goes on top. A seam between two walls is covered by
+   * their fills, so only the outside edge of the joined shape stays visible.
+   * Later wings are see-through, so they keep their own dashed outlines.
+   */
+  function drawWalls(walls) {
+    const joints = wallJoints(walls);
+    const solid = [];
+    const later = [];
+    for (const wall of walls) {
+      const quads = wallQuads(wall, joints);
+      (wall.phase === "future" ? later : solid).push({ wall, quads });
+    }
+    for (const { wall, quads } of solid) {
+      const colors = ASSEMBLY_2D[wall.assembly] || ASSEMBLY_2D.framed;
+      for (const quad of quads) {
+        trace(quad);
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = colors.stroke;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = "miter";
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    for (const { wall, quads } of solid) {
+      for (const quad of quads) fillWallQuad(wall, quad, false);
+    }
+    for (const { wall, quads } of later) {
+      const colors = ASSEMBLY_2D[wall.assembly] || ASSEMBLY_2D.framed;
+      for (const quad of quads) {
+        fillWallQuad(wall, quad, true);
+        trace(quad);
+        ctx.save();
+        ctx.globalAlpha = 0.75;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = colors.stroke;
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -992,9 +1034,7 @@ export function createPlanView(canvas, initialHouse) {
     drawGrid();
     drawSiteGround();
     drawRooms();
-    for (const wall of house.walls || []) {
-      if (wallVisible(wall)) drawWall(wall);
-    }
+    drawWalls((house.walls || []).filter((wall) => wall?.start && wall?.end && wallVisible(wall)));
     for (const wall of house.walls || []) {
       if (!wallVisible(wall)) continue;
       for (const opening of openingsFor(house, wall)) drawOpening(wall, opening);
@@ -2120,6 +2160,10 @@ export function createPlanView(canvas, initialHouse) {
     },
     fit() {
       fit(true);
+    },
+    /** Pixels on the left that a floating panel covers. Only Fit reads it, so the view never jumps. */
+    setInsets({ left = 0 } = {}) {
+      insetLeft = Math.max(0, Number(left) || 0);
     },
     focus(x, y) {
       camera.cx = x;

@@ -40,6 +40,8 @@ export function attachAccount({ editor }) {
   let driveLoaded = false;
   let dirty = false;
   let dirtyGen = 0;
+  // Edits made on this device while Drive was waiting for a reconnect.
+  let localEdits = false;
 
   const linked = new URLSearchParams(window.location.search).get("file");
   renderAccount();
@@ -84,7 +86,6 @@ export function attachAccount({ editor }) {
     document.querySelector("#drive-save-as").addEventListener("click", () => { closeMenu(); saveAs(); });
     document.querySelector("#drive-open").addEventListener("click", () => { closeMenu(); openFromDrive(); });
     document.querySelector("#drive-share").addEventListener("click", () => { closeMenu(); shareWith(); });
-    document.querySelector("#drive-banner-load")?.addEventListener("click", () => loadRemembered());
     statusEl.addEventListener("click", () => {
       if (statusEl.dataset.state !== "reconnect") return;
       if ((remembered?.id || linked) && !driveLoaded) loadRemembered();
@@ -95,19 +96,20 @@ export function attachAccount({ editor }) {
   function bootDrive() {
     const fileId = remembered?.id || linked;
     if (!auth || driveBootAction({ fileId, signedIn: false }).action === "keep-local") return;
-    if (auth.hadSession()) restoreSession();
+    // A saved token from the last hour reloads Drive with no popup.
+    // Without one, Google needs a click, so a small pill waits in the top bar
+    // and the plan saved on this device stays on screen.
+    if (auth.hasLiveToken()) restoreSession();
     else showDrivePrompt();
   }
 
   function showDrivePrompt() {
-    const banner = document.querySelector("#drive-banner");
-    if (banner) banner.hidden = false;
-    setStatus("reconnect", "Reconnect to load your Drive plan");
+    setStatus("reconnect", "Reconnect Drive");
+    statusEl.title = "Google needs one click to reconnect. Your plan on this device stays as it is.";
   }
 
   function hideDrivePrompt() {
-    const banner = document.querySelector("#drive-banner");
-    if (banner) banner.hidden = true;
+    statusEl.title = "";
   }
 
   function onDocument(source) {
@@ -116,6 +118,7 @@ export function attachAccount({ editor }) {
       remembered = null;
       driveLoaded = false;
       dirty = false;
+      localEdits = false;
       folderId = null;
       paused = false;
       window.clearTimeout(timer);
@@ -125,6 +128,7 @@ export function attachAccount({ editor }) {
       return;
     }
     if (source !== "edit") return;
+    if (!driveLoaded && remembered?.id) localEdits = true;
     if (!shouldUploadToDrive({ dirty: true, loaded: driveLoaded, signedIn: Boolean(auth && user), paused, saving: false })) return;
     dirty = true;
     dirtyGen += 1;
@@ -142,6 +146,7 @@ export function attachAccount({ editor }) {
       if (linked) await openFileId(linked, { fromLink: true });
       else if (action.action === "load") await openFileId(action.fileId, { confirm: false });
     } catch {
+      auth.forget();
       if (remembered?.id || linked) showDrivePrompt();
       else setStatus("reconnect", "Sign in to Google again");
     }
@@ -155,6 +160,17 @@ export function attachAccount({ editor }) {
       if (!ok) return;
     }
     if (driveLoaded && currentFile?.id === fileId) return;
+    if (localEdits && remembered?.id === fileId) {
+      // Keep what was drawn while Drive was away: save it over the Drive file.
+      // The modified time still guards against a newer copy from another device.
+      currentFile = { ...remembered };
+      driveLoaded = true;
+      dirty = true;
+      dirtyGen += 1;
+      localEdits = false;
+      await saveNow({ auto: false });
+      return;
+    }
     await openFileId(fileId, { confirm: false });
   }
 
@@ -180,6 +196,7 @@ export function attachAccount({ editor }) {
   async function refreshUser() {
     const access = await auth.token();
     user = await withAuth((token) => getUser(fetch, token), access);
+    auth.rememberAccount(user?.emailAddress);
     renderAccount();
   }
 
@@ -188,6 +205,7 @@ export function attachAccount({ editor }) {
       return await fn(access || await auth.token());
     } catch (error) {
       if (error?.code !== "auth") throw error;
+      auth.forget();
       const next = await auth.token({ force: true, interactive: false });
       return fn(next);
     }
@@ -337,6 +355,7 @@ export function attachAccount({ editor }) {
       remembered = currentFile;
       driveLoaded = true;
       dirty = false;
+      localEdits = false;
       const title = designNameFromFile(loaded.name);
       if (loaded.house.name !== title) editor.setDesignName(title);
       writeBinding(currentFile);

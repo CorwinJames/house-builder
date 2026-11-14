@@ -414,7 +414,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       walls: walls || [],
       origin: origin || null,
       magnetFeet: snapping(event) ? magnetFeet() : 0,
+      endMagnetFeet: endMagnetFeet(),
     });
+  }
+
+  /** About 10 screen pixels: close enough that a wall end clicks onto another wall end. */
+  function endMagnetFeet() {
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return Math.min(1.25, 10 / scale);
   }
 
   function movedEnough(from, to) {
@@ -966,9 +973,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (current.kind === "room" && current.moved && current.end) {
       const added = addRoomRectangle(house, current.start, current.end, assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID);
       if (added.house !== house) {
-        const firstWalls = !(current.snapshot?.walls || []).length;
         commit(syncRooms(added.house));
-        if (firstWalls) model.frameHouse?.();
         announce("Drew a room.");
       } else {
         warnings = added.warnings;
@@ -1765,6 +1770,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     coachKey = key;
     const summary = document.querySelector("#guide-card summary");
     if (summary) summary.textContent = progress && !progress.complete ? `Guide · ${progress.next.next}` : "Guide";
+    const pill = document.querySelector("#guide-toggle");
+    if (pill) pill.textContent = progress && !progress.complete ? `Guide · ${progress.next.next}` : "Guide";
     line.replaceChildren();
     if (progress?.complete) {
       const strong = document.createElement("strong");
@@ -2067,13 +2074,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       : picks.length > 1
         ? `multi:${picks.map((item) => `${item.type}:${item.id}`).join("|")}`
         : `${selection?.type}:${selection?.id}`;
-    if (!showing) {
-      fold.open = true;
-      foldedFor = "";
-    } else if (foldedFor !== key) {
-      fold.open = false;
-      foldedFor = key;
-    }
+    // The selection card is its own glass card now, so the layer list stays open.
+    // Hide it with the panel's Layers button instead.
+    fold.open = true;
+    foldedFor = showing ? key : "";
     document.dispatchEvent(new CustomEvent("house-selection", { detail: { showing } }));
   }
 
@@ -2926,7 +2930,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return { phase1, all };
   }
 
-  function loadHouse(doc) {
+  /** `keepView` is for a change to the same plan (a code-check fix): the camera stays put. */
+  function loadHouse(doc, { keepView = false } = {}) {
     let decorated;
     try {
       decorated = decorateHouse(doc);
@@ -2935,7 +2940,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (!validate(decorated)) return false;
     past.push(house);
-    undoNotes.push("opening a saved plan");
+    undoNotes.push(keepView ? "a code-check fix" : "opening a saved plan");
     redoNotes.length = 0;
     if (past.length > 60) {
       past.shift();
@@ -2945,7 +2950,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     house = decorated;
     choose(null);
     fromSave = true;
-    document.dispatchEvent(new CustomEvent("plan-imported"));
+    if (!keepView) document.dispatchEvent(new CustomEvent("plan-imported"));
     try {
       localStorage.setItem(DOC_KEY, JSON.stringify(house));
     } catch {

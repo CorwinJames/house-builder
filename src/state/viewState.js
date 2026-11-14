@@ -15,6 +15,8 @@ export function defaultViewState() {
     plan: null,
     camera: null,
     hintDismissed: false,
+    guideOpen: false,
+    panelCollapsed: false,
   };
 }
 
