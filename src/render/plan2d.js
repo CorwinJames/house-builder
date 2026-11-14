@@ -2131,11 +2131,9 @@ export function createPlanView(canvas, initialHouse) {
 
   canvas.addEventListener("pointerdown", (event) => {
     const local = localPoint(event);
-    if (event.button === 0 && hitMeasureLabel(local) && buildHooks?.label) {
-      labelPress = { event };
-      canvas.setPointerCapture(event.pointerId);
-      return;
-    }
+    // The floating length label no longer catches clicks: it sat over other
+    // walls and swallowed clicks meant for them. Type a length on the wall card,
+    // or press Tab while drawing.
     const badge = badgeAt(local);
     if (badge) {
       pinnedBadge = badge;
