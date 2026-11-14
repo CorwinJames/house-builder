@@ -21,6 +21,7 @@ import { assemblyById } from "../build/catalog.js";
 import { pieceOutline, wallJoints } from "../build/joins.js";
 import { endsAt, isClipped } from "../build/clips.js";
 import { roofed, sunPatches, wallShadows } from "../sun/light.js";
+import { skylightFootprint } from "../build/skylights.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
 import { areaKind, boundsOf } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
@@ -740,6 +741,33 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  /** Skylights: overhead glass, drawn dashed with the usual cross. */
+  function drawSkylights() {
+    ctx.save();
+    for (const item of house.skylights || []) {
+      if (state && !isPhaseVisible(item.phase, state)) continue;
+      const corners = skylightFootprint(item);
+      trace(corners);
+      ctx.fillStyle = "rgba(196, 226, 240, 0.55)";
+      ctx.fill();
+      ctx.setLineDash([5, 3]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#3D7A97";
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const p = corners.map((point) => worldToScreen(point.x, point.y));
+      ctx.beginPath();
+      ctx.moveTo(p[0].x, p[0].y);
+      ctx.lineTo(p[2].x, p[2].y);
+      ctx.moveTo(p[1].x, p[1].y);
+      ctx.lineTo(p[3].x, p[3].y);
+      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = "rgba(61, 122, 151, 0.55)";
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawAnnotations() {
     ctx.save();
     ctx.lineJoin = "round";
@@ -1088,6 +1116,7 @@ export function createPlanView(canvas, initialHouse) {
     drawElectrical();
     drawPlumbing();
     drawAnnotations();
+    drawSkylights();
     drawSitePieces();
     drawOverlay();
     drawDimensions();
@@ -1146,6 +1175,24 @@ export function createPlanView(canvas, initialHouse) {
         traceOn(mask, room.polygon);
         mask.fill();
       }
+      // Skylights bring daylight in even without direct sun: lighter shade under them.
+      mask.save();
+      mask.globalCompositeOperation = "destination-out";
+      for (const item of house.skylights || []) {
+        if (state && !isPhaseVisible(item.phase, state)) continue;
+        const corners = skylightFootprint(item);
+        const middle = worldToScreen(item.x, item.y);
+        const reach = Math.max(item.width, item.depth) * camera.pxPerFt * 1.4;
+        const glow = mask.createRadialGradient(middle.x, middle.y, 0, middle.x, middle.y, reach);
+        glow.addColorStop(0, "rgba(0,0,0,0.55)");
+        glow.addColorStop(1, "rgba(0,0,0,0)");
+        mask.fillStyle = glow;
+        mask.fillRect(middle.x - reach, middle.y - reach, reach * 2, reach * 2);
+        traceOn(mask, corners);
+        mask.fillStyle = "rgba(0,0,0,0.4)";
+        mask.fill();
+      }
+      mask.restore();
     }
     ctx.save();
     ctx.globalAlpha = sun.up ? 0.3 : 0.5;
@@ -1972,6 +2019,11 @@ export function createPlanView(canvas, initialHouse) {
         const a = pointAlong(wall, opening.offset || 0);
         const b = pointAlong(wall, (opening.offset || 0) + (opening.width || 0));
         trace(segmentQuad(a.x, a.y, b.x, b.y, (wall.thickness || 0.5) + 0.35));
+        strokePick();
+      } else if (pick.type === "skylight") {
+        const item = (house.skylights || []).find((entry) => entry.id === pick.id);
+        if (!item) continue;
+        trace(skylightFootprint(item));
         strokePick();
       } else if (pick.type === "furniture") {
         const item = (house.furniture || []).find((entry) => entry.id === pick.id);

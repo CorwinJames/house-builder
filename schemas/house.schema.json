@@ -101,6 +101,11 @@
       "description": "Optional drawn icons: beds, counters, appliances, and similar. Not a price.",
       "items": { "$ref": "#/$defs/furniture" }
     },
+    "skylights": {
+      "type": "array",
+      "description": "Optional skylights: glass in the roof over a room. x, y is the middle of the opening on the plan; width and depth are in feet. Allowed in version 8 files.",
+      "items": { "$ref": "#/$defs/skylight" }
+    },
     "planLabels": {
       "type": "array",
       "description": "Optional free-text notes placed on the plan.",
@@ -139,6 +144,22 @@
     }
   },
   "$defs": {
+    "skylight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "depth"],
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "depth": { "type": "number", "exclusiveMinimum": 0 },
+        "rotation": { "type": "number", "description": "Degrees counter-clockwise from east." },
+        "roomId": { "type": "string" },
+        "phase": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
     "point2": {
       "type": "object",
       "additionalProperties": false,

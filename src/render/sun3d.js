@@ -13,6 +13,8 @@ import * as THREE from "three";
 import { isPhaseVisible } from "./visibility.js";
 import { glazing, roofed, roomSun, sunPatches } from "../sun/light.js";
 import { boundsOf } from "../build/areas.js";
+import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
+import { pointInPolygon } from "../lib/geom.js";
 
 const BOUNCE_LIGHTS = 6;
 const DEFAULT_HEIGHT = 10;
@@ -56,7 +58,7 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       casters.remove(child);
     }
     const walls = (house?.walls || []).filter((wall) => isPhaseVisible(wall.phase, state || {}));
-    const top = Math.max(DEFAULT_HEIGHT, ...walls.map((wall) => Number(wall.height) || 0));
+    const top = Math.max(ceilingHeight(house), ...walls.map((wall) => Number(wall.height) || 0));
     const add = (geometry, at, rotationY = 0) => {
       const mesh = new THREE.Mesh(geometry, casterMaterial);
       mesh.position.copy(at);
@@ -100,6 +102,12 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
     for (const room of house?.rooms || []) {
       if (!roofed(room) || !(room.polygon?.length >= 3) || !isPhaseVisible(room.phase, state || {})) continue;
       const shape = new THREE.Shape(room.polygon.map((point) => new THREE.Vector2(point.x, point.y)));
+      // Skylights over this room are holes in its ceiling, so the sun comes through.
+      for (const skylight of house.skylights || []) {
+        if (!isPhaseVisible(skylight.phase, state || {})) continue;
+        if (!pointInPolygon(skylight, room.polygon)) continue;
+        shape.holes.push(new THREE.Path(skylightFootprint(skylight).map((point) => new THREE.Vector2(point.x, point.y))));
+      }
       const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
       geometry.rotateX(-Math.PI / 2);
       add(geometry, new THREE.Vector3(0, top, 0));
@@ -164,7 +172,17 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
         wallVisible: (wall) => isPhaseVisible(wall.phase, state || {}),
         roomVisible: (room) => isPhaseVisible(room.phase, state || {}),
       });
-      const lit = roomSun(house, patches).filter((item) => item.lit > 0.5).sort((p, q) => q.lit - p.lit);
+      // Skylight glass also lets in daylight from the whole sky, sun or not.
+      const skyGlass = new Map();
+      for (const skylight of house.skylights || []) {
+        if (!isPhaseVisible(skylight.phase, state || {})) continue;
+        const room = rooms.find((r) => roofed(r) && pointInPolygon(skylight, r.polygon));
+        if (room) skyGlass.set(room.id, (skyGlass.get(room.id) || 0) + skylight.width * skylight.depth);
+      }
+      const lit = roomSun(house, patches)
+        .map((item) => ({ ...item, sky: skyGlass.get(item.roomId) || 0 }))
+        .filter((item) => item.lit > 0.5 || item.sky > 0)
+        .sort((p, q) => (q.lit + q.sky * 3) - (p.lit + p.sky * 3));
       bounces.forEach((bounce, index) => {
         const item = lit[index];
         const room = item && rooms.find((r) => r.id === item.roomId);
@@ -176,8 +194,12 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
         const size = Math.hypot(rb.x1 - rb.x0, rb.y1 - rb.y0);
         bounce.position.set((rb.x0 + rb.x1) / 2, 7.5, -(rb.y0 + rb.y1) / 2);
         bounce.distance = size * 1.3;
-        bounce.color.setRGB(1, 0.9 - 0.1 * warm, 0.75 - 0.15 * warm);
-        bounce.intensity = Math.min(6, 1 + item.lit * 0.12) * (0.5 + strength * 0.5);
+        // Mostly warm floor bounce; a cooler tint when skylight daylight is most of it.
+        const skyShare = item.sky * 3 / (item.sky * 3 + item.lit + 1e-6);
+        bounce.color.setRGB(1 - 0.12 * skyShare, 0.9 - 0.1 * warm * (1 - skyShare), 0.75 - 0.15 * warm + 0.17 * skyShare);
+        const sunPart = item.lit * 0.12 * (0.5 + strength * 0.5);
+        const skyPart = item.sky * 0.11 * (0.6 + strength * 0.4);
+        bounce.intensity = Math.min(6, (item.lit > 0.5 ? 1 : 0.4) + sunPart + skyPart);
       });
     },
   };

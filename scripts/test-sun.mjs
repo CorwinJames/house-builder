@@ -1,3 +1,4 @@
+import { ceilingHeight, makeSkylight, skylightFootprint } from "../src/build/skylights.js";
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
 import { currentSun, siteMoment, solarPosition, sunVector } from "../src/sun/solar.js";
@@ -67,6 +68,24 @@ check("walls cast ground shadows away from the sun, longer when it is low", () =
   assert.ok(reach(low) > reach(high) * 4);
   assert.ok(quadNorth(high), "a south sun throws shadows north");
   assert.deepEqual(wallShadows(house, { up: false, vector: sunVector(180, -5) }), []);
+});
+
+check("a skylight puts sun on the floor of the room below, shifted away from the sun", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const living = house.rooms.find((room) => /living/i.test(room.name || ""));
+  const xs = living.polygon.map((point) => point.x);
+  const ys = living.polygon.map((point) => point.y);
+  const middle = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  house.skylights = [makeSkylight(house, middle, "2x4", "sky-1")];
+  assert.equal(house.skylights[0].roomId, living.id);
+  const high = sunPatches(house, { up: true, vector: sunVector(180, 90 - 1e-6) }).find((patch) => patch.skylightId === "sky-1");
+  assert.ok(high, "overhead sun comes straight down");
+  assert.ok(Math.abs(high.area - 8) < 0.6, `area ${high.area}`);
+  const angled = sunPatches(house, { up: true, vector: sunVector(180, 45) }).find((patch) => patch.skylightId === "sky-1");
+  const shift = angled.polygon[0].y - skylightFootprint(house.skylights[0])[0].y;
+  // Ceiling at 10 ft, sun at 45 degrees from the south: the patch lands 10 ft north.
+  assert.ok(Math.abs(shift - ceilingHeight(house)) < 0.01, `shift ${shift}`);
+  assert.ok(roomSun(house, [high]).find((room) => room.roomId === living.id).lit > 7);
 });
 
 function quadNorth(quad) {
