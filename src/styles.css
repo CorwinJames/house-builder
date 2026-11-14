@@ -1501,3 +1501,32 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .options-shell, .adv-shell, .adv-toggle .chev { transition: none; }
 }
+
+/* Walk-through help and the on-screen walk pad (the pad shows on touch screens). */
+.walk-help {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 20px));
+  padding: 8px 12px;
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.walk-help p { margin: 0; font-size: 0.8rem; line-height: 1.35; text-align: center; }
+.walk-pad { display: none; grid-template-columns: repeat(3, 48px); gap: 6px; }
+.walk-pad button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 1.1rem;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+@media (pointer: coarse) { .walk-pad { display: grid; } }
+.stage:has(#build-hud:not([hidden])) .walk-help { bottom: 76px; }

@@ -189,3 +189,36 @@ export function placePoint(point, { snap = false, grid = FINE_GRID_FT, walls = [
   const gridded = snapPointToGrid(point, grid || FINE_GRID_FT);
   return { ...gridded, snapped: "grid", length: lengthFrom(gridded.x, gridded.y) };
 }
+
+/**
+ * Snap a whole-piece move. `ends` are the moving wall ends before the move,
+ * `walls` are the walls that stay put. If any moving end, shifted by (dx, dy),
+ * comes within `radius` of a still wall's end, the move is adjusted so the two
+ * ends meet exactly. With `lines` on, an end can also land on the middle of a wall.
+ * Returns the adjusted move and the point it joined, or the move unchanged.
+ */
+export function snapTranslation(ends, walls, dx, dy, { radius = 0.75, lines = false } = {}) {
+  let bestEnd = null;
+  let bestLine = null;
+  for (const end of ends) {
+    const moved = { x: end.x + dx, y: end.y + dy };
+    for (const wall of walls) {
+      if (!wall?.start || !wall?.end) continue;
+      for (const target of [wall.start, wall.end]) {
+        const gap = Math.hypot(target.x - moved.x, target.y - moved.y);
+        if (gap <= radius && (!bestEnd || gap < bestEnd.gap)) {
+          bestEnd = { gap, kind: "end", dx: target.x - end.x, dy: target.y - end.y, at: { x: target.x, y: target.y } };
+        }
+      }
+      if (!lines) continue;
+      const line = projectOntoWall(moved, wall);
+      if (line && line.t > 0.02 && line.t < 0.98 && line.distance <= radius && (!bestLine || line.distance < bestLine.gap)) {
+        bestLine = { gap: line.distance, kind: "line", dx: line.x - end.x, dy: line.y - end.y, at: { x: line.x, y: line.y } };
+      }
+    }
+  }
+  // A wall end beats a spot along a wall, so corners join cleanly.
+  const best = bestEnd || bestLine;
+  if (!best) return { dx, dy, snapped: null };
+  return { dx: best.dx, dy: best.dy, snapped: best.kind, at: best.at };
+}

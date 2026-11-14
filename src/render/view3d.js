@@ -12,6 +12,7 @@ import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
 import { roomGroundLine } from "../build/annotations.js";
+import { furnitureHeight } from "../build/scaleFigures.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -200,8 +201,141 @@ export function createView3d(canvas, initialHouse) {
     cameraSaveTimer = window.setTimeout(() => onChange(readCamera()), 180);
   }
 
-  function tick() {
+  /*
+   * Walk-through: the camera stands at eye height inside the house.
+   * W A S D or the arrow keys walk, Shift walks faster, and dragging looks
+   * around. Walls do not stop you. The orbit camera comes back on exit.
+   */
+  const EYE_HEIGHT = 5.5;
+  const WALK_SPEED = 4.5;
+  const walk = { on: false, yaw: 0, pitch: 0, keys: new Set(), drag: null, last: 0, saved: null, onChange: () => {} };
+  const walkDir = new THREE.Vector3();
+
+  function walkStep(now) {
+    const dt = Math.min(0.1, walk.last ? (now - walk.last) / 1000 : 0);
+    walk.last = now;
+    const k = walk.keys;
+    const forward = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+    const strafe = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
+    const turn = (k.has("ArrowLeft") ? 1 : 0) - (k.has("ArrowRight") ? 1 : 0);
+    if (turn) walk.yaw += turn * 1.6 * dt;
+    if (forward || strafe) {
+      const speed = WALK_SPEED * (k.has("ShiftLeft") || k.has("ShiftRight") ? 2.2 : 1) * dt;
+      walkDir.set(-Math.sin(walk.yaw) * forward + Math.cos(walk.yaw) * strafe, 0, -Math.cos(walk.yaw) * forward - Math.sin(walk.yaw) * strafe);
+      if (walkDir.lengthSq() > 0) walkDir.normalize().multiplyScalar(speed);
+      camera.position.add(walkDir);
+    }
+    camera.position.y = EYE_HEIGHT;
+    camera.rotation.set(walk.pitch, walk.yaw, 0, "YXZ");
+  }
+
+  function walkStart(planPoint) {
+    let at = planPoint;
+    if (!at) {
+      // Start in the middle of the biggest room you can see.
+      let best = null;
+      for (const room of house.rooms || []) {
+        if (!room?.polygon || room.polygon.length < 3) continue;
+        if (state && room.phase === "future" && !isFutureShown(state)) continue;
+        const box = boundsOf([room]);
+        const area = (box.x1 - box.x0) * (box.y1 - box.y0);
+        if (!best || area > best.area) best = { area, x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
+      }
+      at = best || { x: 0, y: 0 };
+    }
+    return at;
+  }
+
+  function setWalking(on, planPoint = null) {
+    if (on === walk.on) return;
+    walk.on = on;
+    walk.keys.clear();
+    walk.drag = null;
+    walk.last = 0;
+    if (on) {
+      walk.saved = readCamera();
+      const at = walkStart(planPoint);
+      camera.position.set(at.x, EYE_HEIGHT, -at.y);
+      walk.yaw = 0;
+      walk.pitch = -0.05;
+      camera.fov = 60;
+      camera.updateProjectionMatrix();
+      controls.enabled = false;
+      canvas.style.cursor = "grab";
+    } else {
+      camera.fov = 42;
+      camera.updateProjectionMatrix();
+      controls.enabled = true;
+      if (walk.saved) applySavedCamera(walk.saved);
+      canvas.style.cursor = editing ? "crosshair" : "grab";
+    }
+    walk.onChange(on);
+  }
+
+  // Capture first so the orbit and build handlers never see walk-mode drags.
+  canvas.addEventListener("pointerdown", (event) => {
+    if (!walk.on) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    walk.drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    canvas.style.cursor = "grabbing";
+  }, { capture: true });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!walk.on) return;
+    event.stopImmediatePropagation();
+    if (!walk.drag || walk.drag.id !== event.pointerId) return;
+    const dx = event.clientX - walk.drag.x;
+    const dy = event.clientY - walk.drag.y;
+    walk.drag.x = event.clientX;
+    walk.drag.y = event.clientY;
+    walk.yaw += dx * 0.0045;
+    walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch + dy * 0.0045));
+  }, { capture: true });
+  const endWalkDrag = (event) => {
+    if (!walk.on) return;
+    event.stopImmediatePropagation();
+    walk.drag = null;
+    canvas.style.cursor = "grab";
+  };
+  canvas.addEventListener("pointerup", endWalkDrag, { capture: true });
+  canvas.addEventListener("pointercancel", endWalkDrag, { capture: true });
+  canvas.addEventListener("wheel", (event) => {
+    if (!walk.on) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch + event.deltaY * 0.002));
+    walk.yaw += event.deltaX * 0.002;
+  }, { capture: true, passive: false });
+  const WALK_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight"]);
+  const typing = (target) => !!target?.matches?.("input, textarea, select") || !!target?.isContentEditable;
+  window.addEventListener("keydown", (event) => {
+    if (!walk.on || typing(event.target) || event.metaKey || event.ctrlKey) return;
+    if (event.code === "Escape") {
+      setWalking(false);
+      return;
+    }
+    if (!WALK_KEYS.has(event.code)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    walk.keys.add(event.code);
+  }, { capture: true });
+  window.addEventListener("keyup", (event) => {
+    if (walk.keys.has(event.code)) walk.keys.delete(event.code);
+  }, { capture: true });
+  window.addEventListener("blur", () => walk.keys.clear());
+
+  function tick(now = performance.now()) {
     frameId = requestAnimationFrame(tick);
+    if (walk.on) {
+      walkStep(now);
+      // Labels float through walls, so they stay hidden while you walk.
+      scene.traverse((obj) => {
+        if (obj.isSprite && obj.userData.screenLabel) obj.visible = false;
+      });
+      renderer.render(scene, camera);
+      return;
+    }
     if (wheelNudge.x || wheelNudge.y) {
       camera.updateMatrixWorld();
       const offset = camera.position.clone().sub(controls.target);
@@ -226,6 +360,7 @@ export function createView3d(canvas, initialHouse) {
   tick();
 
   controls.addEventListener("end", () => {
+    if (walk.on) return;
     onChange(readCamera());
   });
 
@@ -597,6 +732,22 @@ export function createView3d(canvas, initialHouse) {
       applyRoof();
       applyVisibility(next);
     },
+    /** Eye-height walk-through. `planPoint` is where to stand; omit it for the biggest room. */
+    setWalking(on, planPoint) {
+      setWalking(!!on, planPoint || null);
+    },
+    isWalking() {
+      return walk.on;
+    },
+    /** For on-screen arrows: hold a walk key down or let it go. */
+    walkKey(code, down) {
+      if (!walk.on) return;
+      if (down) walk.keys.add(code);
+      else walk.keys.delete(code);
+    },
+    setOnWalkChange(fn) {
+      walk.onChange = typeof fn === "function" ? fn : () => {};
+    },
     setEditing(on) {
       editing = !!on;
       controls.enabled = true;
@@ -688,6 +839,10 @@ function failedView(message) {
     setHouse() {},
     setSelected() {},
     setEditing() {},
+    setWalking() {},
+    isWalking() { return false; },
+    walkKey() {},
+    setOnWalkChange() {},
     setCutaway() {},
     setBuildHooks() {},
     setOverlay() {},
@@ -1245,14 +1400,47 @@ function roomLabel(room) {
   return sprite;
 }
 
+/** A 5 ft 9 in person: legs and body, shoulders, and a head. Simple, so it reads as scale, not a character. */
+function personFigure(item) {
+  const group = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: 0x5c6f7d, roughness: 0.75 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xd9b48f, roughness: 0.8 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.42, 4.1, 14), material);
+  body.position.y = 2.05;
+  const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.66, 14, 10), material);
+  shoulders.scale.set(1.25, 0.5, 0.75);
+  shoulders.position.y = 4.15;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), skin);
+  head.position.y = 5.33;
+  for (const mesh of [body, shoulders, head]) {
+    mesh.castShadow = true;
+    mesh.userData.pick = { type: "furniture", id: item.id };
+    group.add(mesh);
+  }
+  group.position.set(item.x, 0, -item.y);
+  group.rotation.y = ((item.rotation || 0) * Math.PI) / 180;
+  group.userData.pick = { type: "furniture", id: item.id };
+  return group;
+}
+
 function addAnnotations(house, parent) {
   const furnMaterial = new THREE.MeshStandardMaterial({ color: 0xd9cfc2, roughness: 0.8, transparent: true, opacity: 0.85 });
   for (const item of house.furniture || []) {
+    if (item.kind === "person") {
+      parent.add(personFigure(item));
+      continue;
+    }
     const width = item.width || 2;
     const depth = item.depth || 2;
-    const height = item.kind === "car" ? 4.5 : item.kind === "counter" ? 3 : 2;
+    const height = furnitureHeight(item.kind);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), furnMaterial.clone());
-    const color = item.kind === "bed" ? 0xb7d4ea : item.kind === "appliance" ? 0xf0b7c4 : item.kind === "counter" ? 0xf3e2b8 : 0xd9cfc2;
+    const color = item.kind === "bed" ? 0xb7d4ea
+      : item.kind === "appliance" ? 0xf0b7c4
+        : item.kind === "counter" ? 0xf3e2b8
+          : item.kind === "car" ? 0x9aa89a
+            : item.kind === "sofa" ? 0xb9a58c
+              : item.kind === "table" ? 0xc9a27c
+                : 0xd9cfc2;
     mesh.material.color.setHex(color);
     mesh.position.set(item.x, height / 2, -item.y);
     mesh.rotation.y = ((item.rotation || 0) * Math.PI) / 180;

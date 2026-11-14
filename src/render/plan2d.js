@@ -734,6 +734,10 @@ export function createPlanView(canvas, initialHouse) {
     ctx.lineJoin = "round";
     for (const item of house.furniture || []) {
       if (!markVisible(item.roomId)) continue;
+      if (item.kind === "person") {
+        drawPersonTop(item);
+        continue;
+      }
       const footprint = furnitureFootprint(item);
       trace(footprint);
       ctx.globalAlpha = 0.72;
@@ -817,7 +821,32 @@ export function createPlanView(canvas, initialHouse) {
     return !room || isPhaseVisible(room.phase, state);
   }
 
+  /** A person seen from above: shoulders and a head, at true size. */
+  function drawPersonTop(item) {
+    const at = worldToScreen(item.x, item.y);
+    const scale = camera.pxPerFt;
+    const rad = -((item.rotation || 0) * Math.PI) / 180;
+    ctx.save();
+    ctx.translate(at.x, at.y);
+    ctx.rotate(rad);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, Math.max(3, 0.875 * scale), Math.max(2, 0.5 * scale), 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#5C6F7D";
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(2, 0.36 * scale), 0, Math.PI * 2);
+    ctx.fillStyle = "#D9B48F";
+    ctx.fill();
+    ctx.strokeStyle = "#3F342C";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function furnitureFill(kind) {
+    if (kind === "sofa") return "#B9A58C";
     if (kind === "bed") return "#B7D4EA";
     if (kind === "counter") return "#F3E2B8";
     if (kind === "appliance") return "#F0B7C4";
