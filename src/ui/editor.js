@@ -13,7 +13,8 @@ import {
   addWall,
   cloneHouse,
   decorateHouse,
-  moveEndpointGroup,
+  moveEnd,
+  clipTouching,
   placeOpening,
   resizeOpening,
   setWallAssembly,
@@ -22,6 +23,7 @@ import {
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
+import { clipTogether, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
@@ -138,6 +140,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let wallRatio = "free";
   let snapOn = false;
   let shiftHeld = false;
+  // Lay on (default): walls that touch stay separate pieces. Clip on: they become one.
+  // Holding Option (Alt) flips it for one drag.
+  let clipOn = false;
+  let altHeld = false;
   let guidesOn = false;
   let selection = null;
   let picks = [];
@@ -281,6 +287,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       shiftHeld = true;
       paintSnapButton();
     }
+    if (event.key === "Alt") {
+      altHeld = true;
+      paintJoinButtons();
+    }
     if (event.key === "Tab" && mode === "build" && !measureOpen && !typingTarget(event.target) && measureTarget()) {
       event.preventDefault();
       openMeasure();
@@ -344,6 +354,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       shiftHeld = false;
       paintSnapButton();
     }
+    if (event.key === "Alt") {
+      altHeld = false;
+      paintJoinButtons();
+    }
+  });
+  window.addEventListener("blur", () => {
+    altHeld = false;
+    paintJoinButtons();
   });
 
   refreshWarnings();
@@ -523,10 +541,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         }
       }
     }
-    const electricalHit = hitElectrical(house, world, Math.max(1.1, reach));
-    const plumbingHit = hitPlumbing(house, world, Math.max(1.1, reach));
+    // Only what you can see can be clicked: a hidden layer's pieces are skipped,
+    // unless you are using that layer's own tool.
+    const layers = getViewState().layers || {};
+    const electricalHit = layers.electrical !== false || tool === "electrical" ? hitElectrical(house, world, Math.max(1.1, reach)) : null;
+    const plumbingHit = layers.plumbing !== false || tool === "plumbing" ? hitPlumbing(house, world, Math.max(1.1, reach)) : null;
     const siteLimit = tool === "site" || tool === "select" ? Math.max(8, 22 / (plan.getCamera().pxPerFt || 8)) : 1.6;
-    const siteHit = hitSite(house, world, siteLimit);
+    const siteHit = layers.site !== false || tool === "site" ? hitSite(house, world, siteLimit) : null;
     if (tool === "site" && siteHit) return siteHit;
     if (tool === "plumbing" && plumbingHit) return plumbingHit;
     if (tool === "electrical" && electricalHit) return electricalHit;
@@ -754,11 +775,22 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function finishWall(current) {
     const chosen = suggestAssemblyId(current.start, current.end, assemblyId, assemblyExplicit, outwardForWall(current.start, current.end));
-    const added = addWall(house, current.start, current.end, chosen);
-    if (added.house !== house) {
-      if (added.createdId) choose({ type: "wall", id: added.createdId });
-      commit(syncRooms(added.house));
-      announce("Drew a wall.");
+    const before = house;
+    const laid = addWall(before, current.start, current.end, chosen, "phase1", { clip: false });
+    const added = addWall(before, current.start, current.end, chosen, "phase1", { clip: true });
+    if (added.house !== before && laid.house !== before) {
+      const contact = contactAt(laid.house, [{ wall: laid.createdId, end: "start" }, { wall: laid.createdId, end: "end" }], [laid.createdId]);
+      const useClip = current.clip !== false && contact;
+      const pick = useClip ? added : laid;
+      if (pick.createdId) choose({ type: "wall", id: pick.createdId });
+      commitJoinChoice({
+        before,
+        lay: syncRooms(laid.house),
+        clip: syncRooms(added.house),
+        contact,
+        clipped: useClip,
+        what: "Drew a wall",
+      });
     } else {
       warnings = added.warnings;
       announce(added.warnings?.[0]?.message || "That wall wasn't drawn.", false);
@@ -1008,7 +1040,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         : wall?.start;
       const others = gesture.snapshot.walls.filter((item) => item.id !== gesture.hit.wallId);
       const snapped = aim(world, event, other || null, others);
-      scheduleLive(moveEndpointGroup(gesture.snapshot, gesture.hit.point, snapped));
+      const endName = wall && Math.hypot(wall.start.x - gesture.hit.point.x, wall.start.y - gesture.hit.point.y) < 0.2 ? "start" : "end";
+      gesture.movedEnd = { wall: gesture.hit.wallId, end: endName };
+      scheduleLive(moveEnd(gesture.snapshot, gesture.hit.wallId, endName, snapped));
       return;
     }
     if (gesture.kind === "select" && (gesture.hit?.type === "wall" || gesture.group?.walls.length)) {
@@ -1076,6 +1110,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const current = gesture;
     gesture = null;
     if (!current) return;
+    current.clip = clipping(event);
     if (current.kind === "marquee") {
       finishMarquee(current);
       publish();
@@ -1084,10 +1119,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (current.kind === "wall" && current.moved && current.end) {
       finishWall(current);
     } else if (current.kind === "room" && current.moved && current.end) {
-      const added = addRoomRectangle(house, current.start, current.end, assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID);
-      if (added.house !== house) {
-        commit(syncRooms(added.house));
-        announce("Drew a room.");
+      const before = house;
+      const id = assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID;
+      const laid = addRoomRectangle(before, current.start, current.end, id, { clip: false });
+      const added = addRoomRectangle(before, current.start, current.end, id, { clip: true });
+      if (added.house !== before && laid.house !== before) {
+        const fresh = laid.house.walls.filter((wall) => !before.walls.some((old) => old.id === wall.id)).map((wall) => wall.id);
+        const contact = contactAt(laid.house, fresh.flatMap((wall) => [{ wall, end: "start" }, { wall, end: "end" }]), fresh);
+        commitJoinChoice({
+          before,
+          lay: syncRooms(laid.house),
+          clip: syncRooms(added.house),
+          contact,
+          clipped: current.clip !== false && contact,
+          what: "Drew a room",
+        });
       } else {
         warnings = added.warnings;
         announce(added.warnings?.[0]?.message || "Drag a room at least 2 feet on each side.", false);
@@ -1109,25 +1155,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       choose(current.clickItem);
     } else if ((current.kind === "endpoint" || current.kind === "select") && current.moved) {
       const pieceMove = movablePiece(current.hit, current.snapshot) && !current.group?.walls.length;
-      let next = house;
-      if (current.movedWalls?.length) {
-        // A moved end that landed on the middle of a wall tees into it.
-        next = cloneHouse(house);
-        try { resolveJunctions(next, current.movedWalls); } catch { next = house; }
+      const wallDrop = current.movedWalls?.length || current.movedEnd;
+      if (wallDrop) {
+        finishWallDrop(current);
+        publish();
+        return;
       }
-      commit(pieceMove ? next : syncRooms(next), current.snapshot);
+      commit(pieceMove ? house : syncRooms(house), current.snapshot);
       if (current.hit?.type === "opening") {
         const moved = house.openings.find((item) => item.id === current.hit.id);
         announce(current.jumped ? `Moved the ${moved?.type === "window" ? "window" : "door"} to another wall.` : `Slid the ${moved?.type === "window" ? "window" : "door"}.`);
-      } else if (current.movedWalls?.length) {
-        const count = current.movedWalls.length;
-        const what = count === 1 ? "the wall" : `${count} walls`;
-        const them = count === 1 ? "it" : "them";
-        announce(current.joined === "end"
-          ? `Moved ${what} and joined ${them} at the wall end.`
-          : current.joined === "line"
-            ? `Moved ${what} and joined ${them} to the wall.`
-            : `Moved ${what}.`);
       } else {
         announce("Moved it.");
       }
@@ -1160,6 +1197,106 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!pick?.type || !pick.id) return null;
     if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel") return null;
     return { type: pick.type, id: pick.id };
+  }
+
+  /**
+   * Do these wall ends touch a wall that is not moving? "end" when one sits on
+   * another wall's end, "line" when one sits along another wall, else null.
+   */
+  function contactAt(doc, refs, movingIds) {
+    let found = null;
+    for (const ref of refs) {
+      const wall = doc.walls.find((item) => item.id === ref.wall);
+      const point = wall?.[ref.end];
+      if (!point) continue;
+      if (endsAt(doc, point, { exclude: movingIds }).length) return "end";
+      for (const other of doc.walls) {
+        if (movingIds.includes(other.id)) continue;
+        const hit = projectOntoWall(point, other);
+        if (hit && hit.distance <= 0.05 && hit.t > 0.01 && hit.t < 0.99) found = "line";
+      }
+    }
+    return found;
+  }
+
+  /** The clip-on version of a drop: tee into walls it lands on and clip touching ends. */
+  function clipVersion(doc, refs, wallIds) {
+    const next = cloneHouse(doc);
+    try { resolveJunctions(next, wallIds); } catch { return doc; }
+    clipTouching(next, next.walls.filter((wall) => wallIds.includes(wall.id) || !doc.walls.some((old) => old.id === wall.id)).map((wall) => wall.id));
+    for (const ref of refs) {
+      const wall = next.walls.find((item) => item.id === ref.wall);
+      if (wall) clipTogether(next, endsAt(next, wall[ref.end]));
+    }
+    return pruneJoins(next);
+  }
+
+  /**
+   * Commit the drop as laid on or clipped on, and offer the other one in the toast.
+   * The other choice replaces this one as a single step, so Undo still goes back
+   * to before the drop.
+   */
+  function commitJoinChoice({ before, lay, clip, contact, clipped, what }) {
+    commit(clipped ? clip : lay, before);
+    const committed = house;
+    if (!contact) {
+      announce(`${what}.`);
+      return;
+    }
+    const where = contact === "end" ? "the wall end" : "the wall";
+    const text = clipped
+      ? `${what}, clipped on to ${where}. They move as one piece now.`
+      : `${what}, laid on ${where}. Each still moves on its own.`;
+    announce(text, true, {
+      label: clipped ? "Lay on instead" : "Clip on instead",
+      run: () => {
+        if (house !== committed) return;
+        undo();
+        commit(clipped ? lay : clip, before);
+        announce(clipped
+          ? `Laid on instead. Each wall still moves on its own.`
+          : `Clipped on instead. They move as one piece now.`);
+        publish();
+      },
+    });
+  }
+
+  /** A wall end, a wall, or a group of walls was dropped. Lay it on or clip it on. */
+  function finishWallDrop(current) {
+    const ids = current.movedWalls?.length ? current.movedWalls : [current.movedEnd.wall];
+    const refs = current.movedWalls?.length
+      ? ids.flatMap((wall) => [{ wall, end: "start" }, { wall, end: "end" }])
+      : [current.movedEnd, ...partnersOf(house, current.movedEnd.wall, current.movedEnd.end)];
+    const lay = cloneHouse(house);
+    const contact = contactAt(lay, refs, current.movedWalls?.length ? ids : refs.map((ref) => ref.wall));
+    const clip = contact ? clipVersion(lay, refs, ids) : lay;
+    const count = current.movedWalls?.length || 0;
+    const what = count > 1 ? `Moved ${count} walls` : count === 1 ? "Moved the wall" : "Moved the wall end";
+    commitJoinChoice({
+      before: current.snapshot,
+      lay: syncRooms(lay),
+      clip: syncRooms(clip),
+      contact,
+      clipped: !!current.clip && !!contact,
+      what,
+    });
+  }
+
+  /** The wall card's "Ends" rows: clipped on, laid on, or free, with a button to switch. */
+  function wallEndsHtml(wall) {
+    const rows = ["start", "end"].map((endName) => {
+      const label = endName === "start" ? "First end" : "Second end";
+      const partners = partnersOf(house, wall.id, endName).length;
+      const touching = endsAt(house, wall[endName], { exclude: [wall.id] }).length;
+      if (partners) {
+        return `<div class="end-row"><span>${label}: <span class="end-state clipped">clipped to ${partners} wall${partners === 1 ? "" : "s"}</span></span><button type="button" class="btn-quiet" data-unclip="${endName}">Unclip</button></div>`;
+      }
+      if (touching) {
+        return `<div class="end-row"><span>${label}: <span class="end-state laid">laid on ${touching} wall${touching === 1 ? "" : "s"}</span></span><button type="button" class="btn-quiet" data-clip="${endName}">Clip on</button></div>`;
+      }
+      return `<div class="end-row"><span>${label}: <span class="end-state">free</span></span></div>`;
+    });
+    return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}<p class="fine">Clipped ends move together. Laid-on ends only touch, so each wall still moves on its own.</p></div>`;
   }
 
   /** The walls (and loose pieces) a multi-selection moves together. Rooms bring their walls. */
@@ -1428,6 +1565,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function commit(next, baseline = null, note = "the last change") {
     const solved = solveConstraints(next);
     next = solved.house;
+    // Forget clips to walls that were deleted or cut apart.
+    if (Array.isArray(next.joins)) next = pruneJoins(cloneHouse(next));
     const previous = baseline || house;
     if (JSON.stringify(previous) === JSON.stringify(next)) {
       house = previous;
@@ -1953,6 +2092,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
     });
     paintSnapButton();
+    paintJoinButtons();
     document.querySelector("#undo").disabled = past.length === 0;
     document.querySelector("#redo").disabled = future.length === 0;
     paintToolOptions();
@@ -2092,12 +2232,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
   }
 
-  function announce(text, undo = true) {
+  function announce(text, undo = true, action = null) {
     if (!text) return;
     history.unshift(text);
     if (history.length > 12) history.length = 12;
     coachKey = "";
-    document.dispatchEvent(new CustomEvent("app-toast", { detail: { text, undo } }));
+    document.dispatchEvent(new CustomEvent("app-toast", { detail: { text, undo, action } }));
     paintCoach();
   }
 
@@ -2274,6 +2414,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         : "Snap is off. The wall end follows your cursor.", false);
       return;
     }
+    const join = event.target.closest("#join-mode [data-join]");
+    if (join) {
+      clipOn = join.dataset.join === "clip";
+      paintJoinButtons();
+      announce(clipOn
+        ? "Clip on. Walls you drop onto another wall become one piece. Hold Option to lay one on instead."
+        : "Lay on. Walls you drop onto another wall touch but stay separate. Hold Option to clip one on instead.", false);
+      return;
+    }
     if (event.target.closest("#tidy-shape")) {
       tidySelection();
       return;
@@ -2305,6 +2454,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       guidesOn = !guidesOn;
       optionsKey = "";
       publish();
+    }
+  }
+
+  function clipping(event) {
+    return clipOn !== !!(event?.altKey || altHeld);
+  }
+
+  function paintJoinButtons() {
+    const on = clipping();
+    for (const button of document.querySelectorAll("#join-mode [data-join]")) {
+      button.setAttribute("aria-pressed", String((button.dataset.join === "clip") === on));
     }
   }
 
@@ -2960,6 +3120,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         <label>Angle (°) <input id="wall-angle" value="${escapeAttr(formatHeading(info.angle).replace("°", ""))}" autocomplete="off" /></label>
         <p class="fine">${escapeHtml(joinLine)}</p>
         <button type="button" id="set-wall-measure">Set length and angle</button>
+        ${wallEndsHtml(wall)}
         <p class="fine">${assembly?.note || ""}</p>
         ${linked ? `<p>Proportion: ${readout?.badge || "linked"}${readout?.exact ? " · exact" : ""}</p><button type="button" id="unlink">Unlink</button>` : `
           <label>Proportion <select id="prop-op"><option value="multiply">×</option><option value="divide">÷</option></select>
@@ -2984,6 +3145,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Delete wall")}
       `;
+      inspector.querySelectorAll("[data-unclip]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const next = cloneHouse(house);
+          unclipEnd(next, wall.id, button.dataset.unclip);
+          commit(next, house, "unclipping a wall end");
+          announce("Unclipped. That end now lies on the other wall and moves on its own.");
+          publish();
+        });
+      });
+      inspector.querySelectorAll("[data-clip]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const next = cloneHouse(house);
+          clipTogether(next, endsAt(next, wall[button.dataset.clip]));
+          commit(next, house, "clipping a wall end");
+          announce("Clipped on. Those walls now move as one piece at that corner.");
+          publish();
+        });
+      });
       const applyFromInspector = () => {
         const lengthInput = inspector.querySelector("#wall-length");
         const angleInput = inspector.querySelector("#wall-angle");

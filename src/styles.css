@@ -1530,3 +1530,29 @@ button:focus-visible {
 }
 @media (pointer: coarse) { .walk-pad { display: grid; } }
 .stage:has(#build-hud:not([hidden])) .walk-help { bottom: 76px; }
+
+/* Lay on / Clip on: what happens when a wall you drop touches another wall. */
+.join-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(239, 230, 216, 0.8);
+  border: 1px solid rgba(42, 36, 27, 0.08);
+}
+.join-seg button {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  min-height: 26px;
+  padding: 1px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.join-seg button[aria-pressed="true"] { background: var(--moss); color: #f6f1e8; }
+.end-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.8rem; }
+.end-row .end-state { color: var(--muted); }
+.end-row .end-state.clipped { color: var(--moss); font-weight: 700; }
+.end-row .end-state.laid { color: var(--clay); font-weight: 700; }
+.end-row button { min-height: 28px; padding: 2px 10px; font-size: 0.78rem; }

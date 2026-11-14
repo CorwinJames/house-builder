@@ -130,7 +130,7 @@ if (!validate(sample)) {
   for (const error of validate.errors) fail(`sample ${error.instancePath || "/"} ${error.message}`);
 }
 const migrated = decorateHouse(sample);
-if (migrated.schemaVersion !== 7) fail(`migrated version ${migrated.schemaVersion}`);
+if (migrated.schemaVersion !== 8) fail(`migrated version ${migrated.schemaVersion}`);
 if (!Array.isArray(migrated.furniture) || migrated.furniture.length !== 0) fail("migration should add an empty furniture list");
 if (!Array.isArray(migrated.planLabels) || !Array.isArray(migrated.siteFeatures)) fail("migration should add label lists");
 if (!validate(migrated)) {
@@ -138,7 +138,7 @@ if (!validate(migrated)) {
 }
 
 const older = decorateHouse({ ...madeUpHouse(), schemaVersion: 6, furniture: undefined, planLabels: undefined, siteFeatures: undefined });
-if (older.schemaVersion !== 7) fail("version 6 should migrate to 7");
+if (older.schemaVersion !== 8) fail("version 6 should migrate to 8");
 if (older.furniture.length !== 0 || older.planLabels.length !== 0) fail("missing lists should become empty");
 
 function square(id, name, x, y, w, h, extra) {

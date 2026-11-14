@@ -19,6 +19,7 @@ import { wallLayerId } from "../layers.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { pieceOutline, wallJoints } from "../build/joins.js";
+import { endsAt, isClipped } from "../build/clips.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
@@ -67,6 +68,10 @@ export function createPlanView(canvas, initialHouse) {
   let openedFrame = false;
   // Screen pixels on the left covered by the floating layer panel. Fit frames the house beside it.
   let insetLeft = 0;
+  // Where you stand in the 3D walk-through, and which way you face. Null when not walking.
+  let walker = null;
+  let walkerDrag = null;
+  let onWalkerMove = () => {};
   let ratioFontReady = false;
   const pointers = new Map();
   let drag = null;
@@ -1086,9 +1091,53 @@ export function createPlanView(canvas, initialHouse) {
     drawCompass();
     drawWatermark();
     drawMarkers();
+    drawWalker();
     } catch (error) {
       console.error(error);
     }
+  }
+
+  /** "You are here" for the walk-through: a dot with a view cone, true to scale. */
+  function drawWalker() {
+    if (!walker) return;
+    const at = worldToScreen(walker.x, walker.y);
+    // Forward in plan feet. The 3D yaw turns counterclockwise from north.
+    const fx = -Math.sin(walker.yaw);
+    const fy = Math.cos(walker.yaw);
+    const heading = Math.atan2(-fy, fx);
+    const reach = Math.max(36, 10 * camera.pxPerFt);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(at.x, at.y);
+    ctx.arc(at.x, at.y, reach, heading - 0.5, heading + 0.5);
+    ctx.closePath();
+    const cone = ctx.createRadialGradient(at.x, at.y, 0, at.x, at.y, reach);
+    cone.addColorStop(0, "rgba(196, 101, 74, 0.42)");
+    cone.addColorStop(1, "rgba(196, 101, 74, 0)");
+    ctx.fillStyle = cone;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = "#C4654A";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#FFF8F4";
+    ctx.stroke();
+    ctx.font = "700 11px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(247, 243, 235, 0.95)";
+    ctx.strokeText("You", at.x, at.y + 12);
+    ctx.fillStyle = "#6D3224";
+    ctx.fillText("You", at.x, at.y + 12);
+    ctx.restore();
+  }
+
+  function walkerHit(local) {
+    if (!walker) return false;
+    const at = worldToScreen(walker.x, walker.y);
+    return Math.hypot(local.x - at.x, local.y - at.y) <= 16;
   }
 
   function drawStuds(wall) {
@@ -1758,11 +1807,16 @@ export function createPlanView(canvas, initialHouse) {
           ctx.save();
           ctx.strokeStyle = "#2F5D45";
           ctx.lineWidth = 2.5;
-          for (const point of [wall.start, wall.end]) {
+          // Clipped ends are solid green. Ends that only lie on another wall are clay rings.
+          for (const endName of ["start", "end"]) {
+            const point = wall[endName];
             const s = worldToScreen(point.x, point.y);
+            const clipped = isClipped(house, wall.id, endName);
+            const touching = !clipped && endsAt(house, point, { exclude: [wall.id] }).length > 0;
             ctx.beginPath();
             ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
-            ctx.fillStyle = "#F7F3EB";
+            ctx.fillStyle = clipped ? "#2F5D45" : "#F7F3EB";
+            ctx.strokeStyle = touching ? "#C4654A" : "#2F5D45";
             ctx.fill();
             ctx.stroke();
           }
@@ -2018,6 +2072,38 @@ export function createPlanView(canvas, initialHouse) {
     return local.x >= box.x - 4 && local.x <= box.x + box.w + 4 && local.y >= box.y - 4 && local.y <= box.y + box.h + 4;
   }
 
+  // Drag the "You" marker to stand somewhere else in the walk-through.
+  // Capture first so a drag on the marker never pans or edits the plan.
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !walkerHit(localPoint(event))) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    walkerDrag = event.pointerId;
+    canvas.style.cursor = "grabbing";
+  }, { capture: true });
+  canvas.addEventListener("pointermove", (event) => {
+    if (walkerDrag == null) {
+      if (walker && !event.buttons) canvas.style.cursor = walkerHit(localPoint(event)) ? "grab" : (canvas.dataset.cursor || "");
+      return;
+    }
+    if (event.pointerId !== walkerDrag) return;
+    event.stopImmediatePropagation();
+    const local = localPoint(event);
+    const world = screenToWorld(local.x, local.y);
+    walker = { ...walker, x: world.x, y: world.y };
+    onWalkerMove({ x: world.x, y: world.y });
+    requestRender();
+  }, { capture: true });
+  const endWalkerDrag = (event) => {
+    if (walkerDrag == null || event.pointerId !== walkerDrag) return;
+    event.stopImmediatePropagation();
+    walkerDrag = null;
+    canvas.style.cursor = "grab";
+  };
+  canvas.addEventListener("pointerup", endWalkerDrag, { capture: true });
+  canvas.addEventListener("pointercancel", endWalkerDrag, { capture: true });
+
   canvas.addEventListener("pointerdown", (event) => {
     const local = localPoint(event);
     if (event.button === 0 && hitMeasureLabel(local) && buildHooks?.label?.(event)) return;
@@ -2214,6 +2300,15 @@ export function createPlanView(canvas, initialHouse) {
     fit() {
       fit(true);
     },
+    /** Show where you stand in the walk-through, or null to hide it. */
+    setWalker(pose) {
+      if (walkerDrag != null && pose) return;
+      walker = pose ? { x: pose.x, y: pose.y, yaw: pose.yaw || 0 } : null;
+      requestRender();
+    },
+    setOnWalkerMove(fn) {
+      onWalkerMove = typeof fn === "function" ? fn : () => {};
+    },
     /** Pixels on the left that a floating panel covers. Only Fit reads it, so the view never jumps. */
     setInsets({ left = 0 } = {}) {
       insetLeft = Math.max(0, Number(left) || 0);
@@ -2248,6 +2343,7 @@ export function createPlanView(canvas, initialHouse) {
       buildHooks = hooks;
     },
     setCursor(cursor) {
+      canvas.dataset.cursor = cursor || "";
       canvas.style.cursor = cursor || "";
     },
     getCamera() {
