@@ -2104,9 +2104,38 @@ export function createPlanView(canvas, initialHouse) {
   canvas.addEventListener("pointerup", endWalkerDrag, { capture: true });
   canvas.addEventListener("pointercancel", endWalkerDrag, { capture: true });
 
+  // The length label sits on the wall. A click on it opens the type-in box;
+  // a drag that starts on it drags the wall like anywhere else.
+  let labelPress = null;
+  canvas.addEventListener("pointermove", (event) => {
+    if (!labelPress || event.pointerId !== labelPress.event.pointerId) return;
+    if (Math.hypot(event.clientX - labelPress.event.clientX, event.clientY - labelPress.event.clientY) < 4) return;
+    const start = labelPress.event;
+    labelPress = null;
+    pointers.set(start.pointerId, { x: start.clientX, y: start.clientY });
+    if (buildHooks?.down?.(start, worldFromEvent(start))) {
+      buildGesture = true;
+      drag = null;
+      pinch = null;
+    } else {
+      drag = { x: start.clientX, y: start.clientY, cx: camera.cx, cy: camera.cy };
+    }
+  }, { capture: true });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!labelPress || event.pointerId !== labelPress.event.pointerId) return;
+    const start = labelPress.event;
+    labelPress = null;
+    event.stopImmediatePropagation();
+    buildHooks?.label?.(start);
+  }, { capture: true });
+
   canvas.addEventListener("pointerdown", (event) => {
     const local = localPoint(event);
-    if (event.button === 0 && hitMeasureLabel(local) && buildHooks?.label?.(event)) return;
+    if (event.button === 0 && hitMeasureLabel(local) && buildHooks?.label) {
+      labelPress = { event };
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     const badge = badgeAt(local);
     if (badge) {
       pinnedBadge = badge;
