@@ -278,7 +278,27 @@ export function selectionCostHtml(house, selection) {
     overrides: house.cost?.overrides || [],
     rates: house.cost?.rates || [],
   });
-  return `<div class="mini-cost"><h3>Cost</h3><p>${formatMoney(report.pricedTotal)} priced · ${report.unpricedCount} unpriced</p>${linesHtml(report.lines.slice(0, 8))}</div>`;
+  const unpriced = report.unpricedCount ? ` · ${report.unpricedCount} need a price` : "";
+  const lines = report.lines;
+  const shown = lines.slice(0, 8);
+  const more = lines.length > shown.length ? `<p class="fine">${lines.length - shown.length} more in Costs.</p>` : "";
+  return `<details class="mini-cost">
+    <summary><span>Cost</span><strong>${formatMoney(report.pricedTotal)}</strong><span class="mini-cost-note">${escapeHtml(unpriced.replace(/^ · /, ""))}</span></summary>
+    <ul class="mini-lines">${shown.map(miniLine).join("")}</ul>
+    ${more}
+  </details>`;
+}
+
+/** One cost line on a selection card: name and amount on one row, quantity and source under it. */
+function miniLine(line) {
+  const amount = line.priceNeeded ? `<span class="price-needed">Price needed</span>` : `<span class="mini-amount">${formatMoney(line.lineTotal)}</span>`;
+  const source = line.url && !line.priceNeeded
+    ? ` · <a href="${escapeAttr(line.url)}" target="_blank" rel="noreferrer">${escapeHtml(line.sourceName)}</a>`
+    : "";
+  return `<li>
+    <span class="mini-name" title="${escapeAttr(line.name)}">${escapeHtml(line.name)}</span>${amount}
+    <span class="mini-sub">${escapeHtml(formatQty(line.quantity))} ${escapeHtml(line.unit)}${source}</span>
+  </li>`;
 }
 
 function loadHtml(house, phase) {

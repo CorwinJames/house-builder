@@ -16,6 +16,8 @@ import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse, translateWalls } from "../src/build/walls.js";
 import { snapTranslation } from "../src/build/snap.js";
+import { snapRoomToRatio } from "../src/build/constraints.js";
+import { roomBox } from "../src/build/ratios.js";
 import { clipToOne, detachWalls, inferJoins, isClipped, partnersOf, unclipEnd } from "../src/build/clips.js";
 import { moveEnd, clipTouching } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
@@ -475,6 +477,21 @@ check("angles show to the nearest tenth of a degree", () => {
   assert.equal(formatHeading(37), "37°");
   assert.equal(formatHeading(359.97), "0°");
   assert.equal(measureLabel(10, 12.35, 90.04), "10 ft at 12.4°, 90° from the wall it meets");
+});
+
+check("reshaping a room in a full plan reaches the ratio without merging rooms", () => {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const house = decorateHouse(structuredClone(sample));
+  for (const name of ["Living room", "Kitchen", "Bedroom", "Bathroom"]) {
+    const room = house.rooms.find((item) => item.name === name);
+    const result = snapRoomToRatio(house, room.id, "golden");
+    assert.equal(result.warnings.length, 0, name);
+    assert.equal(result.house.rooms.length, house.rooms.length, `${name} kept every room`);
+    const after = result.house.rooms.find((item) => item.name === name);
+    const box = roomBox(after);
+    const ratio = Math.max(box.width, box.depth) / Math.min(box.width, box.depth);
+    assert.ok(Math.abs(ratio / phi - 1) <= 0.003, `${name} came out ${ratio}`);
+  }
 });
 
 if (failed) {

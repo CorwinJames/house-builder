@@ -47,9 +47,9 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { pointAlong, polygonArea, wallLength } from "../lib/geom.js";
 import { furnitureFootprint } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
-import { findRatio, ratioLibrary, ratioValue, roomProportion } from "../build/ratios.js";
+import { findRatio, ratioValue, roomProportion } from "../build/ratios.js";
 import { ROOM_SHAPES, WALL_RATIOS, ratioWallEnd, shapedRoomCorner } from "../build/shapeTools.js";
-import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
+import { snapRoomToRatio, solveConstraints } from "../build/constraints.js";
 import { deviceCostHtml, fixtureCostHtml, selectionCostHtml } from "./costs.js";
 import {
   PLACE_OPTIONS as FIXTURE_OPTIONS,
@@ -62,7 +62,7 @@ import {
   buildPlumbing,
 } from "../plumbing/design.js";
 import { fieldFootprint, hitSite, placeSite, suggestSite } from "../site/design.js";
-import { budgetPhrase, gameHead, issueCards, issueRows, quietDelete, statTiles, groupByRoom } from "./gamecard.js";
+import { budgetPhrase, gameHead, issueCards, issueRows, quietDelete, statTiles, statusChip, groupByRoom } from "./gamecard.js";
 import { costReport } from "../cost/list.js";
 import { siteInspectorHtml, siteOptionsHtml } from "./sitePanel.js";
 import {
@@ -1343,7 +1343,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     });
     const anyClipped = ["start", "end"].some((endName) => partnersOf(house, wall.id, endName).length);
     const detach = anyClipped ? `<button type="button" id="detach-wall" class="pill-primary">Detach this wall</button>` : "";
-    return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}${detach}<p class="fine">Clipped ends move together. Laid-on ends only touch, so each wall moves on its own. With Lay on, dragging a wall pulls it off its clips; hold Option to drag the clipped walls along instead.</p></div>`;
+    return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}${detach}</div>`;
   }
 
   /** The walls (and loose pieces) a multi-selection moves together. Rooms bring their walls. */
@@ -3123,7 +3123,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function paintInspector() {
     const active = document.activeElement;
-    if (active && (active.id === "wall-length" || active.id === "wall-angle") && inspector.contains(active)) return;
+    if (active && ["wall-length", "wall-angle", "wall-height", "edit-name"].includes(active.id) && inspector.contains(active)) return;
     if (mode !== "build" || !picks.length) {
       inspector.hidden = true;
       inspector.innerHTML = "";
@@ -3147,53 +3147,54 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const assembly = assemblyById[wall.assemblyId];
       const detail = formatFeetFine(wallLength(wall));
       const info = describeWall(wall.start, wall.end, house, wall.id);
-      const joinLine = info.joinAngle == null
-        ? "0° points east. The angle turns counterclockwise."
-        : `${formatDegrees(info.joinAngle)} from the wall it meets. 0° points east. The angle turns counterclockwise.`;
-      const linked = (house.constraints || []).find((item) => item.targetId === wall.id);
-      const readout = linked && constraintReadout(house, linked, house.customRatios || []);
-      const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("");
-      const wallOptions = house.walls
-        .filter((item) => item.id !== wall.id)
-        .map((item) => `<option value="${item.id}">${item.id} · ${formatFeetFine(wallLength(item)).construction}</option>`)
-        .join("");
+      const angleHelp = info.joinAngle == null
+        ? "0° points east and the angle turns counterclockwise."
+        : `${formatDegrees(info.joinAngle)} from the wall it meets. 0° points east and the angle turns counterclockwise.`;
       inspector.innerHTML = `
         ${gameHead("Wall", warnings.filter((item) => item.target?.id === wall.id))}
-        ${statTiles([
-          { icon: "↔", value: plainFeet(detail.roundedFeet), label: "Length" },
-          { icon: "∠", value: formatHeading(info.angle), label: "Angle" },
-          { icon: "↕", value: `${wall.height} ft`, label: "Height" },
-          { icon: "▭", value: assembly?.short || wall.assembly, label: "Assembly" },
-        ])}
-        <label>Length <input id="wall-length" value="${escapeAttr(plainFeet(info.length))}" autocomplete="off" /></label>
-        <label>Angle (°) <input id="wall-angle" value="${escapeAttr(formatHeading(info.angle).replace("°", ""))}" autocomplete="off" /></label>
-        <p class="fine">${escapeHtml(joinLine)}</p>
-        <button type="button" id="set-wall-measure">Set length and angle</button>
+        <label class="card-field material-field">
+          <span class="swatch" style="background:${escapeAttr(assembly?.swatch || "#ccc")}"></span>
+          <select id="wall-material" aria-label="Material">${assemblies.map((item) => `<option value="${item.id}" ${item.id === wall.assemblyId ? "selected" : ""}>${escapeHtml(item.name || item.short)}</option>`).join("")}</select>
+        </label>
+        <div class="measure-tiles">
+          <label class="measure-tile"><input id="wall-length" value="${escapeAttr(plainFeet(info.length))}" autocomplete="off" inputmode="decimal" /><span>Length</span></label>
+          <label class="measure-tile"><input id="wall-angle" value="${escapeAttr(formatHeading(info.angle).replace("°", ""))}" autocomplete="off" inputmode="decimal" /><span>Angle °
+            <button type="button" class="info-dot" id="angle-help-toggle" aria-expanded="false" aria-label="How angles are measured">?</button></span></label>
+          <label class="measure-tile"><input id="wall-height" value="${escapeAttr(plainFeet(wall.height))}" autocomplete="off" inputmode="decimal" /><span>Height</span></label>
+        </div>
+        <p class="fine card-help" id="angle-help" hidden>${escapeHtml(angleHelp)}</p>
         ${wallEndsHtml(wall)}
-        <p class="fine">${assembly?.note || ""}</p>
-        ${linked ? `<p>Proportion: ${readout?.badge || "linked"}${readout?.exact ? " · exact" : ""}</p><button type="button" id="unlink">Unlink</button>` : `
-          <label>Proportion <select id="prop-op"><option value="multiply">×</option><option value="divide">÷</option></select>
-            <select id="prop-ratio">${ratioOptions}<option value="custom">Custom</option></select></label>
-          <label>of <select id="prop-ref">${wallOptions}</select></label>
-          <label>Custom <input id="custom-value" type="number" min="0.05" step="0.001" value="1.5" /></label>
-          <button type="button" id="link-proportion">Set proportion</button>`}
-        <label>Phase
-          <select id="edit-phase">
-            <option value="phase1" ${wall.phase === "phase1" ? "selected" : ""}>Phase 1</option>
-            <option value="future" ${wall.phase === "future" ? "selected" : ""}>Later</option>
-          </select>
-        </label>
-        <label>Wiring method
-          <select id="wire-method">
-            <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Stud bay</option>
-            <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Wire in a pipe (conduit)</option>
-            <option value="raceway" ${wallMethod(house, wall) === "raceway" ? "selected" : ""}>Surface raceway</option>
-          </select>
-        </label>
-        <p class="fine">Outlets: wires run in a pipe (conduit) on these walls instead of being buried in hempcrete or rammed earth. Your electrician and inspector will confirm.</p>
+        <div class="card-row">
+          <label class="card-field"><span>Phase</span>
+            <select id="edit-phase">
+              <option value="phase1" ${wall.phase === "phase1" ? "selected" : ""}>Phase 1</option>
+              <option value="future" ${wall.phase === "future" ? "selected" : ""}>Later</option>
+            </select>
+          </label>
+          <label class="card-field"><span>Wiring</span>
+            <select id="wire-method">
+              <option value="stud-bay" ${wallMethod(house, wall) === "stud-bay" ? "selected" : ""}>Stud bay</option>
+              <option value="conduit" ${wallMethod(house, wall) === "conduit" ? "selected" : ""}>Conduit</option>
+              <option value="raceway" ${wallMethod(house, wall) === "raceway" ? "selected" : ""}>Surface raceway</option>
+            </select>
+          </label>
+        </div>
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Delete wall")}
       `;
+      inspector.querySelector("#angle-help-toggle")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        const help = inspector.querySelector("#angle-help");
+        help.hidden = !help.hidden;
+        event.currentTarget.setAttribute("aria-expanded", String(!help.hidden));
+      });
+      inspector.querySelector("#wall-material")?.addEventListener("change", (event) => {
+        assemblyId = event.target.value;
+        assemblyExplicit = true;
+        commit(syncRooms(setWallAssembly(house, wall.id, event.target.value)), house, "changing the material");
+        announce(`Changed the wall to ${assemblyById[event.target.value]?.name || "that material"}.`);
+        publish();
+      });
       inspector.querySelector("#detach-wall")?.addEventListener("click", () => {
         const next = cloneHouse(house);
         const n = detachWalls(next, [wall.id]);
@@ -3232,32 +3233,39 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         angleInput.blur();
         commitWallMeasure(length, angle, target);
       };
-      inspector.querySelector("#set-wall-measure")?.addEventListener("click", applyFromInspector);
+      // Type a value and press Enter (or click away) to apply it.
       for (const field of ["#wall-length", "#wall-angle"]) {
-        inspector.querySelector(field)?.addEventListener("keydown", (event) => {
+        const input = inspector.querySelector(field);
+        const start = input?.value;
+        input?.addEventListener("keydown", (event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
           applyFromInspector();
         });
+        input?.addEventListener("change", () => {
+          if (input.value !== start) applyFromInspector();
+        });
       }
-      inspector.querySelector("#unlink")?.addEventListener("click", () => {
-        commit(unlink(house, wall.id));
-        publish();
-      });
-      inspector.querySelector("#link-proportion")?.addEventListener("click", () => {
-        const ratioId = inspector.querySelector("#prop-ratio").value;
-        const referenceId = inspector.querySelector("#prop-ref").value;
-        const operation = inspector.querySelector("#prop-op").value;
-        const customValue = Number(inspector.querySelector("#custom-value").value);
-        if (!referenceId) return;
-        let next = house;
-        if (ratioId === "custom") {
-          next = cloneHouse(house);
-          next.customRatios = [{ id: "custom-1", name: "Custom", value: customValue, symbol: String(customValue) }];
+      const heightInput = inspector.querySelector("#wall-height");
+      const applyHeight = () => {
+        const height = parseLength(heightInput.value);
+        if (!(height > 0) || Math.abs(height - wall.height) < 1e-6) {
+          heightInput.value = plainFeet(wall.height);
+          return;
         }
-        commit(linkWall(next, wall.id, referenceId, ratioId === "custom" ? "custom" : ratioId, operation, customValue));
+        const next = cloneHouse(house);
+        next.walls.find((item) => item.id === wall.id).height = height;
+        heightInput.blur();
+        commit(next, house, "changing the wall height");
+        announce(`Wall height set to ${plainFeet(height)}.`);
         publish();
+      };
+      heightInput?.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        applyHeight();
       });
+      heightInput?.addEventListener("change", applyHeight);
       inspector.querySelector("#edit-phase").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         const target = next.walls.find((item) => item.id === wall.id);
@@ -3290,43 +3298,71 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         return;
       }
       const proportion = roomProportion(room, house.customRatios || []);
-      const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}" ${proportion.match?.ratio?.id === ratio.id ? "selected" : ""}>${ratio.name}</option>`).join("");
+      const issues = issuesForRoom(room);
+      const ratio = proportion.width && proportion.depth ? Math.max(proportion.width, proportion.depth) / Math.min(proportion.width, proportion.depth) : 0;
+      const shapes = ROOM_SHAPES.filter((item) => item.id !== "free" && findRatio(item.id, house.customRatios || []));
+      const shapeChips = shapes.map((item) => {
+        const value = ratioValue(findRatio(item.id, house.customRatios || []));
+        const near = value && Math.abs(ratio / value - 1) < 0.005;
+        return `<button type="button" class="chip" data-reshape="${item.id}" aria-pressed="${near}" title="${escapeAttr(`Move one wall so the inside is ${item.label}`)}">${item.label}</button>`;
+      }).join("");
       inspector.innerHTML = `
-        ${gameHead(room.name || "Room", issuesForRoom(room))}
-        ${issueRows(issuesForRoom(room))}
-        <button type="button" id="suggest-room-power">Suggest outlets</button>
-        <button type="button" id="suggest-room-water">Suggest a sink</button>
-        ${suggestKind || suggestNote ? suggestHtml() : ""}
+        <header class="game-head room-head">
+          <input id="edit-name" class="name-input" value="${escapeAttr(room.name || "Room")}" aria-label="Room name" autocomplete="off" />
+          ${statusChip(issues)}
+        </header>
         ${statTiles([
           { icon: "▦", value: `${formatArea(polygonArea(room.polygon))} sq ft`, label: "Area" },
-          { icon: "↔", value: formatFeetFine(proportion.width).construction, label: "Width" },
-          { icon: "↕", value: formatFeetFine(proportion.depth).construction, label: "Depth" },
+          { icon: "↔", value: formatFeetFine(proportion.width).construction, label: "Width inside" },
+          { icon: "↕", value: formatFeetFine(proportion.depth).construction, label: "Depth inside" },
         ])}
-        <p>${proportion.phrase}</p>
-        ${room.groundLevel ? `<p>Ground note: ${escapeHtml(room.groundLevel)}. This is a label from the drawing, not a measured floor height.</p>` : ""}
-        ${room.note ? `<p>${escapeHtml(room.note)}</p>` : ""}
-        <label>Make proportional <select id="make-ratio">${ratioOptions}</select></label>
-        <button type="button" id="make-proportional">Make proportional</button>
-        <label>Name <input id="edit-name" value="${escapeAttr(room.name)}" /></label>
-        <label>Phase
-          <select id="edit-phase">
-            <option value="phase1" ${room.phase === "phase1" ? "selected" : ""}>Phase 1</option>
-            <option value="future" ${room.phase === "future" ? "selected" : ""}>Later</option>
-          </select>
-        </label>
+        <section class="card-section">
+          <p class="opt-label">Shape <span class="shape-now">${escapeHtml(ratio ? `now ${ratio.toFixed(2)} : 1` : "")}</span></p>
+          <div class="swatch-row">${shapeChips}</div>
+        </section>
+        <section class="card-section">
+          <p class="opt-label">Fill this room</p>
+          <div class="swatch-row">
+            <button type="button" class="chip" id="suggest-room-power">⚡ Suggest outlets</button>
+            <button type="button" class="chip" id="suggest-room-water">💧 Suggest a sink</button>
+          </div>
+          ${suggestKind || suggestNote ? suggestHtml() : ""}
+        </section>
+        <div class="card-row">
+          <label class="card-field"><span>Phase</span>
+            <select id="edit-phase">
+              <option value="phase1" ${room.phase === "phase1" ? "selected" : ""}>Phase 1</option>
+              <option value="future" ${room.phase === "future" ? "selected" : ""}>Later</option>
+            </select>
+          </label>
+        </div>
+        ${issues.length ? `<details class="issues-fold"><summary>Issues and tips (${issues.length})</summary>${issueRows(issues)}</details>` : ""}
+        ${room.groundLevel ? `<p class="fine">Ground: ${escapeHtml(room.groundLevel)}</p>` : ""}
+        ${room.note ? `<p class="fine">${escapeHtml(room.note)}</p>` : ""}
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Remove room label")}
       `;
-      inspector.querySelector("#make-proportional").addEventListener("click", () => {
-        const result = snapRoomToRatio(house, room.id, inspector.querySelector("#make-ratio").value, house.customRatios || []);
-        warnings = result.warnings;
-        if (result.house !== house) commit(result.house);
-        publish();
+      inspector.querySelectorAll("[data-reshape]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const result = snapRoomToRatio(house, room.id, button.dataset.reshape, house.customRatios || []);
+          warnings = result.warnings;
+          const label = shapes.find((item) => item.id === button.dataset.reshape)?.label || "that shape";
+          if (result.house !== house) {
+            commit(result.house, house, "reshaping the room");
+            announce(`Reshaped ${room.name || "the room"} to ${label} by moving one wall.`);
+          } else {
+            announce(result.warnings?.[0]?.message || "That room couldn't be reshaped.", false);
+          }
+          publish();
+        });
       });
       inspector.querySelector("#suggest-room-power").addEventListener("click", () => startSuggest("electrical"));
       inspector.querySelector("#suggest-room-water").addEventListener("click", () => startSuggest("plumbing"));
       bindSuggest(inspector);
       bindFindingFixes(inspector);
+      inspector.querySelector("#edit-name").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      });
       inspector.querySelector("#edit-name").addEventListener("change", (event) => {
         const next = cloneHouse(house);
         next.rooms.find((item) => item.id === room.id).name = event.target.value.trim() || "Room";
