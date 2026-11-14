@@ -19,6 +19,7 @@ import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID,
 import { evaluateRules } from "../src/rules/index.js";
 import { polygonArea } from "../src/lib/geom.js";
 import { pieceOutline, wallJoints } from "../src/build/joins.js";
+import { ratioWallEnd, shapedRoomCorner } from "../src/build/shapeTools.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -360,6 +361,31 @@ check("a wall end near another wall end clicks onto it even with snap off", () =
   assert.equal(joined.y, 0);
   const far = placePoint({ x: 12, y: 0.2 }, { walls, snap: false, endMagnetFeet: 0.5 });
   assert.equal(far.snapped, "free");
+});
+
+check("a shaped room keeps its ratio inside the walls", () => {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  // 1 ft walls all round, except an 18 in south wall.
+  const thickness = (out) => (out.y === -1 ? 1.5 : 1);
+  const corner = shapedRoomCorner({ x: 0, y: 0 }, { x: 20, y: 5 }, phi, thickness);
+  assert.ok(Math.abs(corner.insideWidth / corner.insideDepth - phi) < 1e-9);
+  assert.ok(Math.abs(corner.x - 20) < 1e-9, "the long side follows the cursor");
+  assert.ok(Math.abs(corner.y - (corner.insideDepth + 1.25)) < 1e-9, "the short side adds half of each wall");
+  const tall = shapedRoomCorner({ x: 0, y: 0 }, { x: -3, y: -12 }, 1.5);
+  assert.ok(tall.x < 0 && tall.y === -12, "dragging down and left still works");
+  assert.ok(Math.abs(tall.insideDepth / tall.insideWidth - 1.5) < 1e-9);
+});
+
+check("a ratio wall is the joined wall times or divided by the ratio, nearest the cursor", () => {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const longer = ratioWallEnd({ x: 0, y: 0 }, { x: 0, y: 17 }, 10, phi);
+  assert.equal(longer.relation, "times");
+  assert.ok(Math.abs(longer.length - 10 * phi) < 1e-9);
+  assert.ok(Math.abs(longer.x) < 1e-9 && Math.abs(longer.y - 10 * phi) < 1e-9);
+  const shorter = ratioWallEnd({ x: 0, y: 0 }, { x: 6, y: 0 }, 10, phi);
+  assert.equal(shorter.relation, "over");
+  assert.ok(Math.abs(shorter.length - 10 / phi) < 1e-9);
+  assert.equal(ratioWallEnd({ x: 0, y: 0 }, { x: 3, y: 0 }, 10, 1).relation, "same");
 });
 
 if (failed) {

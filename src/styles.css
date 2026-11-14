@@ -1246,7 +1246,6 @@ button:focus-visible {
 .tool-row .tool:hover { background: rgba(255, 255, 255, 0.7); }
 .tool-row .tool[aria-pressed="true"] { box-shadow: none; }
 .tool-icon { font-size: 1.05rem; line-height: 1; }
-.tool-options.advanced-off .advanced-only { display: none; }
 .suggest-row {
   display: flex;
   flex-wrap: wrap;
@@ -1428,4 +1427,77 @@ button:focus-visible {
   border-radius: 999px;
   padding: 2px 14px;
   font-weight: 650;
+}
+
+/*
+ * Tool options slide open above the dock, and "More options" slides open
+ * inside them. Both animate their height (0fr to 1fr) instead of popping.
+ */
+.options-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: 50% 100%;
+  margin-bottom: -8px;
+  max-width: 100%;
+  pointer-events: none;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 200ms ease,
+    transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-bottom 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.options-shell.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: none;
+  margin-bottom: 0;
+  pointer-events: auto;
+}
+/* Room for the glass shadow, which the clip would otherwise cut off. */
+.options-clip { min-height: 0; overflow: hidden; padding: 12px 14px 2px; margin: -12px -14px -2px; }
+.tool-options { width: max-content; max-width: min(620px, calc(100vw - 24px)); padding: 10px 12px; gap: 8px; }
+.tool-options .info-note { position: static; width: auto; margin-top: 6px; box-shadow: none; }
+.opt-section { display: grid; gap: 5px; }
+.opt-label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.opt-hint { margin: 0; max-width: 52ch; font-size: 0.78rem; line-height: 1.35; }
+.adv-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid rgba(42, 36, 27, 0.1);
+  background: transparent;
+  padding: 7px 2px 2px;
+  min-height: 30px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: left;
+}
+.adv-toggle:hover { color: var(--ink); }
+.adv-toggle .chev { display: inline-block; font-size: 1.1rem; line-height: 1; transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.adv-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.adv-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease;
+}
+.adv-shell.is-open { grid-template-rows: 1fr; opacity: 1; }
+.adv-inner { min-height: 0; overflow: hidden; display: grid; gap: 6px; }
+.adv-shell:not(.is-open) .adv-inner { visibility: hidden; transition: visibility 0s 260ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .options-shell, .adv-shell, .adv-toggle .chev { transition: none; }
 }

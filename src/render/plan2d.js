@@ -1676,6 +1676,30 @@ export function createPlanView(canvas, initialHouse) {
       ctx.restore();
     };
     drawBox(overlay.rect, "rgba(47, 93, 69, 0.12)");
+    if (overlay.rect?.label) {
+      // Live size (and the chosen shape) beside the corner you are dragging.
+      const corner = worldToScreen(overlay.rect.x1, overlay.rect.y1);
+      ctx.save();
+      ctx.font = "600 13px Outfit, sans-serif";
+      ctx.textBaseline = "middle";
+      const text = overlay.rect.label;
+      const w = ctx.measureText(text).width + 16;
+      const h = 24;
+      let x = corner.x + 12;
+      let y = corner.y + 12;
+      if (x + w > canvas.clientWidth - 8) x = corner.x - w - 12;
+      if (y + h > canvas.clientHeight - 8) y = corner.y - h - 12;
+      ctx.fillStyle = "rgba(247, 243, 235, 0.97)";
+      ctx.strokeStyle = "#2F5D45";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x, y, w, h, 12) : ctx.rect(x, y, w, h);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#2F5D45";
+      ctx.fillText(text, x + 8, y + h / 2 + 0.5);
+      ctx.restore();
+    }
     drawBox(overlay.marquee, "rgba(47, 93, 69, 0.2)");
     const marks = overlay.picks?.length ? overlay.picks : (overlay.selection ? [overlay.selection] : []);
     const strokePick = () => {

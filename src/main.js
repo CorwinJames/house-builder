@@ -122,7 +122,7 @@ app.innerHTML = `
             </div>
           </div>
           <div id="build-tutorial" class="tool-hint" hidden></div>
-          <div id="tool-options" class="tool-options glass" hidden></div>
+          <div id="options-shell" class="options-shell"><div class="options-clip"><div id="tool-options" class="tool-options glass"></div></div></div>
           <div class="tool-dock glass">
             <div id="tool-row" class="tool-row"></div>
             <span class="dock-rule" aria-hidden="true"></span>
