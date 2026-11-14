@@ -163,48 +163,113 @@ export function unlink(house, targetId) {
   return next;
 }
 
-/** Move the far side of a room so its long:short box matches a named ratio. */
+/**
+ * Reshape a room to a named ratio (long side : short side, inside the walls)
+ * by moving one of its walls.
+ *
+ * It tries each side of the room and each way to reach the ratio (stretch or
+ * shrink the width, or the depth), keeps only results where the room really
+ * ends up at the ratio and no rooms were merged or lost, and picks the
+ * smallest move. Walls that touch the moved wall stretch with it, so the room
+ * stays closed. Clips are kept as they were.
+ */
 export function snapRoomToRatio(house, roomId, ratioId, custom = []) {
   const room = house.rooms.find((item) => item.id === roomId);
   const ratio = findRatio(ratioId, custom);
   if (!room || !ratio) return { house, warnings: [] };
-  const box = roomBox(room);
   const factor = ratioValue(ratio);
   const target = factor >= 1 ? factor : 1 / factor;
-  const widthLonger = box.width >= box.depth;
-  const desired = (widthLonger ? box.depth : box.width) * target;
-  const delta = desired - (widthLonger ? box.width : box.depth);
-  const wall = widthLonger
-    ? wallOnSide(house, box.x1, "x")
-    : wallOnSide(house, box.y1, "y");
-  if (!wall) {
-    return {
-      house,
-      warnings: [{
-        id: "proportion-room",
-        severity: "warn",
-        code: "proportion.room",
-        message: "No wall on the far side of that room to move.",
-        target: { type: "room", id: roomId },
-      }],
-    };
+  const box = roomBox(room);
+  const wantWidths = [box.depth * target, box.depth / target];
+  const wantDepths = [box.width * target, box.width / target];
+  const options = [];
+  wantWidths.forEach((width, index) => {
+    const delta = width - box.width;
+    const long = index === 0;
+    options.push({ side: "x1", delta, long }, { side: "x0", delta: -delta, long });
+  });
+  wantDepths.forEach((depth, index) => {
+    const delta = depth - box.depth;
+    const long = index === 0;
+    options.push({ side: "y1", delta, long }, { side: "y0", delta: -delta, long });
+  });
+  options.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+  const center = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
+  const roomCount = (house.rooms || []).length;
+  for (const option of options) {
+    if (Math.abs(option.delta) < 1e-4) return { house, warnings: [] };
+    const axis = option.side[0];
+    const wall = wallOnSide(house, box, option.side);
+    if (!wall) continue;
+    const loose = { ...house, joins: undefined };
+    const outward = option.side.endsWith("1") ? 1 : -1;
+    let delta = option.delta;
+    // The room outline is worked out again after the move, and its corners can
+    // land a little differently. Measure, correct the move, and try again.
+    for (let pass = 0; pass < 5; pass += 1) {
+      const moved = translateWall(loose, wall.id, axis === "x" ? delta : 0, axis === "y" ? delta : 0);
+      if (Array.isArray(house.joins)) moved.joins = JSON.parse(JSON.stringify(house.joins));
+      const synced = syncRooms(moved);
+      if ((synced.rooms || []).length < roomCount) break;
+      const after = synced.rooms.find((item) => item.id === roomId) || nearestRoom(synced.rooms, center);
+      if (!after) break;
+      const shape = roomBox(after);
+      const current = axis === "x" ? shape.width : shape.depth;
+      const other = axis === "x" ? shape.depth : shape.width;
+      const long = Math.max(shape.width, shape.depth);
+      const short = Math.min(shape.width, shape.depth);
+      if (short < 2) break;
+      if (Math.abs(long / short / target - 1) <= 0.003) return { house: synced, warnings: [] };
+      const wanted = option.long ? other * target : other / target;
+      delta += outward * (wanted - current);
+    }
   }
-  const moved = translateWall(house, wall.id, widthLonger ? delta : 0, widthLonger ? 0 : delta);
-  return { house: syncRooms(moved), warnings: [] };
+  return {
+    house,
+    warnings: [{
+      id: "proportion-room",
+      severity: "warn",
+      code: "proportion.room",
+      message: "No single wall of that room can move to reach that shape without running into another room.",
+      target: { type: "room", id: roomId },
+    }],
+  };
 }
 
-function wallOnSide(house, edge, axis) {
+function nearestRoom(rooms, point) {
   let best = null;
-  let bestDist = 1.25;
+  let bestDist = Infinity;
+  for (const room of rooms || []) {
+    const box = roomBox(room);
+    const dist = Math.hypot((box.x0 + box.x1) / 2 - point.x, (box.y0 + box.y1) / 2 - point.y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = room;
+    }
+  }
+  return best;
+}
+
+/** The wall along one side of a room's inside box ("x0", "x1", "y0", or "y1") that covers that side. */
+function wallOnSide(house, box, side) {
+  const axis = side[0];
+  const edge = box[side];
+  const [lo, hi] = axis === "x" ? [box.y0, box.y1] : [box.x0, box.x1];
+  let best = null;
+  let bestScore = -Infinity;
   for (const wall of house.walls) {
     const dx = Math.abs(wall.end.x - wall.start.x);
     const dy = Math.abs(wall.end.y - wall.start.y);
-    const along = axis === "x" ? dy >= dx : dx >= dy;
+    const along = axis === "x" ? dy >= dx * 4 : dx >= dy * 4;
     if (!along) continue;
     const mid = axis === "x" ? (wall.start.x + wall.end.x) / 2 : (wall.start.y + wall.end.y) / 2;
-    const dist = Math.abs(mid - edge);
-    if (dist < bestDist) {
-      bestDist = dist;
+    if (Math.abs(mid - edge) > (Number(wall.thickness) || 0.5) / 2 + 0.25) continue;
+    const a = axis === "x" ? Math.min(wall.start.y, wall.end.y) : Math.min(wall.start.x, wall.end.x);
+    const b = axis === "x" ? Math.max(wall.start.y, wall.end.y) : Math.max(wall.start.x, wall.end.x);
+    const overlap = Math.min(b, hi) - Math.max(a, lo);
+    if (overlap < (hi - lo) * 0.6) continue;
+    if (overlap > bestScore) {
+      bestScore = overlap;
       best = wall;
     }
   }

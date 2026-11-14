@@ -1556,3 +1556,90 @@ button:focus-visible {
 .end-row .end-state.clipped { color: var(--moss); font-weight: 700; }
 .end-row .end-state.laid { color: var(--clay); font-weight: 700; }
 .end-row button { min-height: 28px; padding: 2px 10px; font-size: 0.78rem; }
+
+/* Selection cards: tidy fields, a name you can type in, and a folded cost list. */
+.card-field { display: grid; gap: 3px; font-size: 0.72rem; font-weight: 700; color: var(--muted); }
+.card-field select { min-height: 32px; border-radius: 10px; border: 1px solid var(--line); background: #fff; font: inherit; font-size: 0.86rem; font-weight: 650; color: var(--ink); padding: 2px 8px; }
+.material-field { display: flex; align-items: center; gap: 8px; }
+.material-field select { flex: 1; min-width: 0; }
+.material-field .swatch { flex: none; }
+.card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 8px; }
+.card-section { display: grid; gap: 6px; }
+.card-help { margin: -2px 0 0; }
+.measure-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.measure-tile {
+  display: grid;
+  gap: 1px;
+  padding: 5px 7px 4px;
+  border-radius: 10px;
+  background: rgba(247, 243, 235, 0.9);
+  border: 1px solid transparent;
+  min-width: 0;
+}
+.measure-tile:focus-within { border-color: var(--moss); background: #fff; }
+.measure-tile input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: var(--ink);
+  outline: none;
+}
+.measure-tile span { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 0.66rem; color: var(--muted); }
+.inspector .info-dot {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.room-head { align-items: center; }
+.name-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px 6px;
+  margin-left: -6px;
+  font-family: Fraunces, Palatino, Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+.name-input:hover { border-color: var(--line); }
+.name-input:focus { border-color: var(--moss); background: #fff; outline: none; }
+.shape-now { text-transform: none; letter-spacing: 0; font-weight: 600; margin-left: 6px; }
+.mini-cost { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; }
+.mini-cost > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; font-size: 0.82rem; font-weight: 700; list-style: none; }
+.mini-cost > summary::-webkit-details-marker { display: none; }
+.mini-cost > summary::after { content: "›"; margin-left: auto; color: var(--muted); transition: transform 200ms ease; }
+.mini-cost[open] > summary::after { transform: rotate(90deg); }
+.mini-cost-note { color: var(--clay); font-size: 0.72rem; font-weight: 650; }
+.mini-lines { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.mini-lines li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; font-size: 0.8rem; }
+.mini-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-amount { font-weight: 750; white-space: nowrap; }
+.mini-lines .price-needed { font-size: 0.72rem; white-space: nowrap; }
+.mini-sub { grid-column: 1 / -1; color: var(--muted); font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-sub a { color: inherit; }
+.inspector .material-field { display: flex; align-items: center; gap: 8px; }
+.inspector .card-field > span { font-size: 0.68rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.measure-tiles { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
+.inspector .measure-tile { display: grid; gap: 1px; }
+.inspector .measure-tile > span { font-size: 0.66rem; letter-spacing: 0; text-transform: none; font-weight: 600; }
+.issues-fold > summary { cursor: pointer; font-size: 0.8rem; font-weight: 750; color: #9c341f; }
+.issues-fold[open] > summary { margin-bottom: 6px; }
+.inspector .name-input { background: transparent; border: 1px solid transparent; min-height: 0; padding: 2px 6px; }
+.inspector .name-input:hover { border-color: var(--line); }
+.inspector .name-input:focus { border-color: var(--moss); background: #fff; }
+.inspector .card-section .chip { min-height: 30px; padding: 3px 11px; font-size: 0.82rem; }
