@@ -49,7 +49,7 @@ import { furnitureFootprint } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
 import { findRatio, ratioValue, roomProportion } from "../build/ratios.js";
 import { ROOM_SHAPES, WALL_RATIOS, ratioWallEnd, shapedRoomCorner } from "../build/shapeTools.js";
-import { snapRoomToRatio, solveConstraints } from "../build/constraints.js";
+import { lockPhrase, releaseEditedLocks, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
 import { deviceCostHtml, fixtureCostHtml, selectionCostHtml } from "./costs.js";
 import {
   PLACE_OPTIONS as FIXTURE_OPTIONS,
@@ -1327,6 +1327,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     });
   }
 
+  /** Length locks on this wall: one it follows, or walls that follow it. Each can be unlocked. */
+  function wallLocksHtml(wall) {
+    const custom = house.customRatios || [];
+    const fmt = (n) => formatFeetFine(n).construction;
+    const mine = (house.constraints || []).filter((item) => item.targetId === wall.id);
+    const followers = (house.constraints || []).filter((item) => item.referenceId === wall.id);
+    if (!mine.length && !followers.length) return "";
+    const rows = mine.map((item) => `<div class="end-row"><span>Length locked to <strong>${escapeHtml(lockPhrase(house, item, custom, fmt))}</strong></span><button type="button" class="btn-quiet" data-unlock="${escapeAttr(item.targetId)}">Unlock</button></div>`);
+    if (followers.length) {
+      rows.push(`<div class="end-row"><span>${followers.length} wall${followers.length === 1 ? " follows" : "s follow"} this length</span><button type="button" class="btn-quiet" data-unlock="${escapeAttr(followers.map((item) => item.targetId).join(","))}">Unlock ${followers.length === 1 ? "it" : "them"}</button></div>`);
+    }
+    return `<div class="wall-ends"><p class="opt-label">Length lock</p>${rows.join("")}</div>`;
+  }
+
   /** The wall card's "Ends" rows: clipped on, laid on, or free, with a button to switch. */
   function wallEndsHtml(wall) {
     const rows = ["start", "end"].map((endName) => {
@@ -1609,7 +1623,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     pendingHouse = null;
   }
 
+  // Said once, after the next message, when an edit lets go of a length lock.
+  let lockNote = "";
+
   function commit(next, baseline = null, note = "the last change") {
+    // Changing a locked wall's length yourself releases the lock, instead of
+    // the lock snapping the wall straight back.
+    const freed = releaseEditedLocks(baseline || house, next, next.customRatios || []);
+    if (freed.released.length) {
+      next = freed.house;
+      const before = baseline || house;
+      const phrases = freed.released.map((item) => lockPhrase(before, item, before.customRatios || [], (n) => formatFeetFine(n).construction));
+      lockNote = freed.released.length === 1
+        ? `Its length lock (${phrases[0]}) was released.`
+        : `${freed.released.length} length locks were released.`;
+    }
     const solved = solveConstraints(next);
     next = solved.house;
     // Forget clips to walls that were deleted or cut apart.
@@ -2281,6 +2309,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function announce(text, undo = true, action = null) {
     if (!text) return;
+    if (lockNote) {
+      text = `${text} ${lockNote}`;
+      lockNote = "";
+    }
     history.unshift(text);
     if (history.length > 12) history.length = 12;
     coachKey = "";
@@ -3164,6 +3196,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         </div>
         <p class="fine card-help" id="angle-help" hidden>${escapeHtml(angleHelp)}</p>
         ${wallEndsHtml(wall)}
+        ${wallLocksHtml(wall)}
         <div class="card-row">
           <label class="card-field"><span>Phase</span>
             <select id="edit-phase">
@@ -3194,6 +3227,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         commit(syncRooms(setWallAssembly(house, wall.id, event.target.value)), house, "changing the material");
         announce(`Changed the wall to ${assemblyById[event.target.value]?.name || "that material"}.`);
         publish();
+      });
+      inspector.querySelectorAll("[data-unlock]").forEach((button) => {
+        button.addEventListener("click", () => {
+          let next = house;
+          for (const target of button.dataset.unlock.split(",")) next = unlink(next, target);
+          commit(next, house, "unlocking a length");
+          announce("Unlocked. The wall's length is free now.");
+          publish();
+        });
       });
       inspector.querySelector("#detach-wall")?.addEventListener("click", () => {
         const next = cloneHouse(house);

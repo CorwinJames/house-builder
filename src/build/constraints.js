@@ -157,6 +157,47 @@ export function linkWall(house, targetId, referenceId, ratioId, operation, custo
   return solveConstraints(next).house;
 }
 
+/**
+ * A wall whose length you change yourself (drag, type, snap) lets go of its
+ * length lock, instead of the lock pulling it straight back. A lock whose
+ * reference wall changed stays, so the locked wall still follows it.
+ * Returns the house with those locks removed, and the locks that were released.
+ */
+export function releaseEditedLocks(before, after, custom = []) {
+  const constraints = after?.constraints || [];
+  if (!before || !constraints.length) return { house: after, released: [] };
+  const kept = [];
+  const released = [];
+  for (const constraint of constraints) {
+    if (String(constraint.targetId).startsWith("footprint:")) {
+      kept.push(constraint);
+      continue;
+    }
+    const was = lengthOf(before, constraint.targetId);
+    const now = lengthOf(after, constraint.targetId);
+    const desired = desiredLength(after, constraint, custom);
+    const changed = was != null && now != null && Math.abs(now - was) > 1e-4;
+    if (changed && !(desired != null && Math.abs(now - desired) < 1e-3)) released.push(constraint);
+    else kept.push(constraint);
+  }
+  if (!released.length) return { house: after, released };
+  const next = cloneHouse(after);
+  next.constraints = kept;
+  return { house: next, released };
+}
+
+/** Plain words for a lock: "√2 × the 14 ft 7 in wall". */
+export function lockPhrase(house, constraint, custom = [], format = (n) => `${n.toFixed(2)} ft`) {
+  const readout = constraintReadout(house, constraint, custom);
+  const reference = lengthOf(house, constraint.referenceId);
+  const symbol = readout?.symbol || constraint.ratioId;
+  const op = constraint.operation === "divide" ? "÷" : "×";
+  const what = String(constraint.referenceId).startsWith("footprint:")
+    ? `the house ${constraint.referenceId === FOOTPRINT_WIDTH ? "width" : "depth"}`
+    : `the ${reference != null ? format(reference) : "other"} wall`;
+  return `${symbol} ${op} ${what}`;
+}
+
 export function unlink(house, targetId) {
   const next = cloneHouse(house);
   next.constraints = (next.constraints || []).filter((item) => item.targetId !== targetId);
