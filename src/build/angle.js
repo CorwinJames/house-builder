@@ -13,9 +13,17 @@ export function headingDeg(from, to) {
   return (deg + 360) % 360;
 }
 
+/** Degrees to the nearest tenth: 37°, 37.4°. A whole number drops the ".0". */
+export function formatDegrees(deg) {
+  const tenths = Math.round(Number(deg) * 10) / 10;
+  const text = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1);
+  return `${text === "-0" ? "0" : text}°`;
+}
+
 export function formatHeading(deg) {
-  const rounded = Math.round(((Number(deg) % 360) + 360) % 360);
-  return `${rounded === 360 ? 0 : rounded}°`;
+  let value = Math.round((((Number(deg) % 360) + 360) % 360) * 10) / 10;
+  if (value >= 360) value = 0;
+  return formatDegrees(value);
 }
 
 /** Smaller angle between two compass headings, from 0 to 180. */
@@ -38,7 +46,7 @@ export function plainFeet(feet) {
 export function measureLabel(length, angle, joinAngle) {
   const base = `${plainFeet(length)} at ${formatHeading(angle)}`;
   if (joinAngle == null) return base;
-  return `${base}, ${Math.round(joinAngle)}° from the wall it meets`;
+  return `${base}, ${formatDegrees(joinAngle)} from the wall it meets`;
 }
 
 /**

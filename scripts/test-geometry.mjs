@@ -5,6 +5,7 @@ import {
   describeWall,
   headingDeg,
   measureLabel,
+  formatHeading,
   parseAngle,
   parseLength,
   plainFeet,
@@ -15,7 +16,7 @@ import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse, translateWalls } from "../src/build/walls.js";
 import { snapTranslation } from "../src/build/snap.js";
-import { inferJoins, isClipped, partnersOf, unclipEnd } from "../src/build/clips.js";
+import { clipToOne, detachWalls, inferJoins, isClipped, partnersOf, unclipEnd } from "../src/build/clips.js";
 import { moveEnd, clipTouching } from "../src/build/walls.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
 import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID, catalogForTool } from "../src/build/catalog.js";
@@ -448,6 +449,32 @@ check("drawing a wall laid on does not cut the wall it tees into", () => {
   assert.equal(clipped.house.walls.length, 3, "clip on cuts it into two");
   const created = clipped.createdId;
   assert.ok(isClipped(clipped.house, created, "start"), "and clips the tee");
+});
+
+check("clipping onto a laid-on corner joins one wall, not both", () => {
+  const house = { walls: [jw("a", 0, 0, 10, 0), jw("b", 10, 0, 10, 8), jw("n", 10, 0, 20, 0)], openings: [], rooms: [], joins: [] };
+  const target = clipToOne(house, { wall: "n", end: "start" });
+  assert.ok(target, "it clipped to something");
+  assert.equal(partnersOf(house, "n", "start").length, 1, "only one wall");
+  assert.ok(!(isClipped(house, "a", "end") && isClipped(house, "b", "start")), "the laid-on pair stayed separate");
+});
+
+check("detaching a wall lets go of its clips and it moves alone", () => {
+  const house = { walls: [jw("a", 0, 0, 10, 0), jw("b", 10, 0, 10, 8), jw("c", 0, 0, 0, 8)], openings: [], rooms: [], joins: [] };
+  clipTouching(house, ["a"]);
+  assert.ok(isClipped(house, "a", "end") && isClipped(house, "a", "start"));
+  const freed = structuredClone(house);
+  assert.equal(detachWalls(freed, ["a"]), 2);
+  const moved = translateWalls(freed, ["a"], 0, -3);
+  assert.deepEqual(moved.walls.find((w) => w.id === "b").start, { x: 10, y: 0 }, "b stays");
+  assert.deepEqual(moved.walls.find((w) => w.id === "a").end, { x: 10, y: -3 }, "a moved alone");
+});
+
+check("angles show to the nearest tenth of a degree", () => {
+  assert.equal(formatHeading(37.42), "37.4°");
+  assert.equal(formatHeading(37), "37°");
+  assert.equal(formatHeading(359.97), "0°");
+  assert.equal(measureLabel(10, 12.35, 90.04), "10 ft at 12.4°, 90° from the wall it meets");
 });
 
 if (failed) {

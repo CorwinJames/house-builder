@@ -137,7 +137,7 @@ app.innerHTML = `
           <div class="tool-dock glass">
             <div id="tool-row" class="tool-row"></div>
             <span class="dock-rule" aria-hidden="true"></span>
-            <div class="join-seg" id="join-mode" role="group" aria-label="When a wall touches another wall" title="Lay on: walls touch but stay separate. Clip on: they become one piece. Hold Option to switch for one drag.">
+            <div class="join-seg" id="join-mode" role="group" aria-label="When a wall touches another wall" title="Lay on: walls you drop touch but stay separate, and a wall you drag comes off its clips. Clip on: dropped walls become one piece, and dragging brings clipped walls along. Hold Option to switch for one drag.">
               <button type="button" data-join="lay" aria-pressed="true">Lay on</button>
               <button type="button" data-join="clip" aria-pressed="false">Clip on</button>
             </div>

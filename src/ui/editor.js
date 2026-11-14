@@ -23,7 +23,7 @@ import {
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
-import { clipTogether, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
+import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
@@ -33,6 +33,7 @@ import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import {
   describeWall,
   formatHeading,
+  formatDegrees,
   freeEndName,
   parseAngle,
   parseLength,
@@ -737,7 +738,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     form.querySelector("#measure-angle").value = formatHeading(info.angle).replace("°", "");
     form.querySelector("#measure-join").textContent = info.joinAngle == null
       ? "0° points east. The angle turns counterclockwise."
-      : `${Math.round(info.joinAngle)}° from the wall it meets. 0° points east. The angle turns counterclockwise.`;
+      : `${formatDegrees(info.joinAngle)} from the wall it meets. 0° points east. The angle turns counterclockwise.`;
     form.hidden = false;
     measureOpen = true;
     placeMeasureForm();
@@ -1055,10 +1056,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const sdx = step ? snapToGrid(dx, step) : dx;
       const sdy = step ? snapToGrid(dy, step) : dy;
       const ids = gesture.group?.walls.length ? gesture.group.walls : [gesture.hit.id];
-      const move = snapPieceMove(gesture.snapshot, ids, sdx, sdy, event);
+      // Lay on: the wall you drag comes off whatever it was clipped to.
+      // Clip on (or Option): clipped neighbours stretch along, as one piece.
+      const detach = !clipping(event);
+      let base = gesture.snapshot;
+      gesture.detached = 0;
+      if (detach) {
+        base = cloneHouse(gesture.snapshot);
+        gesture.detached = detachWalls(base, ids);
+      }
+      const move = snapPieceMove(base, ids, sdx, sdy, event);
       gesture.joined = move.snapped;
       gesture.movedWalls = ids;
-      let next = translateWalls(gesture.snapshot, ids, move.dx, move.dy);
+      gesture.delta = { dx: move.dx, dy: move.dy };
+      let next = translateWalls(base, ids, move.dx, move.dy);
       for (const piece of gesture.group?.pieces || []) next = movePiece(next, piece, move.dx, move.dy, 0);
       scheduleLive(next);
       return;
@@ -1224,10 +1235,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const next = cloneHouse(doc);
     try { resolveJunctions(next, wallIds); } catch { return doc; }
     clipTouching(next, next.walls.filter((wall) => wallIds.includes(wall.id) || !doc.walls.some((old) => old.id === wall.id)).map((wall) => wall.id));
-    for (const ref of refs) {
-      const wall = next.walls.find((item) => item.id === ref.wall);
-      if (wall) clipTogether(next, endsAt(next, wall[ref.end]));
-    }
+    for (const ref of refs) clipToOne(next, ref, { skip: wallIds });
     return pruneJoins(next);
   }
 
@@ -1272,6 +1280,25 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const clip = contact ? clipVersion(lay, refs, ids) : lay;
     const count = current.movedWalls?.length || 0;
     const what = count > 1 ? `Moved ${count} walls` : count === 1 ? "Moved the wall" : "Moved the wall end";
+    if (current.detached && current.delta && !current.clip) {
+      // It came off its clipped neighbours. Offer to keep it clipped instead,
+      // which stretches those neighbours along, as one piece.
+      commit(syncRooms(lay), current.snapshot, "moving a wall off its corner");
+      const committed = house;
+      const kept = syncRooms(translateWalls(current.snapshot, ids, current.delta.dx, current.delta.dy));
+      const n = current.detached;
+      announce(`${what} and unclipped ${count > 1 ? "them" : "it"} from ${n} wall${n === 1 ? "" : "s"}.`, true, {
+        label: "Keep it clipped",
+        run: () => {
+          if (house !== committed) return;
+          undo();
+          commit(kept, current.snapshot, "moving clipped walls");
+          announce("Kept it clipped. The walls it was clipped to stretched along.");
+          publish();
+        },
+      });
+      return;
+    }
     commitJoinChoice({
       before: current.snapshot,
       lay: syncRooms(lay),
@@ -1296,7 +1323,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       return `<div class="end-row"><span>${label}: <span class="end-state">free</span></span></div>`;
     });
-    return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}<p class="fine">Clipped ends move together. Laid-on ends only touch, so each wall still moves on its own.</p></div>`;
+    const anyClipped = ["start", "end"].some((endName) => partnersOf(house, wall.id, endName).length);
+    const detach = anyClipped ? `<button type="button" id="detach-wall" class="pill-primary">Detach this wall</button>` : "";
+    return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}${detach}<p class="fine">Clipped ends move together. Laid-on ends only touch, so each wall moves on its own. With Lay on, dragging a wall pulls it off its clips; hold Option to drag the clipped walls along instead.</p></div>`;
   }
 
   /** The walls (and loose pieces) a multi-selection moves together. Rooms bring their walls. */
@@ -2419,8 +2448,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       clipOn = join.dataset.join === "clip";
       paintJoinButtons();
       announce(clipOn
-        ? "Clip on. Walls you drop onto another wall become one piece. Hold Option to lay one on instead."
-        : "Lay on. Walls you drop onto another wall touch but stay separate. Hold Option to clip one on instead.", false);
+        ? "Clip on. Walls you drop onto another wall become one piece, and dragging a wall brings its clipped walls along. Hold Option for the other way."
+        : "Lay on. Walls you drop onto another wall touch but stay separate, and dragging a wall pulls it off its clips. Hold Option for the other way.", false);
       return;
     }
     if (event.target.closest("#tidy-shape")) {
@@ -3100,7 +3129,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const info = describeWall(wall.start, wall.end, house, wall.id);
       const joinLine = info.joinAngle == null
         ? "0° points east. The angle turns counterclockwise."
-        : `${Math.round(info.joinAngle)}° from the wall it meets. 0° points east. The angle turns counterclockwise.`;
+        : `${formatDegrees(info.joinAngle)} from the wall it meets. 0° points east. The angle turns counterclockwise.`;
       const linked = (house.constraints || []).find((item) => item.targetId === wall.id);
       const readout = linked && constraintReadout(house, linked, house.customRatios || []);
       const ratioOptions = ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.name}</option>`).join("");
@@ -3145,6 +3174,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${selectionCostHtml(house, selection)}
         ${quietDelete("Delete wall")}
       `;
+      inspector.querySelector("#detach-wall")?.addEventListener("click", () => {
+        const next = cloneHouse(house);
+        const n = detachWalls(next, [wall.id]);
+        commit(next, house, "detaching a wall");
+        announce(`Detached. The wall let go of ${n} wall${n === 1 ? "" : "s"} and now moves on its own.`);
+        publish();
+      });
       inspector.querySelectorAll("[data-unclip]").forEach((button) => {
         button.addEventListener("click", () => {
           const next = cloneHouse(house);
