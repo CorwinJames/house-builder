@@ -16,7 +16,7 @@ import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
 import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse, translateWalls } from "../src/build/walls.js";
 import { snapTranslation } from "../src/build/snap.js";
-import { snapRoomToRatio } from "../src/build/constraints.js";
+import { releaseEditedLocks, snapRoomToRatio, solveConstraints } from "../src/build/constraints.js";
 import { roomBox } from "../src/build/ratios.js";
 import { clipToOne, detachWalls, inferJoins, isClipped, partnersOf, unclipEnd } from "../src/build/clips.js";
 import { moveEnd, clipTouching } from "../src/build/walls.js";
@@ -492,6 +492,25 @@ check("reshaping a room in a full plan reaches the ratio without merging rooms",
     const ratio = Math.max(box.width, box.depth) / Math.min(box.width, box.depth);
     assert.ok(Math.abs(ratio / phi - 1) <= 0.003, `${name} came out ${ratio}`);
   }
+});
+
+check("changing a locked wall's length yourself releases the lock instead of snapping back", () => {
+  const ref = jw("ref", 0, 0, 10, 0);
+  const target = jw("t", 0, 0, 0, 10 * Math.SQRT2);
+  const house = { walls: [ref, target], openings: [], rooms: [], joins: [], constraints: [{ id: "p", targetId: "t", referenceId: "ref", ratioId: "sqrt2", operation: "multiply" }] };
+  const dragged = structuredClone(house);
+  dragged.walls[1].end = { x: 0, y: 20 };
+  const freed = releaseEditedLocks(house, dragged);
+  assert.equal(freed.released.length, 1);
+  const solved = solveConstraints(freed.house).house;
+  assert.deepEqual(solved.walls.find((w) => w.id === "t").end, { x: 0, y: 20 }, "the wall stays where it was dropped");
+  // Moving the reference keeps the lock, and the locked wall follows.
+  const longer = structuredClone(house);
+  longer.walls[0].end = { x: 12, y: 0 };
+  const kept = releaseEditedLocks(house, longer);
+  assert.equal(kept.released.length, 0);
+  const follow = solveConstraints(kept.house).house.walls.find((w) => w.id === "t");
+  assert.ok(Math.abs(follow.end.y - 12 * Math.SQRT2) < 1e-9);
 });
 
 if (failed) {
