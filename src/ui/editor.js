@@ -23,7 +23,7 @@ import { syncRooms } from "../build/rooms.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
-import { FINE_GRID_FT, placePoint, projectOntoWall, snapDrawingPoint, snapToGrid } from "../build/snap.js";
+import { FINE_GRID_FT, placePoint, projectOntoWall, snapAngleNear, snapToGrid } from "../build/snap.js";
 import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import {
   describeWall,
@@ -41,7 +41,8 @@ import { formatArea, formatFeet, formatFeetFine } from "../lib/format.js";
 import { pointAlong, polygonArea, wallLength } from "../lib/geom.js";
 import { furnitureFootprint } from "../build/annotations.js";
 import { areaKind } from "../build/areas.js";
-import { findRatio, ratioLibrary, roomProportion, snapToRatioLength } from "../build/ratios.js";
+import { findRatio, ratioLibrary, ratioValue, roomProportion } from "../build/ratios.js";
+import { ROOM_SHAPES, WALL_RATIOS, ratioWallEnd, shapedRoomCorner } from "../build/shapeTools.js";
 import { constraintReadout, linkWall, snapRoomToRatio, solveConstraints, unlink } from "../build/constraints.js";
 import { deviceCostHtml, fixtureCostHtml, selectionCostHtml } from "./costs.js";
 import {
@@ -128,7 +129,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let assemblyExplicit = false;
   let grid = FINE_GRID_FT;
   let catalogId = "door-30";
-  let snapMode = "grid";
+  // Proportion for the Room tool (width : depth inside) and the Wall tool (× the wall it starts from).
+  let roomShape = "free";
+  let wallRatio = "free";
   let snapOn = false;
   let shiftHeld = false;
   let guidesOn = false;
@@ -216,9 +219,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   hud.addEventListener("click", onHudClick);
   document.querySelector("#options-toggle").addEventListener("click", () => {
     optionsOpen = !optionsOpen;
-    document.querySelector("#tool-options").hidden = !optionsOpen;
-    document.querySelector("#options-toggle").setAttribute("aria-expanded", String(optionsOpen));
+    setOptionsOpen(optionsOpen);
   });
+
+  /** The options panel slides open and closed. It is never redrawn just to open it. */
+  function setOptionsOpen(open) {
+    document.querySelector("#options-shell")?.classList.toggle("is-open", open);
+    const box = document.querySelector("#tool-options");
+    if (box) box.inert = !open;
+    document.querySelector("#options-toggle")?.setAttribute("aria-expanded", String(open));
+  }
   hud.addEventListener("change", onHudChange);
   hud.addEventListener("input", onHudInput);
   document.querySelector("#undo").addEventListener("click", undo);
@@ -363,16 +373,67 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return findRatio(id, house.customRatios) || findRatio("golden");
   }
 
-  function ratioOrMagnet(origin, world) {
-    const magnet = snapDrawingPoint(world, { grid, walls: house.walls, magnetRadius: magnetFeet() });
-    if (magnet.snapped === "end" || magnet.snapped === "mid" || magnet.snapped === "line") return magnet;
-    return snapToRatioLength(
-      origin,
-      world,
-      activeRatio(),
-      house.proportion?.module || 8,
-      house.walls.map((wall) => wallLength(wall)),
-    );
+  function shapeChoice(list, id) {
+    const item = list.find((entry) => entry.id === id);
+    if (!item || item.id === "free") return null;
+    const value = item.value || ratioValue(findRatio(item.id, house.customRatios || []));
+    return value > 0 ? { ...item, value } : null;
+  }
+
+  /** Room tool with a shape picked: the far corner keeps that width : depth, inside the walls. */
+  function shapeRoom(start, end) {
+    const shape = shapeChoice(ROOM_SHAPES, roomShape);
+    if (!shape || !end) return end;
+    const thickness = (outward) => {
+      const id = suggestAssemblyId(start, end, assemblyExplicit ? assemblyId : DEFAULT_EXTERIOR_ID, assemblyExplicit, outward);
+      return Number(assemblyById[id]?.thickness) || 0;
+    };
+    const corner = shapedRoomCorner(start, end, shape.value, thickness);
+    const long = Math.max(corner.insideWidth, corner.insideDepth);
+    const short = Math.min(corner.insideWidth, corner.insideDepth);
+    return {
+      x: corner.x,
+      y: corner.y,
+      snapped: "shape",
+      label: `${shape.label} · ${formatFeetFine(long).construction} × ${formatFeetFine(short).construction} inside`,
+    };
+  }
+
+  /** The wall that already ends where a new wall starts. The newest one wins. */
+  function wallEndingAt(point) {
+    const walls = house.walls || [];
+    for (let i = walls.length - 1; i >= 0; i -= 1) {
+      const wall = walls[i];
+      if (Math.hypot(wall.start.x - point.x, wall.start.y - point.y) < 0.05) return wall;
+      if (Math.hypot(wall.end.x - point.x, wall.end.y - point.y) < 0.05) return wall;
+    }
+    return null;
+  }
+
+  /** Wall tool with a ratio picked: the new wall is that wall × or ÷ the ratio. */
+  function ratioWall(start, end, event) {
+    const ratio = shapeChoice(WALL_RATIOS, wallRatio);
+    if (!ratio || !end) return end;
+    const ref = wallEndingAt(start);
+    if (!ref) return { ...end, label: "Start on a wall end to match it", ratioLabel: true };
+    const refLength = wallLength(ref);
+    let direction = null;
+    if (snapping(event)) {
+      const squared = snapAngleNear(start, end, 0);
+      if (squared) {
+        const len = Math.hypot(squared.x - start.x, squared.y - start.y) || 1;
+        direction = { x: (squared.x - start.x) / len, y: (squared.y - start.y) / len };
+      }
+    }
+    const next = ratioWallEnd(start, end, refLength, ratio.value, direction);
+    const refText = formatFeetFine(refLength).construction;
+    const lenText = formatFeetFine(next.length).construction;
+    const label = next.relation === "same"
+      ? `Same as ${refText}`
+      : next.relation === "times"
+        ? `${ratio.label} × ${refText} = ${lenText}`
+        : `${refText} ÷ ${ratio.label} = ${lenText}`;
+    return { x: next.x, y: next.y, length: next.length, snapped: "ratio", label, ratioLabel: true };
   }
 
   function catalogItem() {
@@ -407,7 +468,6 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function aim(world, event, origin, walls) {
-    if (snapping(event) && snapMode === "ratio" && origin) return ratioOrMagnet(origin, world);
     return placePoint(world, {
       snap: snapping(event),
       grid,
@@ -892,6 +952,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (gesture.kind === "wall" || gesture.kind === "room") {
       window.clearTimeout(longTimer);
       gesture.end = aim(world, event, gesture.start, house.walls);
+      gesture.end = gesture.kind === "room" ? shapeRoom(gesture.start, gesture.end) : ratioWall(gesture.start, gesture.end, event);
       gesture.moved = true;
       scheduleLive();
       return;
@@ -1626,7 +1687,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         start: gesture.start,
         end: gesture.end,
         color: draftAssembly?.swatch,
-        lengthLabel: measure?.text || gesture.end.label || formatFeetFine(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)).construction,
+        lengthLabel: (gesture.end.ratioLabel ? gesture.end.label : "") || measure?.text || gesture.end.label || formatFeetFine(gesture.end.length || Math.hypot(gesture.end.x - gesture.start.x, gesture.end.y - gesture.start.y)).construction,
         ticks: gesture.end.ticks || [],
       } : null,
       guides: guidesOn ? guideBoxes() : [],
@@ -1635,6 +1696,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         y0: gesture.start.y,
         x1: gesture.end.x,
         y1: gesture.end.y,
+        label: gesture.end.label || `${formatFeetFine(Math.abs(gesture.end.x - gesture.start.x)).construction} × ${formatFeetFine(Math.abs(gesture.end.y - gesture.start.y)).construction}`,
       } : null,
       placeGhost: hoverWorld && !gesture ? placeGhostAt(hoverWorld) : null,
       suggestMarks: panelGhost ? [panelGhost] : [],
@@ -1821,15 +1883,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function paintToolOptions() {
     const box = document.querySelector("#tool-options");
-    box.hidden = !optionsOpen;
+    setOptionsOpen(optionsOpen);
     document.querySelector("#options-toggle")?.setAttribute("aria-expanded", String(optionsOpen));
-    box.classList.toggle("advanced-off", !advancedOn);
     if (tool === "door" || tool === "window") catalogItem();
     const rates = laborAssumption(house);
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${snapMode}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -1864,30 +1925,49 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "wall" || tool === "room") {
       const note = assemblyById[assemblyId]?.note || "";
+      const isRoom = tool === "room";
+      const shapes = isRoom ? ROOM_SHAPES : WALL_RATIOS;
+      const current = isRoom ? roomShape : wallRatio;
+      const chosen = shapeChoice(shapes, current);
+      const hint = isRoom
+        ? (chosen
+          ? `Rooms you drag keep ${chosen.label === "Square" ? "a square shape" : `${chosen.label} (${chosen.value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")} : 1)`}, measured inside the walls. Drag the long side and the short side follows.`
+          : "Drag any size.")
+        : (chosen
+          ? (chosen.id === "1-1"
+            ? "Start on a wall end. The new wall matches that wall's length."
+            : `Start on a wall end. The new wall is ${chosen.label} × that wall, or that wall ÷ ${chosen.label}, whichever is nearer your cursor.`)
+          : "Drag any length.");
       box.innerHTML = `
-        <div class="swatch-row">${assemblies.map((item) => `<button type="button" class="chip" data-assembly="${item.id}" aria-pressed="${item.id === assemblyId}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`).join("")}
-          <button type="button" class="info-btn" id="assembly-info" aria-expanded="false" aria-label="About this wall type">i</button>
-        </div>
-        <button type="button" id="advanced-toggle" aria-pressed="${advancedOn}">Advanced</button>
-        <div class="option-line advanced-only">
-          <div class="seg" id="snap-mode">
-            <button type="button" data-snap="grid" aria-pressed="${snapMode === "grid"}">Grid</button>
-            <button type="button" data-snap="ratio" aria-pressed="${snapMode === "ratio"}">Ratio</button>
+        <section class="opt-section">
+          <p class="opt-label">Wall type</p>
+          <div class="swatch-row">${assemblies.map((item) => `<button type="button" class="chip" data-assembly="${item.id}" aria-pressed="${item.id === assemblyId}"><span class="swatch" style="background:${item.swatch}"></span>${item.short}</button>`).join("")}
+            <button type="button" class="info-btn" id="assembly-info" aria-expanded="false" aria-label="About this wall type">i</button>
           </div>
-          <label>Size <select id="grid-size"><option value="0.08333333333333333">1 in</option><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
-          <label>Ratio <select id="project-ratio">${ratioLibrary.map((ratio) => `<option value="${ratio.id}">${ratio.symbol || ratio.name}</option>`).join("")}</select></label>
-          <label>Module <input id="module-length" type="number" min="0.5" step="0.5" value="${house.proportion?.module || 8}" /> ft</label>
-          <button type="button" id="guides-toggle" aria-pressed="${guidesOn}">Guides</button>
-          <button type="button" id="snap-footprint" title="Snap the footprint to φ">Snap φ</button>
+          <p id="assembly-note" class="info-note" hidden>${note}</p>
+        </section>
+        <section class="opt-section">
+          <p class="opt-label">${isRoom ? "Shape" : "Length from the wall you start on"}</p>
+          <div class="swatch-row" id="shape-row">${shapes.map((item) => `<button type="button" class="chip" data-shape="${item.id}" aria-pressed="${item.id === current}">${item.label}</button>`).join("")}</div>
+          <p class="fine opt-hint">${hint}</p>
+        </section>
+        <button type="button" class="adv-toggle" id="advanced-toggle" aria-expanded="${advancedOn}" aria-controls="adv-shell"><span>More options</span><span class="chev" aria-hidden="true">›</span></button>
+        <div class="adv-shell${advancedOn ? " is-open" : ""}" id="adv-shell">
+          <div class="adv-inner">
+            <div class="option-line">
+              <label>Snap step <select id="grid-size"><option value="0.08333333333333333">1 in</option><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
+              <button type="button" id="guides-toggle" class="chip" aria-pressed="${guidesOn}">Proportion guides</button>
+            </div>
+            <p class="fine opt-hint">Snap step is how far wall ends move when Snap to grid is on. Proportion guides outline the selected room's nearest ratio.</p>
+          </div>
         </div>
-        <p id="assembly-note" class="info-note" hidden>${note}</p>
         ${warnings[0]?.message ? `<p class="warn-line" data-warn>${warnings[0].message}</p>` : `<p class="warn-line" data-warn hidden></p>`}`;
       box.querySelector("#grid-size").value = String(grid);
-      box.querySelector("#project-ratio").value = house.proportion?.ratioId || "golden";
       box.querySelector("#advanced-toggle")?.addEventListener("click", () => {
+        // Open in place so the panel grows smoothly instead of being redrawn.
         advancedOn = !advancedOn;
-        optionsKey = "";
-        publish();
+        box.querySelector("#adv-shell")?.classList.toggle("is-open", advancedOn);
+        box.querySelector("#advanced-toggle")?.setAttribute("aria-expanded", String(advancedOn));
       });
       return;
     }
@@ -1967,19 +2047,25 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       tidySelection();
       return;
     }
-    const snap = event.target.closest("button[data-snap]");
-    if (snap) {
-      snapMode = snap.dataset.snap;
+    const shape = event.target.closest("button[data-shape]");
+    if (shape) {
+      const list = tool === "room" ? ROOM_SHAPES : WALL_RATIOS;
+      const item = list.find((entry) => entry.id === shape.dataset.shape);
+      if (tool === "room") roomShape = shape.dataset.shape;
+      else wallRatio = shape.dataset.shape;
       optionsKey = "";
       publish();
+      if (item) {
+        const text = item.id === "free"
+          ? (tool === "room" ? "Rooms are free size again." : "Walls are free length again.")
+          : (tool === "room" ? `Rooms now keep ${item.label}.` : `New walls now use ${item.label} from the wall they start on.`);
+        announce(text, false);
+      }
       return;
     }
-    if (event.target.id === "guides-toggle") {
+    if (event.target.closest("#guides-toggle")) {
       guidesOn = !guidesOn;
       optionsKey = "";
-      publish();
-    } else if (event.target.id === "snap-footprint") {
-      commit(solveConstraints(house, { includeFootprint: true }).house);
       publish();
     }
   }
@@ -2019,19 +2105,6 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function onHudChange(event) {
     if (event.target.id === "grid-size") grid = Number(event.target.value);
-    if (event.target.id === "project-ratio") {
-      const next = cloneHouse(house);
-      next.proportion = { ...(next.proportion || { module: 8 }), ratioId: event.target.value };
-      commit(next);
-    }
-    if (event.target.id === "module-length") {
-      const module = Number(event.target.value);
-      if (module > 0) {
-        const next = cloneHouse(house);
-        next.proportion = { ...(next.proportion || { ratioId: "golden" }), module };
-        commit(next);
-      }
-    }
     if (event.target.id === "open-width" || event.target.id === "open-height" || event.target.id === "open-sill") {
       applyOpeningFields();
     }

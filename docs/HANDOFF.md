@@ -1,6 +1,6 @@
 # House Builder: handoff brief (for Claude, and back to Grok Bot)
 
-Last updated by Claude: 2026-11-13. Main is at 2ab1131 (PR #22). Open PRs waiting on James: #23 (these handoff files), then the workspace and wall-join PR stacked on it.
+Last updated by Claude: 2026-11-13. Main is at 2b4a037 (PR #24). The PR that reworks the Room and Wall proportion options is waiting on James.
 
 ## The project
 James Corwin and his wife Sophie are planning a small house built from natural materials, with hempcrete preferred. It sits on about 5 acres in Jefferson County, WA. They'll start small and add on later. Sophie does the design. James does the finish work himself: paint, flooring and tile.
@@ -24,6 +24,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - **Screen:** the plan and 3D fill the window under a slim top bar. New plan, Open and Save are in the File menu. The layer panel, the selection card, the view toolbars and the build dock all float on top as glass, so the drawing never resizes. The layer panel collapses with its Layers button. The Guide and Recent list open from the Guide pill in the build dock. A toast still confirms every action.
 - **Build:** walls, rooms, doors and windows, in both 2D and 3D. There's one HUD that sits over the 2D view, the 3D view and Split view, plus a floating placeholder that shows the item about to be placed. 3D has Edit, Orbit and Cutaway.
 - **Walls:** a wall end lands exactly where you drop it, except that it always clicks onto another wall end within about 10 pixels. Walls that touch draw as one shape: L corners miter, T joins stop at the other wall's face, in 2D and 3D. Grid snapping is opt-in, using the "Snap to grid" toggle or by holding Shift. "Tidy up shape" rounds walls to 3-inch steps and squares near-square corners. While dragging, a live label shows the length and angle (for example "12 ft 4 in at 37°"). 0° points east, angles go counterclockwise, and the label also shows the angle to the joined wall. Press Tab, or use the wall card, to type an exact length and angle.
+- **Proportions while drawing:** Room tool options have a Shape row (Free, Square, φ, √2, 3:2, 4:3, 16:9): the dragged room keeps that ratio inside the walls. Wall tool options have "Length from the wall you start on" (Free, Same, φ, √2, 3:2, 4:3, 2:1): a wall started on a wall end is that wall × or ÷ the ratio. Snap φ, the Grid/Ratio toggle, the project Ratio and Module are gone. Tool options slide open from the Options pill, and "More options" (snap step, proportion guides) slides open inside them.
 - **Room sizes:** taken from the actual walls, with one number per side, showing both inside and outside sizes when they differ.
 - **Select:** Shift-click and box select in 2D and 3D Edit. Delete or Backspace bulk-deletes, and Undo works. The camera doesn't jump when you delete. Furniture, site marks and labels can be selected, moved and deleted.
 - **Navigation:** pinch zooms toward the cursor, two-finger scroll pans, and the mouse wheel zooms. Redraws are limited to once per frame, and moving the camera doesn't rebuild the cost or code checks. The 3D camera is damped. No edit moves the camera: only New plan, Open, Import, Fit and Reset view frame the house.
@@ -39,6 +40,8 @@ Read the code before you change anything. Don't trust this brief on implementati
 - Google tokens last about an hour and there is no server for a refresh token, so after an hour away Drive still needs one click. While the Cloud app is in Testing, consent can also expire after about 7 days.
 - The phone layout got the same floating dock but was only checked in a phone-sized test browser, not on James's phone.
 - Sophie needs to give one real measurement so the scale can be locked.
+- A shaped room drawn against an existing wall reuses that wall, so its inside ratio can be slightly off.
+- The Wall type chips list Hempcrete and Rammed earth twice (two assemblies each in data/assemblies.json share a short name). Not changed yet.
 - Hempcrete R-value against code is a question for the designer.
 - Many "price needed" items are still open.
 
