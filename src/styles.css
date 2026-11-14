@@ -1643,3 +1643,13 @@ button:focus-visible {
 .inspector .name-input:hover { border-color: var(--line); }
 .inspector .name-input:focus { border-color: var(--moss); background: #fff; }
 .inspector .card-section .chip { min-height: 30px; padding: 3px 11px; font-size: 0.82rem; }
+
+/* Long messages wrap instead of pushing their button off the screen. */
+.app-toast {
+  max-width: min(680px, calc(100vw - 24px));
+  white-space: normal;
+  text-align: center;
+  border-radius: 18px;
+  line-height: 1.35;
+}
+.app-toast button { white-space: nowrap; }

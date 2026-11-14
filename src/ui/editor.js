@@ -20,6 +20,7 @@ import {
   setWallAssembly,
   translateWalls,
   resolveJunctions,
+  splitWall,
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
@@ -1247,8 +1248,32 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   /** The clip-on version of a drop: tee into walls it lands on and clip touching ends. */
-  function clipVersion(doc, refs, wallIds) {
+  /**
+   * The clip-on version of a drop. A moved wall (or group) clips every end that
+   * now touches something. A dropped end clips only that end: the wall's other
+   * end keeps whatever it had (laid on stays laid on).
+   */
+  function clipVersion(doc, refs, wallIds, { endOnly = false } = {}) {
     const next = cloneHouse(doc);
+    if (endOnly) {
+      const ref = refs[0];
+      const wall = next.walls.find((item) => item.id === ref.wall);
+      const point = wall?.[ref.end];
+      if (!point) return doc;
+      // Landing on the middle of a wall: cut that wall there so the end can clip to it.
+      if (!endsAt(next, point, { exclude: [ref.wall] }).length) {
+        for (const other of next.walls) {
+          if (other.id === ref.wall) continue;
+          const hit = projectOntoWall(point, other);
+          if (hit && hit.distance <= 0.05 && hit.t > 0.01 && hit.t < 0.99) {
+            splitWall(next, other.id, hit.offset);
+            break;
+          }
+        }
+      }
+      clipToOne(next, ref, { skip: [ref.wall] });
+      return pruneJoins(next);
+    }
     try { resolveJunctions(next, wallIds); } catch { return doc; }
     clipTouching(next, next.walls.filter((wall) => wallIds.includes(wall.id) || !doc.walls.some((old) => old.id === wall.id)).map((wall) => wall.id));
     for (const ref of refs) clipToOne(next, ref, { skip: wallIds });
@@ -1293,7 +1318,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       : [current.movedEnd, ...partnersOf(house, current.movedEnd.wall, current.movedEnd.end)];
     const lay = cloneHouse(house);
     const contact = contactAt(lay, refs, current.movedWalls?.length ? ids : refs.map((ref) => ref.wall));
-    const clip = contact ? clipVersion(lay, refs, ids) : lay;
+    const clip = contact ? clipVersion(lay, refs, ids, { endOnly: !current.movedWalls?.length }) : lay;
     const count = current.movedWalls?.length || 0;
     const what = count > 1 ? `Moved ${count} walls` : count === 1 ? "Moved the wall" : "Moved the wall end";
     if (current.detached && (current.delta || current.endTo) && !current.clip) {
