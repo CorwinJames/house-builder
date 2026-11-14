@@ -1653,3 +1653,48 @@ button:focus-visible {
   line-height: 1.35;
 }
 .app-toast button { white-space: nowrap; }
+
+/* Sun and shade panel: top right, over the drawing, glass like the other HUDs. */
+.sun-panel {
+  position: absolute;
+  z-index: 4;
+  top: 52px;
+  right: 10px;
+  width: min(270px, calc(100% - 20px));
+  padding: 10px 12px;
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+.sun-head { display: flex; align-items: center; justify-content: space-between; }
+.sun-head strong { font-size: 0.85rem; }
+.sun-close {
+  border: 0;
+  background: transparent;
+  font-size: 1.1rem;
+  line-height: 1;
+  min-height: 0;
+  padding: 2px 6px;
+  color: var(--muted);
+}
+.sun-readout { margin: 0; font-weight: 650; color: var(--ink); }
+.sun-mode { justify-self: start; }
+.sun-slider { display: grid; gap: 2px; font-size: 0.74rem; color: var(--muted); }
+.sun-slider span { display: flex; justify-content: space-between; }
+.sun-slider b { color: var(--ink); font-weight: 700; }
+.sun-slider input[type="range"] { width: 100%; accent-color: #E2A33A; }
+.sun-presets { display: flex; flex-wrap: wrap; gap: 4px; }
+.sun-presets .chip { min-height: 26px; padding: 2px 9px; font-size: 0.74rem; }
+.sun-hand { display: flex; gap: 10px; align-items: center; }
+.sun-hand-sliders { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.sun-dial { flex: none; cursor: grab; touch-action: none; }
+.sun-dial .dial-sky { fill: #e8f0f4; stroke: rgba(42, 36, 27, 0.18); }
+.sun-dial .dial-ring { fill: none; stroke: rgba(42, 36, 27, 0.12); stroke-dasharray: 2 3; }
+.sun-dial .dial-n { font-size: 8px; font-weight: 700; fill: var(--muted); text-anchor: middle; }
+.sun-dial .dial-sun { fill: #F4B23A; stroke: #fff8f4; stroke-width: 2; }
+.sun-keep { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--muted); }
+.sun-panel .fine { margin: 0; }
+@media (max-width: 860px) {
+  .sun-panel { top: auto; bottom: 74px; right: 6px; left: 6px; width: auto; }
+}

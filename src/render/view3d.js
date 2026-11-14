@@ -13,6 +13,7 @@ import { offsetSegment, planDimensions } from "./dimensions.js";
 import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
+import { createSunRig } from "./sun3d.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -66,8 +67,10 @@ export function createView3d(canvas, initialHouse) {
   controls.maxDistance = 1400;
   controls.update();
 
-  scene.add(new THREE.AmbientLight(0xfff6ec, 0.38));
-  scene.add(new THREE.HemisphereLight(0xf4f7f8, 0xcbb892, 0.72));
+  const ambient = new THREE.AmbientLight(0xfff6ec, 0.38);
+  const hemisphere = new THREE.HemisphereLight(0xf4f7f8, 0xcbb892, 0.72);
+  scene.add(ambient);
+  scene.add(hemisphere);
   const sun = new THREE.DirectionalLight(0xfff3df, 1.55);
   sun.position.set(-18, 46, 34);
   sun.target.position.set(38, 0, -23.5);
@@ -82,6 +85,8 @@ export function createView3d(canvas, initialHouse) {
   sun.shadow.bias = -0.00035;
   scene.add(sun);
   scene.add(sun.target);
+  const sunRig = createSunRig({ scene, ambient, hemisphere, light: sun });
+  let sunNow = null;
 
   const ground = new THREE.Mesh(
     new THREE.CircleGeometry(180, 48),
@@ -451,6 +456,7 @@ export function createView3d(canvas, initialHouse) {
     buildHouse(house, buckets, futureBuckets, materials, wood, { cutaway });
     fitGround(house, ground, scene, camera, controls);
     if (state) applyVisibility(state);
+    sunRig.apply(sunNow, house, state);
     applyRoof();
     paintSelection();
   }
@@ -735,6 +741,11 @@ export function createView3d(canvas, initialHouse) {
   }
 
   return {
+    /** The sun for the Sun and shade layer (from currentSun), or null for everyday light. */
+    setSun(next) {
+      sunNow = next || null;
+      sunRig.apply(sunNow, house, state);
+    },
     setState(next) {
       state = next;
       if (!appliedSavedCamera) {
@@ -857,6 +868,7 @@ function failedView(message) {
     failed: true,
     message,
     setState() {},
+    setSun() {},
     resize() {},
     resetCamera() {},
     setOnChange() {},

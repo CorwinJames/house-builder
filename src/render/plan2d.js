@@ -20,8 +20,9 @@ import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { pieceOutline, wallJoints } from "../build/joins.js";
 import { endsAt, isClipped } from "../build/clips.js";
+import { roofed, sunPatches, wallShadows } from "../sun/light.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
-import { areaKind } from "../build/areas.js";
+import { areaKind, boundsOf } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
 import { plainPlaceLabel } from "../electrical/design.js";
 import { buildPlumbing } from "../plumbing/design.js";
@@ -70,6 +71,11 @@ export function createPlanView(canvas, initialHouse) {
   let insetLeft = 0;
   // Where you stand in the 3D walk-through, and which way you face. Null when not walking.
   let walker = null;
+  // The sun when the Sun and shade layer is showing, else null.
+  let sun = null;
+  let sunDrag = null;
+  let onSunDrag = () => {};
+  let shadeCanvas = null;
   let walkerDrag = null;
   let onWalkerMove = () => {};
   let ratioFontReady = false;
@@ -1068,6 +1074,7 @@ export function createPlanView(canvas, initialHouse) {
     drawGrid();
     drawSiteGround();
     drawRooms();
+    drawSunLight();
     drawWalls((house.walls || []).filter((wall) => wall?.start && wall?.end && wallVisible(wall)));
     for (const wall of house.walls || []) {
       if (!wallVisible(wall)) continue;
@@ -1091,10 +1098,141 @@ export function createPlanView(canvas, initialHouse) {
     drawCompass();
     drawWatermark();
     drawMarkers();
+    drawSunRing();
     drawWalker();
     } catch (error) {
       console.error(error);
     }
+  }
+
+  /**
+   * Sun and shade, top down. Roofed rooms sit in shade, walls throw shadows on
+   * the ground, and warm patches show where sun comes in through glass.
+   * Shade and shadows go into one mask first, so overlaps don't get darker.
+   */
+  function drawSunLight() {
+    if (!sun) return;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    if (!shadeCanvas) shadeCanvas = document.createElement("canvas");
+    if (shadeCanvas.width !== Math.round(w * dpr) || shadeCanvas.height !== Math.round(h * dpr)) {
+      shadeCanvas.width = Math.round(w * dpr);
+      shadeCanvas.height = Math.round(h * dpr);
+    }
+    const mask = shadeCanvas.getContext("2d");
+    mask.setTransform(dpr, 0, 0, dpr, 0, 0);
+    mask.clearRect(0, 0, w, h);
+    const traceOn = (g, points) => {
+      g.beginPath();
+      points.forEach((point, index) => {
+        const p = worldToScreen(point.x, point.y);
+        if (index) g.lineTo(p.x, p.y);
+        else g.moveTo(p.x, p.y);
+      });
+      g.closePath();
+    };
+    const visibleRoom = (room) => room?.polygon?.length >= 3 && (!state || isPhaseVisible(room.phase, state));
+    mask.fillStyle = "#000";
+    if (!sun.up) {
+      mask.fillRect(0, 0, w, h);
+    } else {
+      for (const quad of wallShadows(house, sun, { wallVisible })) {
+        traceOn(mask, quad);
+        mask.fill();
+      }
+      for (const room of house.rooms || []) {
+        if (!visibleRoom(room) || !roofed(room)) continue;
+        traceOn(mask, room.polygon);
+        mask.fill();
+      }
+    }
+    ctx.save();
+    ctx.globalAlpha = sun.up ? 0.3 : 0.5;
+    ctx.drawImage(shadeCanvas, 0, 0, w, h);
+    ctx.restore();
+    if (!sun.up) return;
+    // Sun patches: warm, brightest near the window.
+    const warmth = Math.max(0.35, Math.min(1, sun.elevation / 35));
+    for (const patch of sunPatches(house, sun, { wallVisible, roomVisible: visibleRoom })) {
+      const room = (house.rooms || []).find((item) => item.id === patch.roomId);
+      if (!room) continue;
+      ctx.save();
+      trace(room.polygon);
+      ctx.clip();
+      trace(patch.polygon);
+      ctx.fillStyle = `rgba(255, ${Math.round(205 + 25 * warmth)}, ${Math.round(110 + 70 * warmth)}, 0.62)`;
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255, 196, 92, 0.85)";
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /** The middle of what is drawn, and a ring around it for the sun marker. */
+  function sunRing() {
+    const box = boundsOf((house.rooms || []).filter((room) => room?.polygon?.length >= 3 && (!state || isPhaseVisible(room.phase, state))));
+    if (!box || !Number.isFinite(box.x0)) return null;
+    const center = worldToScreen((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2);
+    const corner = worldToScreen(box.x1, box.y0);
+    const radius = Math.max(70, Math.hypot(corner.x - center.x, corner.y - center.y) + 40);
+    return { center, radius };
+  }
+
+  function sunMarkerAt(ring) {
+    const az = (sun.azimuth * Math.PI) / 180;
+    return { x: ring.center.x + Math.sin(az) * ring.radius, y: ring.center.y - Math.cos(az) * ring.radius };
+  }
+
+  /** Where the sun is, around the house. Drag it when the sun is set by hand. */
+  function drawSunRing() {
+    if (!sun) return;
+    const ring = sunRing();
+    if (!ring) return;
+    const at = sunMarkerAt(ring);
+    ctx.save();
+    ctx.setLineDash([3, 6]);
+    ctx.strokeStyle = "rgba(196, 135, 40, 0.45)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(ring.center.x, ring.center.y, ring.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (sun.up) {
+      // A few rays pointing in, the way the light travels.
+      const dx = ring.center.x - at.x;
+      const dy = ring.center.y - at.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      ctx.strokeStyle = "rgba(230, 160, 40, 0.75)";
+      ctx.lineWidth = 2;
+      for (const shift of [-10, 0, 10]) {
+        const ox = -uy * shift;
+        const oy = ux * shift;
+        ctx.beginPath();
+        ctx.moveTo(at.x + ux * 18 + ox, at.y + uy * 18 + oy);
+        ctx.lineTo(at.x + ux * 40 + ox, at.y + uy * 40 + oy);
+        ctx.stroke();
+      }
+    }
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, 11, 0, Math.PI * 2);
+    ctx.fillStyle = sun.up ? "#F4B23A" : "#5A6478";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#FFF8F4";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function sunHit(local) {
+    if (!sun || sun.source !== "manual") return false;
+    const ring = sunRing();
+    if (!ring) return false;
+    const at = sunMarkerAt(ring);
+    return Math.hypot(local.x - at.x, local.y - at.y) <= 16;
   }
 
   /** "You are here" for the walk-through: a dot with a view cone, true to scale. */
@@ -2072,6 +2210,38 @@ export function createPlanView(canvas, initialHouse) {
     return local.x >= box.x - 4 && local.x <= box.x + box.w + 4 && local.y >= box.y - 4 && local.y <= box.y + box.h + 4;
   }
 
+  // Drag the sun marker around the ring to set where the sun comes from.
+  canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !sunHit(localPoint(event))) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    sunDrag = event.pointerId;
+    canvas.style.cursor = "grabbing";
+  }, { capture: true });
+  canvas.addEventListener("pointermove", (event) => {
+    if (sunDrag == null) {
+      if (sun && !event.buttons && sunHit(localPoint(event))) canvas.style.cursor = "grab";
+      return;
+    }
+    if (event.pointerId !== sunDrag) return;
+    event.stopImmediatePropagation();
+    const ring = sunRing();
+    if (!ring) return;
+    const local = localPoint(event);
+    let azimuth = (Math.atan2(local.x - ring.center.x, -(local.y - ring.center.y)) * 180) / Math.PI;
+    if (azimuth < 0) azimuth += 360;
+    onSunDrag(Math.round(azimuth));
+  }, { capture: true });
+  const endSunDrag = (event) => {
+    if (sunDrag == null || event.pointerId !== sunDrag) return;
+    event.stopImmediatePropagation();
+    sunDrag = null;
+    canvas.style.cursor = canvas.dataset.cursor || "";
+  };
+  canvas.addEventListener("pointerup", endSunDrag, { capture: true });
+  canvas.addEventListener("pointercancel", endSunDrag, { capture: true });
+
   // Drag the "You" marker to stand somewhere else in the walk-through.
   // Capture first so a drag on the marker never pans or edits the plan.
   canvas.addEventListener("pointerdown", (event) => {
@@ -2326,6 +2496,14 @@ export function createPlanView(canvas, initialHouse) {
     },
     fit() {
       fit(true);
+    },
+    /** The sun for the Sun and shade layer (from currentSun), or null when it is off. */
+    setSun(next) {
+      sun = next || null;
+      requestRender();
+    },
+    setOnSunDrag(fn) {
+      onSunDrag = typeof fn === "function" ? fn : () => {};
     },
     /** Show where you stand in the walk-through, or null to hide it. */
     setWalker(pose) {
