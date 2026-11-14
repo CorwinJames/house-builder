@@ -17,13 +17,16 @@ import {
   placeOpening,
   resizeOpening,
   setWallAssembly,
-  translateWall,
+  translateWalls,
+  resolveJunctions,
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
+import { nextId } from "../build/ids.js";
+import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
-import { FINE_GRID_FT, placePoint, projectOntoWall, snapAngleNear, snapToGrid } from "../build/snap.js";
+import { FINE_GRID_FT, placePoint, projectOntoWall, snapAngleNear, snapToGrid, snapTranslation } from "../build/snap.js";
 import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import {
   describeWall,
@@ -92,6 +95,7 @@ const TOOLS = [
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
   { id: "plumbing", label: "Water", icon: "💧", tip: "Place sinks, toilets, and the entry" },
   { id: "site", label: "Site", icon: "🌳", tip: "Place the well, tank, and field" },
+  { id: "scale", label: "Scale", icon: "🧍", tip: "Drop a person, bed, sofa, table, or car to judge size" },
   { id: "erase", label: "Delete", icon: "✕", tip: "Click something to remove it" },
 ];
 
@@ -137,6 +141,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let guidesOn = false;
   let selection = null;
   let picks = [];
+  // Where the pointer last was over the plan or the 3D floor. Paste lands here.
+  let pointerWorld = null;
+  // In-app clipboard for Copy and Paste: copies of items plus the point they were copied around.
+  let clipboard = null;
   let foldedFor = "";
   let gesture = null;
   let measureOpen = false;
@@ -153,6 +161,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let pumpSupply = "240";
   let fixtureKind = "kitchen-sink";
   let siteKind = "well";
+  let figureKind = "person";
   let siteGhosts = [];
   let hoverWorld = null;
   let advancedOn = false;
@@ -208,7 +217,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -294,6 +303,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (meta && event.key.toLowerCase() === "y") {
       event.preventDefault();
       redo();
+    } else if (meta && event.key.toLowerCase() === "c" && mode === "build" && !event.shiftKey && !event.altKey) {
+      if (!picks.length) return;
+      event.preventDefault();
+      copySelection();
+    } else if (meta && event.key.toLowerCase() === "v" && mode === "build" && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      pasteClipboard();
     } else if (mode === "build" && tool === "select" && (event.key === "Delete" || event.key === "Backspace") && picks.length && !typingTarget(event.target)) {
       event.preventDefault();
       eraseSelection();
@@ -589,7 +605,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pointFor(activeTool, world, extra) {
-    if (activeTool === "site" || activeTool === "room" || activeTool === "wall") return world || extra?.surface || null;
+    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale") return world || extra?.surface || null;
     return extra?.surface || world || null;
   }
 
@@ -796,6 +812,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function onDown(event, world, extra) {
+    notePointer(world, extra);
     if (measureOpen) cancelMeasure();
     world = pointFor(tool, world, extra);
     if (!world || mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
@@ -829,7 +846,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         };
         return true;
       }
-      choose(item);
+      // Pressing on something that is already part of a multi-selection keeps the
+      // whole selection, so dragging moves it all as one piece.
+      const inGroup = hit?.type !== "endpoint" && picks.length > 1 && picks.some((pick) => pick.type === item.type && pick.id === item.id);
+      if (!inGroup) choose(item);
       const selectedWall = hit.type === "wall" || hit.type === "endpoint"
         ? house.walls.find((wall) => wall.id === item.id)
         : null;
@@ -840,11 +860,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         moved: false,
         snapshot: cloneHouse(house),
         wasLength: selectedWall ? wallLength(selectedWall) : null,
+        group: inGroup ? groupFrom(picks) : (item.type === "room" && !movablePiece(item) ? groupFrom([item]) : null),
+        clickItem: inGroup ? item : null,
         clientX: event.clientX,
         clientY: event.clientY,
       };
       publish();
       armPan();
+      return true;
+    }
+    if (tool === "scale") {
+      if (!world) return true;
+      const figure = makeFigure(figureKind, world, nextId("figure"));
+      const next = cloneHouse(house);
+      next.furniture = [...(next.furniture || []), figure];
+      commit(next, house, "placing a scale figure");
+      choose({ type: "furniture", id: figure.id });
+      announce(`Placed a ${scaleFigure(figureKind).label.toLowerCase()}. Use Select to drag it.`);
+      publish();
       return true;
     }
     if (tool === "erase") {
@@ -933,6 +966,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function onMove(event, world, extra) {
+    notePointer(world, extra);
     world = pointFor(tool, world, extra);
     if (measureOpen) return;
     if (!gesture || !world) return;
@@ -977,7 +1011,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       scheduleLive(moveEndpointGroup(gesture.snapshot, gesture.hit.point, snapped));
       return;
     }
-    if (gesture.kind === "select" && gesture.hit?.type === "wall") {
+    if (gesture.kind === "select" && (gesture.hit?.type === "wall" || gesture.group?.walls.length)) {
       const dx = world.x - gesture.origin.x;
       const dy = world.y - gesture.origin.y;
       if (!gesture.moved && !movedEnough(gesture.origin, world)) return;
@@ -986,7 +1020,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const step = snapping(event) ? grid : 0;
       const sdx = step ? snapToGrid(dx, step) : dx;
       const sdy = step ? snapToGrid(dy, step) : dy;
-      scheduleLive(translateWall(gesture.snapshot, gesture.hit.id, sdx, sdy));
+      const ids = gesture.group?.walls.length ? gesture.group.walls : [gesture.hit.id];
+      const move = snapPieceMove(gesture.snapshot, ids, sdx, sdy, event);
+      gesture.joined = move.snapped;
+      gesture.movedWalls = ids;
+      let next = translateWalls(gesture.snapshot, ids, move.dx, move.dy);
+      for (const piece of gesture.group?.pieces || []) next = movePiece(next, piece, move.dx, move.dy, 0);
+      scheduleLive(next);
       return;
     }
     if (gesture.kind === "select" && (["fixture", "device", "panel", "entry", "well", "septic", "drainfield", "reserve"].includes(gesture.hit?.type) || movablePiece(gesture.hit, gesture.snapshot))) {
@@ -1005,14 +1045,26 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const opening = gesture.snapshot.openings.find((item) => item.id === gesture.hit.id);
       const wall = opening && gesture.snapshot.walls.find((item) => item.id === opening.wallId);
       if (!wall) return;
-      const hit = projectOntoWall(world, wall);
-      if (!hit) return;
       window.clearTimeout(longTimer);
       gesture.moved = true;
-      const slid = snapOpeningOffset(wall, gesture.snapshot.openings, hit.offset - opening.width / 2, opening.width, openingStep(event), opening.id);
       const next = cloneHouse(gesture.snapshot);
       const target = next.openings.find((item) => item.id === opening.id);
-      if (target && slid.ok) target.offset = slid.offset;
+      // Near another wall, the door or window jumps onto it. Otherwise it slides along its own wall.
+      const spot = wallSpotFor(gesture.snapshot, world, opening.width, opening.id, openingStep(event));
+      if (target && spot?.ok) {
+        target.wallId = spot.wall.id;
+        target.offset = spot.offset;
+        gesture.jumped = spot.wall.id !== wall.id;
+      } else {
+        const hit = projectOntoWall(world, wall);
+        if (!hit) return;
+        const slid = snapOpeningOffset(wall, gesture.snapshot.openings, hit.offset - opening.width / 2, opening.width, openingStep(event), opening.id);
+        if (target && slid.ok) {
+          target.wallId = wall.id;
+          target.offset = slid.offset;
+          gesture.jumped = false;
+        }
+      }
       scheduleLive(next);
     }
   }
@@ -1052,10 +1104,33 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
     } else if (current.kind === "opening") {
       announce(current.place ? "Slide onto a clear stretch of wall." : "Click a wall to place the opening.", false);
+    } else if (current.kind === "select" && !current.moved && current.clickItem) {
+      // A plain click inside a multi-selection picks just that item.
+      choose(current.clickItem);
     } else if ((current.kind === "endpoint" || current.kind === "select") && current.moved) {
-      const pieceMove = movablePiece(current.hit, current.snapshot);
-      commit(pieceMove ? house : syncRooms(house), current.snapshot);
-      announce("Moved it.");
+      const pieceMove = movablePiece(current.hit, current.snapshot) && !current.group?.walls.length;
+      let next = house;
+      if (current.movedWalls?.length) {
+        // A moved end that landed on the middle of a wall tees into it.
+        next = cloneHouse(house);
+        try { resolveJunctions(next, current.movedWalls); } catch { next = house; }
+      }
+      commit(pieceMove ? next : syncRooms(next), current.snapshot);
+      if (current.hit?.type === "opening") {
+        const moved = house.openings.find((item) => item.id === current.hit.id);
+        announce(current.jumped ? `Moved the ${moved?.type === "window" ? "window" : "door"} to another wall.` : `Slid the ${moved?.type === "window" ? "window" : "door"}.`);
+      } else if (current.movedWalls?.length) {
+        const count = current.movedWalls.length;
+        const what = count === 1 ? "the wall" : `${count} walls`;
+        const them = count === 1 ? "it" : "them";
+        announce(current.joined === "end"
+          ? `Moved ${what} and joined ${them} at the wall end.`
+          : current.joined === "line"
+            ? `Moved ${what} and joined ${them} to the wall.`
+            : `Moved ${what}.`);
+      } else {
+        announce("Moved it.");
+      }
     }
     publish();
   }
@@ -1085,6 +1160,38 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!pick?.type || !pick.id) return null;
     if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel") return null;
     return { type: pick.type, id: pick.id };
+  }
+
+  /** The walls (and loose pieces) a multi-selection moves together. Rooms bring their walls. */
+  function groupFrom(list) {
+    const walls = new Set();
+    const pieces = [];
+    for (const pick of list || []) {
+      if (pick.type === "wall") walls.add(pick.id);
+      else if (pick.type === "room" && !movablePiece(pick)) {
+        const room = (house.rooms || []).find((item) => item.id === pick.id);
+        for (const id of wallsTouchingRoom(house, room)) walls.add(id);
+      } else if (movablePiece(pick)) pieces.push({ type: pick.type, id: pick.id });
+    }
+    return { walls: [...walls], pieces };
+  }
+
+  /**
+   * Snap a whole wall, or a group of walls, onto the walls that stay put:
+   * a moving end clicks onto a nearby wall end (always), or onto the middle of a
+   * wall when Snap to grid is on. Walls that stretch with the move are skipped.
+   */
+  function snapPieceMove(snapshot, ids, dx, dy, event) {
+    const moving = new Set(ids);
+    const ends = [];
+    for (const wall of snapshot.walls) {
+      if (moving.has(wall.id)) ends.push(wall.start, wall.end);
+    }
+    const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= 0.25;
+    const still = snapshot.walls.filter((wall) => !moving.has(wall.id)
+      && visibleWall(wall)
+      && !ends.some((end) => near(end, wall.start) || near(end, wall.end)));
+    return snapTranslation(ends, still, dx, dy, { radius: endMagnetFeet(), lines: snapping(event) });
   }
 
   function movablePiece(hit, doc = house) {
@@ -1205,7 +1312,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     publish();
   }
 
+  function notePointer(world, extra) {
+    const point = world || extra?.surface || null;
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) pointerWorld = { x: point.x, y: point.y };
+  }
+
   function onHover(event, world, extra) {
+    notePointer(world, extra);
     if (mode !== "build" || gesture) return;
     const point = world ? pointFor(tool, world, extra) : null;
     if (!point) {
@@ -1242,6 +1355,23 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!best || hit.distance < best.distance) {
         best = { wall, offset: slid.offset, width: item.width, ok: slid.ok, distance: hit.distance };
       }
+    }
+    return best;
+  }
+
+  /**
+   * The clear stretch of wall nearest `world` that can take an opening this wide.
+   * `ignoreId` is the opening being moved, so it does not block itself.
+   */
+  function wallSpotFor(doc, world, width, ignoreId = null, step = grid) {
+    let best = null;
+    for (const wall of doc.walls || []) {
+      if (!visibleWall(wall)) continue;
+      const hit = projectOntoWall(world, wall);
+      if (!hit || hit.distance > wall.thickness / 2 + magnetRadius()) continue;
+      const slid = snapOpeningOffset(wall, doc.openings || [], hit.offset - width / 2, width, step, ignoreId);
+      if (!slid.ok) continue;
+      if (!best || hit.distance < best.distance) best = { wall, offset: slid.offset, ok: true, distance: hit.distance };
     }
     return best;
   }
@@ -1596,6 +1726,95 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     announce(`Redid ${note}.`, false);
   }
 
+  const COPY_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels" };
+
+  function openingCenter(doc, opening) {
+    const wall = (doc.walls || []).find((item) => item.id === opening.wallId);
+    return wall ? pointAlong(wall, opening.offset + opening.width / 2) : null;
+  }
+
+  function nameOf(type, item) {
+    if (type === "opening") return item.type === "window" ? "window" : "door";
+    if (type === "furniture") return String(item.name || "figure").toLowerCase();
+    if (type === "planLabel") return "label";
+    return String(item.kind || "mark").toLowerCase();
+  }
+
+  /** Copy doors, windows, figures, labels, and site marks. Walls, rooms, power, and water stay put. */
+  function copySelection() {
+    const items = [];
+    let skipped = 0;
+    for (const pick of picks) {
+      if (pick.type === "opening") {
+        const opening = house.openings.find((item) => item.id === pick.id);
+        const at = opening && openingCenter(house, opening);
+        if (at) items.push({ type: "opening", data: structuredClone(opening), at });
+        continue;
+      }
+      const key = COPY_KEYS[pick.type];
+      const found = key && (house[key] || []).find((item) => item.id === pick.id);
+      if (found) items.push({ type: pick.type, data: structuredClone(found), at: { x: found.x, y: found.y } });
+      else skipped += 1;
+    }
+    if (!items.length) {
+      announce("Copy works for doors, windows, scale figures, labels, and site marks. Walls and rooms can't be copied yet.", false);
+      return;
+    }
+    const anchor = {
+      x: items.reduce((sum, item) => sum + item.at.x, 0) / items.length,
+      y: items.reduce((sum, item) => sum + item.at.y, 0) / items.length,
+    };
+    clipboard = { items, anchor };
+    const what = items.length === 1 ? `the ${nameOf(items[0].type, items[0].data)}` : `${items.length} items`;
+    const key = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘V" : "Ctrl+V";
+    announce(`Copied ${what}${skipped ? ` (${skipped} can't be copied)` : ""}. Point where it goes and press ${key}.`, false);
+  }
+
+  /** Paste at the pointer. A door or window lands on the clear wall nearest the pointer. */
+  function pasteClipboard() {
+    if (!clipboard?.items?.length) {
+      announce("Select a door or window and press ⌘C first.", false);
+      return;
+    }
+    const target = pointerWorld || { x: clipboard.anchor.x + 2, y: clipboard.anchor.y - 2 };
+    const dx = target.x - clipboard.anchor.x;
+    const dy = target.y - clipboard.anchor.y;
+    const next = cloneHouse(house);
+    const made = [];
+    let missed = 0;
+    for (const entry of clipboard.items) {
+      const point = { x: entry.at.x + dx, y: entry.at.y + dy };
+      if (entry.type === "opening") {
+        const spot = wallSpotFor(next, point, entry.data.width, null, grid);
+        if (!spot) {
+          missed += 1;
+          continue;
+        }
+        const copy = { ...structuredClone(entry.data), id: nextId(entry.data.type), wallId: spot.wall.id, offset: spot.offset };
+        next.openings.push(copy);
+        made.push({ type: "opening", id: copy.id });
+        continue;
+      }
+      const key = COPY_KEYS[entry.type];
+      if (!key) continue;
+      const copy = { ...structuredClone(entry.data), id: nextId(entry.type === "planLabel" ? "label" : entry.type), x: point.x, y: point.y };
+      next[key] = [...(next[key] || []), copy];
+      made.push({ type: entry.type, id: copy.id });
+    }
+    if (!made.length) {
+      announce(clipboard.items.length === 1 && clipboard.items[0].type === "opening"
+        ? `Point at a clear stretch of wall, then paste the ${nameOf("opening", clipboard.items[0].data)}.`
+        : "Nothing fit there. Point somewhere else and paste again.", false);
+      return;
+    }
+    holdCamera();
+    commit(next, house, "pasting");
+    applyPicks(made);
+    const what = made.length === 1 && clipboard.items.length === 1 ? `the ${nameOf(clipboard.items[0].type, clipboard.items[0].data)}` : `${made.length} items`;
+    announce(`Pasted ${what}${missed ? `. ${missed} needed a clear wall and were skipped` : ""}.`);
+    publish();
+  }
+
   function eraseSelection(hit) {
     if (!hit || typeof hit.preventDefault === "function") {
       deleteItems(picks);
@@ -1744,7 +1963,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     model.setOverlay?.(overlay);
     model.setSelection?.(mode === "build" ? picks.map((item) => ({ ...item })) : null);
     model.setSelected?.(mode === "build" && picks.length === 1 && picks[0].type === "wall" ? picks[0].id : null);
-    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing"].includes(tool) ? "crosshair" : "");
+    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing", "scale"].includes(tool) ? "crosshair" : "");
     paintCoach();
   }
 
@@ -1773,6 +1992,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       window: "Window tool. Click a wall to place a window.",
       erase: "Delete tool. Click something to remove it.",
       site: "Site tool. Click the lot to place the item under the pointer.",
+      scale: "Scale tool. Click to drop a person, bed, sofa, table, or car, so you can judge how big a room is. Use Select to drag it.",
     };
     return `${lines[tool] || "Build mode."}${orbitNote}`;
   }
@@ -1890,7 +2110,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -1921,6 +2141,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       box.querySelectorAll("[data-skip-site]").forEach((button) => {
         button.addEventListener("click", () => skipSiteGhosts([button.dataset.skipSite]));
       });
+      return;
+    }
+    if (tool === "scale") {
+      const figure = scaleFigure(figureKind);
+      const size = `${formatFeetFine(figure.width).construction} × ${formatFeetFine(figure.depth).construction}${figure.kind === "person" ? ", 5 ft 9 in tall" : ""}`;
+      box.innerHTML = `
+        <section class="opt-section">
+          <p class="opt-label">Scale figure</p>
+          <div class="swatch-row">${SCALE_FIGURES.map((item) => `<button type="button" class="chip" data-figure="${item.kind}" aria-pressed="${item.kind === figureKind}"><span aria-hidden="true">${item.icon}</span>${item.label}</button>`).join("")}</div>
+          <p class="fine opt-hint">${figure.label}: ${size}. Click the plan or the 3D floor to drop one. They're only for judging size and don't count in the cost.</p>
+        </section>`;
       return;
     }
     if (tool === "wall" || tool === "room") {
@@ -2045,6 +2276,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (event.target.closest("#tidy-shape")) {
       tidySelection();
+      return;
+    }
+    const figureButton = event.target.closest("button[data-figure]");
+    if (figureButton) {
+      figureKind = figureButton.dataset.figure;
+      optionsKey = "";
+      publish();
       return;
     }
     const shape = event.target.closest("button[data-shape]");

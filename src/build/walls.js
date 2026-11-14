@@ -320,6 +320,28 @@ export function translateWall(house, wallId, dx, dy, tolerance = 0.25) {
   return next;
 }
 
+/**
+ * Move several walls together as one rigid piece. Walls outside the set that
+ * were joined to a moving end stretch to stay joined, like a single-wall move.
+ */
+export function translateWalls(house, wallIds, dx, dy, tolerance = 0.25) {
+  const ids = new Set(wallIds);
+  const next = cloneHouse(house);
+  const moving = next.walls.filter((wall) => ids.has(wall.id));
+  const points = [];
+  for (const wall of moving) points.push({ ...wall.start }, { ...wall.end });
+  for (const other of next.walls) {
+    if (ids.has(other.id)) continue;
+    if (points.some((point) => dist(other.start, point) <= tolerance)) other.start = { x: other.start.x + dx, y: other.start.y + dy };
+    if (points.some((point) => dist(other.end, point) <= tolerance)) other.end = { x: other.end.x + dx, y: other.end.y + dy };
+  }
+  for (const wall of moving) {
+    wall.start = { x: wall.start.x + dx, y: wall.start.y + dy };
+    wall.end = { x: wall.end.x + dx, y: wall.end.y + dy };
+  }
+  return next;
+}
+
 export function deleteWall(house, wallId) {
   const next = cloneHouse(house);
   next.walls = next.walls.filter((wall) => wall.id !== wallId);

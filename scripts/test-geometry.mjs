@@ -13,7 +13,8 @@ import {
 } from "../src/build/angle.js";
 import { tidyHouse } from "../src/build/tidy.js";
 import { openingFits, snapOpeningOffset } from "../src/build/openings.js";
-import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse } from "../src/build/walls.js";
+import { addWall, resolveJunctions, decorateHouse, wallsOverlap, cloneHouse, translateWalls } from "../src/build/walls.js";
+import { snapTranslation } from "../src/build/snap.js";
 import { detectFaces, syncRooms } from "../src/build/rooms.js";
 import { headerForSpan, suggestAssemblyId, DEFAULT_EXTERIOR_ID, RAMMED_EARTH_ID, INTERIOR_ID, catalogForTool } from "../src/build/catalog.js";
 import { evaluateRules } from "../src/rules/index.js";
@@ -386,6 +387,29 @@ check("a ratio wall is the joined wall times or divided by the ratio, nearest th
   assert.equal(shorter.relation, "over");
   assert.ok(Math.abs(shorter.length - 10 / phi) < 1e-9);
   assert.equal(ratioWallEnd({ x: 0, y: 0 }, { x: 3, y: 0 }, 10, 1).relation, "same");
+});
+
+check("a group of walls moves as one piece and clicks onto a wall end", () => {
+  const still = jw("still", 0, 0, 10, 0);
+  const a = jw("a", 20, 3, 30, 3);
+  const b = jw("b", 30, 3, 30, 10);
+  const ends = [a.start, a.end, b.start, b.end];
+  // Dragged so a's start lands 0.3 ft from the still wall's end: it clicks on.
+  const move = snapTranslation(ends, [still], -9.7, -2.8, { radius: 0.5 });
+  assert.equal(move.snapped, "end");
+  assert.ok(Math.abs(move.dx + 10) < 1e-9 && Math.abs(move.dy + 3) < 1e-9);
+  const house = { walls: [still, a, b], openings: [], rooms: [] };
+  const moved = translateWalls(house, ["a", "b"], move.dx, move.dy);
+  const ma = moved.walls.find((w) => w.id === "a");
+  const mb = moved.walls.find((w) => w.id === "b");
+  assert.deepEqual(ma.start, { x: 10, y: 0 });
+  assert.deepEqual(mb.end, { x: 20, y: 7 }, "the second wall keeps its shape");
+  assert.deepEqual(moved.walls.find((w) => w.id === "still").end, { x: 10, y: 0 }, "the still wall stays");
+  const free = snapTranslation(ends, [still], -5, -2.8, { radius: 0.5 });
+  assert.equal(free.snapped, null);
+  const line = snapTranslation([{ x: 5, y: 3 }], [still], 0, -2.8, { radius: 0.5, lines: true });
+  assert.equal(line.snapped, "line");
+  assert.ok(Math.abs(line.dy + 3) < 1e-9);
 });
 
 if (failed) {

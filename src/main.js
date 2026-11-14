@@ -105,8 +105,19 @@ app.innerHTML = `
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
-          <div class="hud glass"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
+          <div class="hud glass"><span id="model-mode-label">3D · orbit</span><button type="button" id="edit-3d" aria-pressed="false">Edit</button><button type="button" id="orbit-3d" aria-pressed="true">Orbit</button><button type="button" id="walk-3d" aria-pressed="false" title="Stand inside at eye height and walk around">Walk</button><button type="button" id="cutaway-3d" aria-pressed="false">Cutaway</button><button type="button" id="roof-toggle" aria-pressed="true">Roof</button><button type="button" id="reset-3d">Reset view</button></div>
           <p class="webgl-fallback" id="webgl-fallback" hidden></p>
+          <div class="walk-help glass" id="walk-help" hidden>
+            <p><strong>Walking at eye height (5 ft 6 in).</strong> W A S D or the arrow keys to walk, Shift to go faster, drag to look. Esc or Walk to stop.</p>
+            <div class="walk-pad" aria-label="Walk">
+              <button type="button" data-walk="ArrowLeft" aria-label="Turn left">↺</button>
+              <button type="button" data-walk="KeyW" aria-label="Forward">▲</button>
+              <button type="button" data-walk="ArrowRight" aria-label="Turn right">↻</button>
+              <button type="button" data-walk="KeyA" aria-label="Step left">◀</button>
+              <button type="button" data-walk="KeyS" aria-label="Back">▼</button>
+              <button type="button" data-walk="KeyD" aria-label="Step right">▶</button>
+            </div>
+          </div>
         </section>
         <div id="build-hud" class="build-hud" hidden>
           <div id="coach-dock" class="coach-dock glass" hidden>
@@ -301,6 +312,14 @@ costs = attachCosts({
 plan.setOnChange((planCamera) => {
   state.plan = planCamera;
   saveViewState(state);
+});
+model.setOnWalkChange?.((on) => {
+  document.querySelector("#walk-3d")?.setAttribute("aria-pressed", String(on));
+  const help = document.querySelector("#walk-help");
+  if (help) help.hidden = !on;
+  const label = document.querySelector("#model-mode-label");
+  sync3d();
+  document.dispatchEvent(new CustomEvent("app-toast", { detail: { text: on ? "Walking at eye height" : "Back to the overview" } }));
 });
 model.setOnChange((camera) => {
   state.camera = camera;
@@ -501,8 +520,9 @@ function sync3d() {
   document.body.dataset.orbit = String(!editing);
   model.setEditing?.(editing);
   model.setCutaway?.(cutaway3d);
-  document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing));
-  document.querySelector("#orbit-3d")?.setAttribute("aria-pressed", String(!editing));
+  const walking = !!model?.isWalking?.();
+  document.querySelector("#edit-3d")?.setAttribute("aria-pressed", String(editing && !walking));
+  document.querySelector("#orbit-3d")?.setAttribute("aria-pressed", String(!editing && !walking));
   document.querySelector("#cutaway-3d")?.setAttribute("aria-pressed", String(cutaway3d));
   const roofBtn = document.querySelector("#roof-toggle");
   const building = editor?.mode() === "build";
@@ -515,7 +535,7 @@ function sync3d() {
       : "Show or hide the roof.";
   }
   const label = document.querySelector("#model-mode-label");
-  if (label) label.textContent = editing ? "3D · edit" : "3D · orbit";
+  if (label) label.textContent = model?.isWalking?.() ? "3D · walk" : (editing ? "3D · edit" : "3D · orbit");
 }
 
 function bindShell() {
@@ -610,14 +630,46 @@ document.querySelector("#reset-3d").addEventListener("click", () => {
 });
 document.querySelector("#edit-3d").addEventListener("click", () => {
   if (!editor) return;
+  if (model?.isWalking?.()) model.setWalking(false);
   orbit3d = false;
   if (editor.mode() !== "build") document.querySelector("[data-mode=build]").click();
   else publish();
 });
 document.querySelector("#orbit-3d").addEventListener("click", () => {
+  if (model?.isWalking?.()) model.setWalking(false);
   orbit3d = true;
   publish();
 });
+document.querySelector("#walk-3d").addEventListener("click", () => {
+  if (!model) return;
+  if (model.isWalking?.()) {
+    model.setWalking(false);
+    return;
+  }
+  // Stand in the selected room, if one is selected. Otherwise the biggest room.
+  const pick = editor?.selection?.();
+  const room = pick?.type === "room" ? editor.house().rooms.find((item) => item.id === pick.id) : null;
+  let at = null;
+  if (room?.polygon?.length) {
+    const xs = room.polygon.map((point) => point.x);
+    const ys = room.polygon.map((point) => point.y);
+    at = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  }
+  model.setWalking(true, at);
+});
+for (const button of document.querySelectorAll("[data-walk]")) {
+  const code = button.dataset.walk;
+  const press = (event) => {
+    event.preventDefault();
+    button.setPointerCapture?.(event.pointerId);
+    model?.walkKey?.(code, true);
+  };
+  const release = () => model?.walkKey?.(code, false);
+  button.addEventListener("pointerdown", press);
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+  button.addEventListener("lostpointercapture", release);
+}
 document.querySelector("#cutaway-3d").addEventListener("click", () => {
   cutaway3d = !cutaway3d;
   publish();
