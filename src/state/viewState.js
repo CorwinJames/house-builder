@@ -3,7 +3,7 @@ import { LAYER_DEFS } from "../layers.js";
 const KEY = "house-builder.view.v1";
 
 function defaultLayers() {
-  return Object.fromEntries(LAYER_DEFS.map((layer) => [layer.id, !layer.stub]));
+  return Object.fromEntries(LAYER_DEFS.map((layer) => [layer.id, !layer.stub && layer.defaultOn !== false]));
 }
 
 export function defaultViewState() {

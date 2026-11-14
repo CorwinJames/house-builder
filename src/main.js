@@ -13,6 +13,7 @@ import { attachCosts } from "./ui/costs.js";
 import { attachWarnings } from "./ui/warnings.js";
 import { siteCardHtml } from "./ui/sitePanel.js";
 import { blankPlan, fourRoomSample } from "./build/newPlan.js";
+import { DEFAULT_SUN, SITE_TIME_ZONE, clockText, compassWord, currentSun, dateText, lotLocation } from "./sun/solar.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -119,6 +120,7 @@ app.innerHTML = `
             </div>
           </div>
         </section>
+        <section id="sun-panel" class="sun-panel glass" hidden aria-label="Sun and shade"></section>
         <div id="build-hud" class="build-hud" hidden>
           <div id="coach-dock" class="coach-dock glass" hidden>
             <div class="coach">
@@ -272,10 +274,12 @@ let warningsUi = null;
 let onDocument = () => {};
 let account = null;
 let costs = null;
+let sunPanelKey = "";
 try {
 plan = createPlanView(planCanvas, house);
 model = createView3d(modelCanvas, house);
 plan.setState(state);
+plan.setOnSunDrag?.((azimuth) => setSun({ azimuth }));
 editor = attachEditor({
   plan,
   model,
@@ -454,6 +458,176 @@ function syncBuildRoof() {
   }
 }
 
+/* ---------- Sun and shade ---------- */
+
+const DAYS_BEFORE = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+function dayOfYear(month, day) {
+  return DAYS_BEFORE[month - 1] + day;
+}
+function monthDay(doy) {
+  let month = 12;
+  while (month > 1 && DAYS_BEFORE[month - 1] >= doy) month -= 1;
+  return { month, day: doy - DAYS_BEFORE[month - 1] };
+}
+
+function sunSettings() {
+  return { ...DEFAULT_SUN, ...(state.sun || {}) };
+}
+
+/** The layer is on, and not hidden for building (unless "keep on while building" is ticked). */
+function sunShowing() {
+  if (!state.layers?.sun) return false;
+  return editor?.mode() !== "build" || !!sunSettings().keepWhileBuilding;
+}
+
+function setSun(patch) {
+  state.sun = { ...sunSettings(), ...patch };
+  saveViewState(state);
+  syncSun();
+}
+
+function syncSun() {
+  const house = editor?.house();
+  const on = sunShowing() && house;
+  const now = on ? currentSun(house, sunSettings()) : null;
+  try { plan?.setSun?.(now); } catch (error) { console.error(error); }
+  try { model?.setSun?.(now); } catch (error) { console.error(error); }
+  paintSunPanel(now);
+}
+
+function sunDialPoint(azimuth, elevation, radius) {
+  const r = radius * (1 - Math.max(0, Math.min(90, elevation)) / 90);
+  const a = (azimuth * Math.PI) / 180;
+  return { x: radius + Math.sin(a) * r, y: radius - Math.cos(a) * r };
+}
+
+/** The Sun panel: date and time for a real lot, or a dial and sliders to set the sun by hand. */
+function paintSunPanel(now) {
+  const panel = document.querySelector("#sun-panel");
+  if (!panel) return;
+  const layerOn = !!state.layers?.sun;
+  panel.hidden = !layerOn;
+  if (!layerOn) {
+    sunPanelKey = "";
+    return;
+  }
+  const settings = sunSettings();
+  const house = editor?.house();
+  const lot = lotLocation(house);
+  const byLot = !!lot && settings.mode !== "manual";
+  const hiddenForBuild = layerOn && !sunShowing();
+  const key = `${!!lot}|${byLot}|${hiddenForBuild}`;
+  if (key !== sunPanelKey) {
+    sunPanelKey = key;
+    const R = 52;
+    panel.innerHTML = `
+      <header class="sun-head">
+        <strong>☀ Sun and shade</strong>
+        <button type="button" class="sun-close" data-sun-off aria-label="Turn off Sun and shade">×</button>
+      </header>
+      ${hiddenForBuild ? `<p class="sun-readout">Hidden while building.</p>` : `<p class="sun-readout" id="sun-readout"></p>`}
+      ${lot ? `<div class="seg sun-mode"><button type="button" data-sun-mode="auto" aria-pressed="${byLot}">From the lot</button><button type="button" data-sun-mode="manual" aria-pressed="${!byLot}">By hand</button></div>` : ""}
+      ${byLot ? `
+        <label class="sun-slider"><span>Date <b id="sun-date"></b></span><input type="range" id="sun-doy" min="1" max="365" step="1" /></label>
+        <label class="sun-slider"><span>Time <b id="sun-time"></b></span><input type="range" id="sun-minutes" min="240" max="1320" step="5" /></label>
+        <div class="sun-presets">
+          <button type="button" class="chip" data-sun-day="12,21">Dec 21</button>
+          <button type="button" class="chip" data-sun-day="3,20">Mar 20</button>
+          <button type="button" class="chip" data-sun-day="6,21">Jun 21</button>
+          <button type="button" class="chip" data-sun-now>Now</button>
+        </div>` : `
+        <div class="sun-hand">
+          <svg class="sun-dial" id="sun-dial" viewBox="0 0 ${R * 2} ${R * 2}" width="${R * 2}" height="${R * 2}" aria-label="Drag the sun to set its direction and height">
+            <circle cx="${R}" cy="${R}" r="${R - 1}" class="dial-sky" />
+            <circle cx="${R}" cy="${R}" r="${R * 2 / 3}" class="dial-ring" />
+            <circle cx="${R}" cy="${R}" r="${R / 3}" class="dial-ring" />
+            <text x="${R}" y="11" class="dial-n">N</text><text x="${R * 2 - 7}" y="${R + 4}" class="dial-n">E</text>
+            <text x="${R}" y="${R * 2 - 4}" class="dial-n">S</text><text x="7" y="${R + 4}" class="dial-n">W</text>
+            <circle id="sun-dot" r="7" class="dial-sun" />
+          </svg>
+          <div class="sun-hand-sliders">
+            <label class="sun-slider"><span>From <b id="sun-az-text"></b></span><input type="range" id="sun-az" min="0" max="359" step="1" /></label>
+            <label class="sun-slider"><span>Height <b id="sun-el-text"></b></span><input type="range" id="sun-el" min="0" max="90" step="1" /></label>
+          </div>
+        </div>
+        ${lot ? "" : `<p class="fine">No lot location yet, so set the sun by hand. Drag it here or on the plan.</p>`}`}
+      <label class="sun-keep"><input type="checkbox" id="sun-keep" ${settings.keepWhileBuilding ? "checked" : ""} /> Keep on while building</label>`;
+    bindSunPanel(panel, R);
+  }
+  const readout = panel.querySelector("#sun-readout");
+  if (readout) readout.textContent = now?.label || "";
+  const doy = panel.querySelector("#sun-doy");
+  if (doy && document.activeElement !== doy) doy.value = String(dayOfYear(settings.month, settings.day));
+  const minutes = panel.querySelector("#sun-minutes");
+  if (minutes && document.activeElement !== minutes) minutes.value = String(settings.minutes);
+  const dateLabel = panel.querySelector("#sun-date");
+  if (dateLabel) dateLabel.textContent = dateText(settings.month, settings.day);
+  const timeLabel = panel.querySelector("#sun-time");
+  if (timeLabel) timeLabel.textContent = clockText(settings.minutes);
+  const az = panel.querySelector("#sun-az");
+  if (az && document.activeElement !== az) az.value = String(Math.round(settings.azimuth));
+  const el = panel.querySelector("#sun-el");
+  if (el && document.activeElement !== el) el.value = String(Math.round(settings.elevation));
+  const azText = panel.querySelector("#sun-az-text");
+  if (azText) azText.textContent = `${compassWord(settings.azimuth)} · ${Math.round(settings.azimuth)}°`;
+  const elText = panel.querySelector("#sun-el-text");
+  if (elText) elText.textContent = `${Math.round(settings.elevation)}°`;
+  const dot = panel.querySelector("#sun-dot");
+  if (dot) {
+    const R = 52;
+    const at = sunDialPoint(settings.azimuth, settings.elevation, R);
+    dot.setAttribute("cx", at.x.toFixed(1));
+    dot.setAttribute("cy", at.y.toFixed(1));
+  }
+}
+
+function bindSunPanel(panel, R) {
+  panel.querySelector("[data-sun-off]")?.addEventListener("click", () => {
+    state.layers.sun = false;
+    publish();
+  });
+  panel.querySelectorAll("[data-sun-mode]").forEach((button) => {
+    button.addEventListener("click", () => setSun({ mode: button.dataset.sunMode }));
+  });
+  panel.querySelector("#sun-doy")?.addEventListener("input", (event) => setSun(monthDay(Number(event.target.value))));
+  panel.querySelector("#sun-minutes")?.addEventListener("input", (event) => setSun({ minutes: Number(event.target.value) }));
+  panel.querySelectorAll("[data-sun-day]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const [month, day] = button.dataset.sunDay.split(",").map(Number);
+      setSun({ month, day });
+    });
+  });
+  panel.querySelector("[data-sun-now]")?.addEventListener("click", () => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: SITE_TIME_ZONE, hourCycle: "h23", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" })
+      .formatToParts(new Date()).map((part) => [part.type, part.value]));
+    setSun({ month: Number(parts.month), day: Number(parts.day), minutes: Number(parts.hour) * 60 + Number(parts.minute) });
+  });
+  panel.querySelector("#sun-az")?.addEventListener("input", (event) => setSun({ azimuth: Number(event.target.value) }));
+  panel.querySelector("#sun-el")?.addEventListener("input", (event) => setSun({ elevation: Number(event.target.value) }));
+  panel.querySelector("#sun-keep")?.addEventListener("change", (event) => {
+    setSun({ keepWhileBuilding: event.target.checked });
+  });
+  const dial = panel.querySelector("#sun-dial");
+  if (dial) {
+    const fromEvent = (event) => {
+      const rect = dial.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * R * 2 - R;
+      const y = ((event.clientY - rect.top) / rect.height) * R * 2 - R;
+      let azimuth = (Math.atan2(x, -y) * 180) / Math.PI;
+      if (azimuth < 0) azimuth += 360;
+      const elevation = Math.max(0, Math.min(90, 90 * (1 - Math.min(1, Math.hypot(x, y) / R))));
+      setSun({ azimuth: Math.round(azimuth), elevation: Math.round(elevation) });
+    };
+    dial.addEventListener("pointerdown", (event) => {
+      dial.setPointerCapture(event.pointerId);
+      fromEvent(event);
+    });
+    dial.addEventListener("pointermove", (event) => {
+      if (dial.hasPointerCapture(event.pointerId)) fromEvent(event);
+    });
+  }
+}
+
 function publish() {
   if (!plan || !model) return;
   try { syncBuildRoof(); } catch (error) { console.error(error); }
@@ -461,6 +635,7 @@ function publish() {
   try { plan.setState(state); } catch (error) { console.error(error); }
   try { model.setState({ ...state, building: editor?.mode() === "build" }); } catch (error) { console.error(error); }
   try { syncControls(); } catch (error) { console.error(error); }
+  try { syncSun(); } catch (error) { console.error(error); }
   try { costs?.paint(); } catch (error) { console.error(error); }
   try { warningsUi?.paint(); } catch (error) { console.error(error); }
   try {
