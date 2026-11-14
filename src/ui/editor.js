@@ -531,13 +531,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function hitTest(world) {
     const reach = magnetRadius();
+    // An end handle is grabbed only on the drawn dot (about 11 screen pixels),
+    // so the rest of a short wall still drags the whole wall.
+    const handle = 11 / (plan.getCamera()?.pxPerFt || 8);
     if (selection?.type === "wall") {
       const wall = house.walls.find((item) => item.id === selection.id);
       if (wall) {
-        if (Math.hypot(world.x - wall.start.x, world.y - wall.start.y) <= reach) {
+        if (Math.hypot(world.x - wall.start.x, world.y - wall.start.y) <= handle) {
           return { type: "endpoint", wallId: wall.id, point: { ...wall.start } };
         }
-        if (Math.hypot(world.x - wall.end.x, world.y - wall.end.y) <= reach) {
+        if (Math.hypot(world.x - wall.end.x, world.y - wall.end.y) <= handle) {
           return { type: "endpoint", wallId: wall.id, point: { ...wall.end } };
         }
       }
@@ -1043,7 +1046,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const snapped = aim(world, event, other || null, others);
       const endName = wall && Math.hypot(wall.start.x - gesture.hit.point.x, wall.start.y - gesture.hit.point.y) < 0.2 ? "start" : "end";
       gesture.movedEnd = { wall: gesture.hit.wallId, end: endName };
-      scheduleLive(moveEnd(gesture.snapshot, gesture.hit.wallId, endName, snapped));
+      gesture.endTo = { x: snapped.x, y: snapped.y };
+      // Lay on: only the end you grabbed moves; it comes off the corner.
+      // Clip on (or Option): the clipped corner moves with it.
+      let base = gesture.snapshot;
+      gesture.detached = 0;
+      if (!clipping(event)) {
+        const partners = partnersOf(base, gesture.hit.wallId, endName);
+        if (partners.length) {
+          base = cloneHouse(base);
+          unclipEnd(base, gesture.hit.wallId, endName);
+          gesture.detached = partners.length;
+        }
+      }
+      scheduleLive(moveEnd(base, gesture.hit.wallId, endName, snapped));
       return;
     }
     if (gesture.kind === "select" && (gesture.hit?.type === "wall" || gesture.group?.walls.length)) {
@@ -1280,12 +1296,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const clip = contact ? clipVersion(lay, refs, ids) : lay;
     const count = current.movedWalls?.length || 0;
     const what = count > 1 ? `Moved ${count} walls` : count === 1 ? "Moved the wall" : "Moved the wall end";
-    if (current.detached && current.delta && !current.clip) {
+    if (current.detached && (current.delta || current.endTo) && !current.clip) {
       // It came off its clipped neighbours. Offer to keep it clipped instead,
-      // which stretches those neighbours along, as one piece.
+      // which brings those neighbours along, as one piece.
       commit(syncRooms(lay), current.snapshot, "moving a wall off its corner");
       const committed = house;
-      const kept = syncRooms(translateWalls(current.snapshot, ids, current.delta.dx, current.delta.dy));
+      const kept = syncRooms(current.delta
+        ? translateWalls(current.snapshot, ids, current.delta.dx, current.delta.dy)
+        : moveEnd(current.snapshot, current.movedEnd.wall, current.movedEnd.end, current.endTo));
       const n = current.detached;
       announce(`${what} and unclipped ${count > 1 ? "them" : "it"} from ${n} wall${n === 1 ? "" : "s"}.`, true, {
         label: "Keep it clipped",
@@ -1293,7 +1311,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           if (house !== committed) return;
           undo();
           commit(kept, current.snapshot, "moving clipped walls");
-          announce("Kept it clipped. The walls it was clipped to stretched along.");
+          announce("Kept it clipped. The walls it was clipped to moved along.");
           publish();
         },
       });
@@ -2486,8 +2504,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
   }
 
+  /** Option flips Lay on / Clip on. A pointer event says for itself whether Option is down, so a missed key-up can't leave it stuck. */
   function clipping(event) {
-    return clipOn !== !!(event?.altKey || altHeld);
+    const option = event && typeof event.altKey === "boolean" ? event.altKey : altHeld;
+    return clipOn !== option;
   }
 
   function paintJoinButtons() {
