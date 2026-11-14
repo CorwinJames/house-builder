@@ -126,3 +126,40 @@ export function remapSplit(house, wallId, bornId) {
   }
   return house;
 }
+
+/**
+ * Clip one wall end onto a single piece at its spot, never merging walls that
+ * were only laid on each other there. It joins an existing clipped piece if one
+ * is there; otherwise the newest wall. `skip` lists walls that are moving with it.
+ * Mutates. Returns the end it clipped to, or null.
+ */
+export function clipToOne(house, ref, { skip = [] } = {}) {
+  withJoins(house);
+  const wall = (house.walls || []).find((item) => item.id === ref.wall);
+  if (!wall) return null;
+  const mine = new Set([ref.wall, ...skip, ...partnersOf(house, ref.wall, ref.end).map((item) => item.wall)]);
+  const here = endsAt(house, wall[ref.end]).filter((item) => !mine.has(item.wall));
+  if (!here.length) return null;
+  const grouped = here.find((item) => partnersOf(house, item.wall, item.end).length);
+  const order = (house.walls || []).map((item) => item.id);
+  const target = grouped || here.reduce((best, item) => (order.indexOf(item.wall) > order.indexOf(best.wall) ? item : best));
+  clipTogether(house, [ref, target]);
+  return target;
+}
+
+/** Let go of every clip between these walls and walls outside them. Mutates. Returns how many ends let go. */
+export function detachWalls(house, wallIds) {
+  withJoins(house);
+  const ids = new Set(wallIds);
+  let count = 0;
+  for (const wall of house.walls || []) {
+    if (!ids.has(wall.id)) continue;
+    for (const end of ["start", "end"]) {
+      const outside = partnersOf(house, wall.id, end).filter((item) => !ids.has(item.wall));
+      if (!outside.length) continue;
+      count += outside.length;
+      for (const item of outside) unclipEnd(house, item.wall, item.end);
+    }
+  }
+  return count;
+}

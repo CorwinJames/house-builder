@@ -2,7 +2,7 @@ import { wallLength, pointAlong } from "../lib/geom.js";
 import { assemblyById, headerForSpan, assemblyForRender, suggestAssemblyId, DEFAULT_EXTERIOR_ID } from "./catalog.js";
 import { nextId } from "./ids.js";
 import { openingFits } from "./openings.js";
-import { clipTogether, endsAt, partnersOf, pruneJoins, remapSplit, withJoins } from "./clips.js";
+import { clipToOne, clipTogether, endsAt, partnersOf, pruneJoins, remapSplit, withJoins } from "./clips.js";
 
 export function cloneHouse(house) {
   return JSON.parse(JSON.stringify(house));
@@ -320,14 +320,14 @@ export function addRoomRectangle(house, a, b, assemblyId, { clip = true } = {}) 
   return { house: current, warnings };
 }
 
-/** Clip every end of these walls onto any wall end it now sits on. Mutates. */
+/**
+ * Clip each end of these walls onto one piece it now sits on. Walls that were
+ * only laid on each other there stay separate. Mutates.
+ */
 export function clipTouching(house, wallIds) {
   withJoins(house);
   for (const wall of house.walls.filter((item) => wallIds.includes(item.id))) {
-    for (const endName of ["start", "end"]) {
-      const touching = endsAt(house, wall[endName]);
-      if (touching.length > 1) clipTogether(house, touching);
-    }
+    for (const endName of ["start", "end"]) clipToOne(house, { wall: wall.id, end: endName }, { skip: wallIds });
   }
   return house;
 }
