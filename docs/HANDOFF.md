@@ -39,7 +39,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - **Code rules:** stage 7, with warnings. "Show me" jumps to the item, selects it and explains the problem in a toast. 9 in of hempcrete models at about R-18, below the WSEC-R prescriptive targets, which is an open question for the designer.
 - **Land:** stage 8, with a sample 5-acre lot. It covers the well, septic, grading and the legal building area. The well needs about a 100 ft setback from the drain field, and the app tries opposite corners before warning. If the lot is too tight, it suggests public water, a shared well, or a mound or pressure septic system. Well, septic and grading costs are still "price needed".
 - **Sun and shade (stage 10, sunlight half):** a layer, off by default and hidden in Build unless "Keep on while building" is ticked. With a real lot it uses the lot's location, a date and a time; without one, set the sun by hand (dial, sliders, or drag the sun on the plan). The plan shows shade, wall shadows and warm sun patches through glass; 3D moves the sun, shades rooms (even in Cutaway) and adds a soft bounce in sunlit rooms.
-- **Skylights:** a Skylight tool in Build (2 × 2 up to 4 × 6 ft, click inside a room). They show dashed on the plan and as glass on the 3D roof, and Sun and shade lets sun and daylight in through them in both views.
+- **Skylights:** real VELUX FS deck-mount sizes (C01 to S06), placed on the roof face over a room with a straight shaft through the attic to the ceiling. The card says how it's built (rough opening, flashing kit, shaft height, framing per IRC R802.9, 13+10 shaft insulation per WSEC-R) and what it costs. Sun and shade lets light in only when the sun faces that roof and gets down the shaft.
 - **Plan schema 7:** furniture icons, labels, site features, and outdoor and study areas.
 
 ## Known leftovers and open questions
@@ -51,7 +51,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - A shaped room drawn against an existing wall reuses that wall, so its inside ratio can be slightly off.
 - The Wall type chips list Hempcrete and Rammed earth twice (two assemblies each in data/assemblies.json share a short name). Not changed yet.
 - Hempcrete R-value against code is a question for the designer.
-- Skylights aren't in the cost list yet, and their light shaft through the attic isn't modelled (light drops straight from ceiling height).
+- Skylight framing assumes rafters and ceiling joists at 24 in. on center, because the roof isn't framed yet; rafter-size lumber is "price needed" until it is. M04, S06, and the S06 flashing kit have no published price yet. Shafts are straight, not splayed. Flashing assumes shingle or slate roofing.
 - Sun and shade ignores roof overhangs, trees, terrain and the second bounce of light. Lot times assume Pacific time.
 - Many "price needed" items are still open.
 

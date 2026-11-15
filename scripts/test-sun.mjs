@@ -1,4 +1,6 @@
-import { ceilingHeight, makeSkylight, skylightFootprint } from "../src/build/skylights.js";
+import { ceilingHeight, makeSkylight, skylightBuild } from "../src/build/skylights.js";
+import { roofAt, roofFootprints } from "../src/build/roofShape.js";
+import { costLines } from "../src/cost/list.js";
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
 import { currentSun, siteMoment, solarPosition, sunVector } from "../src/sun/solar.js";
@@ -70,22 +72,68 @@ check("walls cast ground shadows away from the sun, longer when it is low", () =
   assert.deepEqual(wallShadows(house, { up: false, vector: sunVector(180, -5) }), []);
 });
 
-check("a skylight puts sun on the floor of the room below, shifted away from the sun", () => {
+check("the roof height and slope come from the placeholder hip-and-gable", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const box = roofFootprints(house, false)[0];
+  const mid = { x: (box.x0 + box.x1) / 2, y: box.y0 + 4 };
+  const at = roofAt(house, mid, false);
+  assert.equal(at.face, "south");
+  assert.ok(Math.abs(at.height - (house.roof.plateHeight + 4 * house.roof.pitchRiseOverRun)) < 1e-9);
+  assert.deepEqual(at.downhill, { x: 0, y: -1 });
+  const ridge = roofAt(house, { x: mid.x, y: (box.y0 + box.y1) / 2 }, false);
+  assert.ok(Math.abs(ridge.height - (house.roof.plateHeight + ((box.y1 - box.y0) / 2) * house.roof.pitchRiseOverRun)) < 1e-9);
+  assert.equal(roofAt(house, { x: box.x0 - 5, y: mid.y }, false), null);
+});
+
+check("a skylight sits on its roof face with a shaft to the ceiling, and light has to get down it", () => {
   const house = decorateHouse(structuredClone(sample));
   const living = house.rooms.find((room) => /living/i.test(room.name || ""));
   const xs = living.polygon.map((point) => point.x);
   const ys = living.polygon.map((point) => point.y);
   const middle = { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
-  house.skylights = [makeSkylight(house, middle, "2x4", "sky-1")];
-  assert.equal(house.skylights[0].roomId, living.id);
-  const high = sunPatches(house, { up: true, vector: sunVector(180, 90 - 1e-6) }).find((patch) => patch.skylightId === "sky-1");
-  assert.ok(high, "overhead sun comes straight down");
-  assert.ok(Math.abs(high.area - 8) < 0.6, `area ${high.area}`);
-  const angled = sunPatches(house, { up: true, vector: sunVector(180, 45) }).find((patch) => patch.skylightId === "sky-1");
-  const shift = angled.polygon[0].y - skylightFootprint(house.skylights[0])[0].y;
-  // Ceiling at 10 ft, sun at 45 degrees from the south: the patch lands 10 ft north.
-  assert.ok(Math.abs(shift - ceilingHeight(house)) < 0.01, `shift ${shift}`);
-  assert.ok(roomSun(house, [high]).find((room) => room.roomId === living.id).lit > 7);
+  const skylight = makeSkylight(house, middle, "C06", "sky-1");
+  house.skylights = [skylight];
+  assert.equal(skylight.roomId, living.id);
+  assert.equal(skylight.rotation, 0, "the long way runs north-south, down the south roof face");
+  const build = skylightBuild(house, skylight);
+  assert.deepEqual(build.problems, []);
+  const angle = Math.atan(house.roof.pitchRiseOverRun);
+  // Ceiling opening: 21 in wide, 45-3/4 in down the slope, seen from above.
+  assert.ok(Math.abs(build.ceilingOpening.depth - (45.75 / 12) * Math.cos(angle)) < 1e-3);
+  assert.ok(build.shaft.tallest > build.shaft.shortest, "the uphill end of the shaft is taller");
+  const roofMid = roofAt(house, skylight, false).height;
+  assert.ok(Math.abs((build.shaft.tallest + build.shaft.shortest) / 2 - (roofMid - ceilingHeight(house))) < 0.05);
+  assert.equal(build.framing.raftersCut, 0, "a 21 in opening fits between rafters at 24 in. on center");
+  assert.equal(skylightBuild(house, { ...skylight, model: "S06" }).framing.raftersCut, 1);
+
+  const overhead = sunPatches(house, { up: true, vector: sunVector(180, 89.9) }).find((patch) => patch.skylightId === "sky-1");
+  assert.ok(overhead, "overhead sun comes straight down the shaft");
+  assert.ok(Math.abs(overhead.area - 1.75 * build.ceilingOpening.depth) < 0.3, `area ${overhead.area}`);
+  const steep = sunPatches(house, { up: true, vector: sunVector(180, 80) }).find((patch) => patch.skylightId === "sky-1");
+  assert.ok(steep && steep.area < overhead.area, "a slanted sun loses some light to the shaft walls");
+  const lowSouth = sunPatches(house, { up: true, vector: sunVector(180, 45) }).find((patch) => patch.skylightId === "sky-1");
+  assert.equal(lowSouth, undefined, `a ${build.shaft.shortest.toFixed(1)} ft shaft stops a 45° sun before the floor`);
+  const behind = sunPatches(house, { up: true, vector: sunVector(0, 20) }).find((patch) => patch.skylightId === "sky-1");
+  assert.equal(behind, undefined, "a sun behind the roof face never reaches the glass");
+});
+
+check("skylights are costed: unit, flashing, shaft, and framing", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const living = house.rooms.find((room) => /living/i.test(room.name || ""));
+  const xs = living.polygon.map((point) => point.x);
+  const ys = living.polygon.map((point) => point.y);
+  house.skylights = [makeSkylight(house, { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 }, "C06", "sky-1")];
+  const lines = costLines(house, { phase: "phase1", skylightId: "sky-1" });
+  const byId = Object.fromEntries(lines.map((line) => [line.id, line]));
+  assert.equal(byId["skylight-fs-c06"].quantity, 1);
+  assert.equal(byId["skylight-fs-c06"].unitPrice, 407.73);
+  assert.equal(byId["flashing-edl-c06"].unitPrice, 118.11);
+  for (const id of ["skylight-shaft-studs", "batt-r15-kraft", "xps-2in-r10", "drywall-half", "rafter-lumber"]) assert.ok(byId[id]?.quantity > 0, id);
+  assert.equal(byId["skylight-shaft-studs"].unitPrice, 4.25, "shaft studs use the 2x4 stud price");
+  assert.equal(byId["rafter-lumber"].priceNeeded, true);
+  const whole = costLines(house, { phase: "phase1" });
+  assert.ok(whole.some((line) => line.id === "skylight-fs-c06"), "the house total includes it");
+  assert.equal(costLines(house, { phase: "phase1", wallId: house.walls[0].id }).filter((line) => line.category === "skylights").length, 0);
 });
 
 function quadNorth(quad) {

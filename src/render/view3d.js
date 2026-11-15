@@ -14,7 +14,7 @@ import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
 import { createSunRig } from "./sun3d.js";
-import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
+import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -1813,7 +1813,7 @@ function addRoofSkylights(house, group, futureShown) {
   for (const item of house.skylights || []) {
     if (!skylightShown(item, futureShown)) continue;
     const corners = [];
-    for (const point of skylightFootprint(item)) {
+    for (const point of skylightFootprint(item, house, futureShown)) {
       ray.set(new THREE.Vector3(point.x, 400, -point.y), down);
       const hit = ray.intersectObjects(surfaces, false)[0];
       if (!hit) break;
@@ -1835,7 +1835,7 @@ function buildSkylightOutlines(house) {
   const group = new THREE.Group();
   const height = ceilingHeight(house) + 0.05;
   for (const item of house.skylights || []) {
-    const corners = skylightFootprint(item).map((point) => new THREE.Vector3(point.x, height, -point.y));
+    const corners = skylightFootprint(item, house).map((point) => new THREE.Vector3(point.x, height, -point.y));
     const glass = new THREE.Mesh(
       new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
       new THREE.MeshBasicMaterial({ color: 0xa9d3e6, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
@@ -1844,10 +1844,33 @@ function buildSkylightOutlines(house) {
     glass.userData.phase = item.phase;
     group.add(glass);
     const frame = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), SKYLIGHT_FRAME);
+    frame.userData.phase = item.phase;
     group.add(frame);
+    // The light shaft up through the attic, as see-through drywall.
+    const build = skylightBuild(house, item);
+    const base = ceilingHeight(house);
+    for (const side of build.shaft.sides) {
+      if (side.length < 0.05 || (side.heightA < 0.05 && side.heightB < 0.05)) continue;
+      const a0 = new THREE.Vector3(side.a.x, base, -side.a.y);
+      const b0 = new THREE.Vector3(side.b.x, base, -side.b.y);
+      const a1 = new THREE.Vector3(side.a.x, base + side.heightA, -side.a.y);
+      const b1 = new THREE.Vector3(side.b.x, base + side.heightB, -side.b.y);
+      const wall = new THREE.Mesh(
+        new THREE.BufferGeometry().setFromPoints([a0, b0, b1, a0, b1, a1]),
+        SHAFT_WALL,
+      );
+      wall.userData.pick = { type: "skylight", id: item.id };
+      wall.userData.phase = item.phase;
+      group.add(wall);
+      const edge = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([a1, b1, b0, b1]), SKYLIGHT_FRAME);
+      edge.userData.phase = item.phase;
+      group.add(edge);
+    }
   }
   return group;
 }
+
+const SHAFT_WALL = new THREE.MeshBasicMaterial({ color: 0xf3efe6, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
 
 function makeSprite(text, muted = false, options = {}) {
   const canvas = document.createElement("canvas");

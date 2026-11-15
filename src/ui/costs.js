@@ -99,6 +99,7 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy, setPhase
       ["electrical", "Electrical", ["electrical"]],
       ["plumbing", "Plumbing", ["plumbing"]],
       ["site", "Site", ["site"]],
+      ["skylights", "Skylights", ["skylights"]],
       ["finishes", "Finishes", ["finishes"]],
       ["labor", "Labor", ["labor"]],
       ["allowances", "Allowances", ["allowances"]],
@@ -269,11 +270,12 @@ export function deviceCostHtml(house, device) {
 }
 
 export function selectionCostHtml(house, selection) {
-  if (!selection || (selection.type !== "wall" && selection.type !== "room")) return "";
+  if (!selection || (selection.type !== "wall" && selection.type !== "room" && selection.type !== "skylight")) return "";
   const report = costReport(house, {
     phase: "full",
     wallId: selection.type === "wall" ? selection.id : null,
     roomId: selection.type === "room" ? selection.id : null,
+    skylightId: selection.type === "skylight" ? selection.id : null,
     diyFinish: house.cost?.diyFinish !== false,
     overrides: house.cost?.overrides || [],
     rates: house.cost?.rates || [],

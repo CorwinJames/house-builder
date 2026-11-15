@@ -3,6 +3,7 @@ import { assemblyById } from "../build/catalog.js";
 import { electricalBom } from "../electrical/design.js";
 import { plumbingBom } from "../plumbing/design.js";
 import { siteBom } from "../site/design.js";
+import { skylightBom } from "./skylights.js";
 import { openingsFor, polygonArea, wallLength } from "../lib/geom.js";
 import { areaReport, countsAsHeated, separatesSite, unionArea, wallServesHeated } from "../build/areas.js";
 
@@ -118,6 +119,7 @@ function sliceHouse(house, { phase = "full", wallId = null, roomId = null } = {}
  * wallIds on each row let a selected wall show its own share.
  */
 export function takeoff(house, options = {}) {
+  if (options.skylightId) return skylightBom(house, options);
   const { walls, rooms, openings } = sliceHouse(house, options);
   const rows = [];
   const add = (row) => {
@@ -276,6 +278,7 @@ export function takeoff(house, options = {}) {
   add(laborRow("paint", paintArea, options.rates));
   add(laborRow("flooring", floors.wood, options.rates));
   add(laborRow("tile", floors.tile, options.rates));
+  rows.push(...skylightBom(house, options));
 
   if (!options.wallId && !options.roomId) {
     const separated = separatesSite(house);

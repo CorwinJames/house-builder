@@ -55,11 +55,11 @@ function money(quantity, unitPrice) {
  * Priced lines for one phase. Allowances stay on the list and out of the total.
  * DIY finish labor is $0 until hireFinish is true.
  */
-export function costLines(house, { phase = "full", diyFinish = true, hireFinish = false, overrides = [], rates = [], wallId = null, roomId = null } = {}) {
+export function costLines(house, { phase = "full", diyFinish = true, hireFinish = false, overrides = [], rates = [], wallId = null, roomId = null, skylightId = null } = {}) {
   const useDiy = diyFinish && !hireFinish;
-  const rows = takeoff(house, { phase, wallId, roomId, rates });
+  const rows = takeoff(house, { phase, wallId, roomId, skylightId, rates });
   return rows.map((row) => {
-    const record = effectiveRecord(row.wageId || row.id, overrides);
+    const record = effectiveRecord(row.wageId || row.priceId || row.id, overrides);
     const diy = Boolean(row.diy) && useDiy && row.kind === "labor";
     let unitPrice = record ? record.amount : null;
     let sourceName = record?.sourceName || "Price needed";
@@ -110,10 +110,11 @@ export function costReport(house, options = {}) {
     rates: options.rates || house.cost?.rates || [],
     wallId: options.wallId || null,
     roomId: options.roomId || null,
+    skylightId: options.skylightId || null,
   };
   const lines = costLines(house, { ...shared, phase: options.phase || "full" });
-  const phase1 = summarize(costLines(house, { ...shared, phase: "phase1", wallId: null, roomId: null }));
-  const full = summarize(costLines(house, { ...shared, phase: "full", wallId: null, roomId: null }));
+  const phase1 = summarize(costLines(house, { ...shared, phase: "phase1", wallId: null, roomId: null, skylightId: null }));
+  const full = summarize(costLines(house, { ...shared, phase: "full", wallId: null, roomId: null, skylightId: null }));
   const active = summarize(lines);
   return {
     lines,
