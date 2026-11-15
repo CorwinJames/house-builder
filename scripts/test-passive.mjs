@@ -6,7 +6,11 @@ import {
 } from "../src/sun/passive.js";
 import { sunPatches } from "../src/sun/light.js";
 import { sunVector } from "../src/sun/solar.js";
-import { roofFootprints } from "../src/build/roofShape.js";
+import { roofAt, roofFootprints } from "../src/build/roofShape.js";
+import { clerestoryBox, clerestoryEaveRange, clerestoryGeometry } from "../src/build/clerestory.js";
+import { clerestoryPatches, glazing } from "../src/sun/light.js";
+import { costLines } from "../src/cost/list.js";
+import { foldingPanels } from "../src/build/catalog.js";
 
 const sample = JSON.parse(readFileSync(new URL("../data/sample-house.json", import.meta.url)));
 const PT = { lat: 48.117, lon: -122.76, name: "Port Townsend" };
@@ -90,6 +94,42 @@ check("house summary: sun-side glass share and orientation", () => {
   assert.equal(summary.offSouth, 0);
   assert.ok(summary.sunShare > 0.05 && summary.sunShare < 0.08, `sun share ${summary.sunShare}`);
   assert.ok(Math.abs(summary.collectors.spaceHeating - 63.117) < 1e-9);
+});
+
+check("a clerestory: heights, roof faces, and winter sun through the band", () => {
+  const house = fresh();
+  house.roof.clerestory = { face: "south", setback: 12, glass: 3, eave: 2, lowPitch: 0.25 };
+  const box = clerestoryBox(roofFootprints(house, false));
+  const g = clerestoryGeometry(house, box, false);
+  assert.ok(Math.abs(g.stepY - 12) < 1e-9, `glass line ${g.stepY}`);
+  assert.ok(Math.abs(g.lowTop - (10 + (12 - box.y0) * 0.25)) < 1e-9);
+  assert.equal(g.sill, g.lowTop + 1);
+  assert.equal(g.glassTop, g.sill + 3);
+  assert.ok(g.upperPitch > 0);
+  const low = roofAt(house, { x: 40, y: 5 }, false);
+  const high = roofAt(house, { x: 40, y: 25 }, false);
+  assert.equal(low.face, "south");
+  assert.equal(high.face, "north");
+  assert.ok(high.height > low.height);
+  // Winter noon sun from the south at 18.4°: light through the band lands north of the glass.
+  const patches = clerestoryPatches(house, { up: true, vector: sunVector(180, 30) });
+  assert.ok(patches.length > 0 && patches.every((p) => p.polygon.every((q) => q.y > g.stepY)), "the light falls north of the glass");
+  assert.equal(clerestoryPatches(house, { up: true, vector: sunVector(0, 30) }).length, 0, "no sun from behind");
+  const summary = houseSolar(house, PT, { full: false, phaseVisible: (phase) => phase !== "future" });
+  assert.equal(summary.clerestory.side, "sun");
+  assert.ok(summary.sunShare > houseSolar(fresh(), PT, { full: false, phaseVisible: (phase) => phase !== "future" }).sunShare);
+  const range = clerestoryEaveRange(g, g.sill, Math.tan((65.3 * Math.PI) / 180), Math.tan((18.4 * Math.PI) / 180));
+  assert.ok(range.min > 0);
+});
+
+check("a folding glass wall: glass for the sun, its own cost line", () => {
+  const house = fresh();
+  const patio = house.openings.find((o) => o.id === "door-patio");
+  patio.style = "folding";
+  assert.ok(glazing(patio));
+  const lines = costLines(house, { phase: "phase1" });
+  assert.ok(lines.find((l) => l.id === "folding-glass-wall")?.quantity === patio.width);
+  assert.equal(foldingPanels(16), 5);
 });
 
 if (failed) { console.error(`\n${failed} failed`); process.exit(1); }

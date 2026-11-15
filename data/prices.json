@@ -1551,6 +1551,19 @@
       "url": "",
       "dateChecked": "2026-11-14",
       "note": "The rafter and ceiling joist size isn't designed yet, so there is no lumber size to price. Quantity is still listed."
+    },
+    {
+      "id": "folding-glass-wall",
+      "name": "Folding glass wall system (panels, track, frame)",
+      "category": "openings",
+      "kind": "material",
+      "unit": "linear foot",
+      "amount": null,
+      "sourceType": "published-price",
+      "sourceName": "Price needed",
+      "url": "",
+      "dateChecked": "2026-11-14",
+      "note": "Folding glass walls are quoted per project; no published per-foot price was checked. The header over a wide opening is a beam sized by the engineer."
     }
   ]
 }

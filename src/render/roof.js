@@ -65,3 +65,75 @@ export function createHipAndGableGeometry({ x0, y0, x1, y1, plate, pitch }) {
 }
 
 export { roofFootprints, roofFootprint } from "../build/roofShape.js";
+
+/**
+ * The clerestory roof as meshes (see src/build/clerestory.js): two sloped
+ * roof planes, the band of glass between them with mullions about every
+ * 4 ft, a curb and a header in siding, and gable ends closing the sides.
+ * Roof planes carry userData.roofSurface so skylights and the sun treat them
+ * like the plain roof.
+ */
+export function createClerestoryRoof(g, roofMaterial) {
+  const group = new THREE.Group();
+  const at = (x, planY, h) => new THREE.Vector3(x, h, -planY);
+  const quad = (a, b, c, d, material) => {
+    const geometry = new THREE.BufferGeometry().setFromPoints([a, b, c, a, c, d]);
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  };
+  const { x0, x1 } = g.box;
+  // Lower roof: front eave to the glass line.
+  const lower = quad(at(x0, g.front, g.plate), at(x1, g.front, g.plate), at(x1, g.stepY, g.lowTop), at(x0, g.stepY, g.lowTop), roofMaterial);
+  lower.userData.roofSurface = true;
+  group.add(lower);
+  // Upper roof: from its eave over the glass down to the back eave.
+  const upper = quad(at(x0, g.upperEdgeY, g.eaveHeight), at(x1, g.upperEdgeY, g.eaveHeight), at(x1, g.backY, g.plate), at(x0, g.backY, g.plate), roofMaterial);
+  upper.userData.roofSurface = true;
+  group.add(upper);
+  // The band: curb, glass, header, between the end walls.
+  const siding = new THREE.MeshStandardMaterial({ color: 0x5b5048, roughness: 0.85, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xa9d3e6, roughness: 0.08, metalness: 0.3, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  const frame = new THREE.MeshStandardMaterial({ color: 0x2b2622, roughness: 0.6 });
+  const xa = g.glassX0;
+  const xb = g.glassX1;
+  const y = g.stepY;
+  const band = (z0, z1, material, cast = true) => {
+    const mesh = quad(at(xa, y, z0), at(xb, y, z0), at(xb, y, z1), at(xa, y, z1), material);
+    mesh.castShadow = cast;
+    group.add(mesh);
+  };
+  band(g.lowTop, g.sill, siding);
+  band(g.glassTop, g.top, siding);
+  band(g.sill, g.glassTop, glass, false);
+  const count = Math.max(1, Math.round((xb - xa) / 4));
+  for (let i = 0; i <= count; i += 1) {
+    const x = xa + ((xb - xa) * i) / count;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, g.glassTop - g.sill, 0.18), frame);
+    post.position.set(x, (g.sill + g.glassTop) / 2, -y);
+    post.castShadow = true;
+    group.add(post);
+  }
+  // Gable ends at each end wall: the outline between plate height and the two roofs.
+  for (const x of [g.faces.x0, g.faces.x1]) {
+    const profile = [
+      [g.frontFace, g.plate],
+      [g.frontFace, g.plate + Math.abs(g.frontFace - g.front) * g.pitch],
+      [g.stepY, g.lowTop],
+      [g.stepY, g.top],
+      [g.backFace, g.plate + Math.abs(g.backY - g.backFace) * g.upperPitch],
+      [g.backFace, g.plate],
+    ];
+    const shape = new THREE.Shape(profile.map(([py, h]) => new THREE.Vector2(-py, h)));
+    const geometry = new THREE.ShapeGeometry(shape);
+    geometry.rotateY(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geometry, siding);
+    mesh.position.x = x;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
+}

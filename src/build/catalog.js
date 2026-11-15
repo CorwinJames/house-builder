@@ -63,3 +63,8 @@ export function headerForSpan(span) {
 export function cornerClearance() {
   return headersTable.clearanceFromCorner;
 }
+
+/** How many glass panels a folding wall of this width has: about 3 ft each, at least 2. */
+export function foldingPanels(width) {
+  return Math.max(2, Math.round(width / 3));
+}

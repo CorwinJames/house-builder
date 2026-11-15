@@ -23,6 +23,8 @@
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
 import { skylightBuild } from "../build/skylights.js";
 import { shadowLine, windowShades } from "./passive.js";
+import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
+import { roofFootprints } from "../build/roofShape.js";
 
 const DEFAULT_HEIGHT = 10;
 
@@ -37,7 +39,7 @@ export function glazing(opening) {
   const sill = Number(opening.sill) || 0;
   const height = Number(opening.height) || 0;
   if (opening.type === "window") return { z0: sill, z1: sill + height };
-  if (opening.type === "door" && (opening.style === "sliding" || opening.style === "cased")) return { z0: 0, z1: height };
+  if (opening.type === "door" && (opening.style === "sliding" || opening.style === "cased" || opening.style === "folding")) return { z0: 0, z1: height };
   return null;
 }
 
@@ -107,6 +109,7 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
     const patch = skylightPatch(house, skylight, sun, rooms, full);
     if (patch) patches.push(patch);
   }
+  patches.push(...clerestoryPatches(house, sun, rooms, full));
   return patches;
 }
 
@@ -211,4 +214,37 @@ export function skylightPatch(house, skylight, sun, rooms = (house.rooms || []).
 function unit(a, b) {
   const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   return { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+}
+
+/**
+ * Sun through a clerestory band: the glass sits on the step between the low
+ * and high roofs, looking out over the low roof. The upper roof's eave throws
+ * a shadow line down the glass. Under the high roof the ceiling is open to
+ * the roof (vaulted), so the light lands on the floor of whichever rooms it
+ * reaches. Interior walls in the way are not followed.
+ */
+export function clerestoryPatches(house, sun, rooms = (house.rooms || []).filter(roofed), full = false) {
+  if (!sun?.up || !house?.roof?.clerestory) return [];
+  const box = clerestoryBox(roofFootprints(house, full));
+  const g = clerestoryGeometry(house, box, full);
+  if (!g) return [];
+  const v = sun.vector;
+  const out = { x: 0, y: -g.sign };
+  const facing = out.x * v.x + out.y * v.y;
+  if (facing < 0.02) return [];
+  const top = Math.min(g.glassTop, shadowLine([{ height: g.eaveHeight, depth: g.eave }], v.z / facing));
+  if (top <= g.sill + 0.01) return [];
+  const drop = (z) => ({ x: (-v.x / v.z) * z, y: (-v.y / v.z) * z });
+  const corner = (x, z) => {
+    const d = drop(z);
+    return { x: x + d.x, y: g.stepY + d.y };
+  };
+  const polygon = [corner(g.glassX0, g.sill), corner(g.glassX1, g.sill), corner(g.glassX1, top), corner(g.glassX0, top)];
+  const patches = [];
+  for (const room of rooms) {
+    const area = clippedArea(polygon, room.polygon);
+    if (area < 0.25) continue;
+    patches.push({ openingId: "clerestory", clerestory: true, wallId: null, roomId: room.id, polygon, area });
+  }
+  return patches;
 }
