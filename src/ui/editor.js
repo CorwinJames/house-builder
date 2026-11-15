@@ -26,7 +26,7 @@ import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
-import { SKYLIGHT_SIZES, makeSkylight, roomUnder, skylightFootprint, skylightSize } from "../build/skylights.js";
+import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, skylightBuild, skylightFootprint, skylightNotes } from "../build/skylights.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { snapOpeningOffset } from "../build/openings.js";
@@ -176,7 +176,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let fixtureKind = "kitchen-sink";
   let siteKind = "well";
   let figureKind = "person";
-  let skylightSizeId = "2x4";
+  let skylightModelId = "C06";
   let siteGhosts = [];
   let hoverWorld = null;
   let advancedOn = false;
@@ -608,7 +608,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     for (const skylight of house.skylights || []) {
       if (!phaseOk(skylight)) continue;
-      const footprint = skylightFootprint(skylight);
+      const footprint = skylightFootprint(skylight, house, isFutureShown(getViewState()));
       if (!inside(world, footprint)) continue;
       // Skylights sit over furniture on the plan, so they win ties.
       consider("skylight", skylight.id, (Math.abs(polygonArea(footprint)) || 1) * 0.5);
@@ -932,13 +932,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         announce("Skylights go in the roof over a room. Click inside a room.", false);
         return true;
       }
-      const skylight = makeSkylight(house, world, skylightSizeId, nextId("skylight"));
+      const skylight = makeSkylight(house, world, skylightModelId, nextId("skylight"));
       const next = cloneHouse(house);
       next.skylights = [...(next.skylights || []), skylight];
       commit(next, house, "adding a skylight");
       choose({ type: "skylight", id: skylight.id });
       const room = house.rooms.find((item) => item.id === skylight.roomId);
-      announce(`Added a ${skylightSize(skylightSizeId).label} skylight${room?.name ? ` over the ${room.name.toLowerCase()}` : ""}. Turn on Sun and shade to see its light.`);
+      const problem = skylightBuild(next, skylight).problems[0];
+      announce(problem
+        ? `Added a VELUX ${skylight.model} skylight, but ${problem.text.charAt(0).toLowerCase()}${problem.text.slice(1)}`
+        : `Added a VELUX ${skylight.model} skylight${room?.name ? ` over the ${room.name.toLowerCase()}` : ""}. Its card shows the shaft and framing.`);
       publish();
       return true;
     }
@@ -1484,11 +1487,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!item) return next;
     item.x += shift;
     item.y += nudge;
-    if (hit.type === "skylight") {
-      const room = roomUnder(next, item);
-      if (room) item.roomId = room.id;
-      else delete item.roomId;
-    }
+    if (hit.type === "skylight") refreshSkylight(next, item);
     return next;
   }
 
@@ -1894,7 +1893,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     for (const item of house.skylights || []) {
       if (!phaseOk(item)) continue;
-      if (polyHitsRect(skylightFootprint(item), rect)) add("skylight", item.id);
+      if (polyHitsRect(skylightFootprint(item, house, isFutureShown(getViewState())), rect)) add("skylight", item.id);
     }
     for (const item of house.siteFeatures || []) {
       if (!phaseOk(item)) continue;
@@ -2085,11 +2084,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const key = COPY_KEYS[entry.type];
       if (!key) continue;
       const copy = { ...structuredClone(entry.data), id: nextId(entry.type === "planLabel" ? "label" : entry.type), x: point.x, y: point.y };
-      if (entry.type === "skylight") {
-        const room = roomUnder(next, copy);
-        if (room) copy.roomId = room.id;
-        else delete copy.roomId;
-      }
+      if (entry.type === "skylight") refreshSkylight(next, copy);
       next[key] = [...(next[key] || []), copy];
       made.push({ type: entry.type, id: copy.id });
     }
@@ -2445,13 +2440,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (tool === "skylight") {
       box.innerHTML = `
         <section class="opt-section">
-          <p class="opt-label">Skylight size</p>
-          <div class="swatch-row">${SKYLIGHT_SIZES.map((item) => `<button type="button" class="chip" data-skylight-size="${item.id}" aria-pressed="${item.id === skylightSizeId}">${item.label}</button>`).join("")}</div>
-          <p class="fine opt-hint">Click inside a room to put one in its roof. Select it to resize, turn, or drag it.</p>
+          <p class="opt-label">VELUX FS fixed skylight (rough opening)</p>
+          <div class="swatch-row">${SKYLIGHT_MODELS.map((item) => `<button type="button" class="chip" data-skylight-size="${item.id}" aria-pressed="${item.id === skylightModelId}">${modelLabel(item.id)}</button>`).join("")}</div>
+          <p class="fine opt-hint">Click inside a room. It sits on the roof face above, the long way down the slope, with a shaft down to the ceiling.</p>
         </section>`;
       box.querySelectorAll("[data-skylight-size]").forEach((button) => {
         button.addEventListener("click", () => {
-          skylightSizeId = button.dataset.skylightSize;
+          skylightModelId = button.dataset.skylightSize;
           publish();
         });
       });
@@ -3578,34 +3573,33 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       inspector.innerHTML = "";
       return;
     }
-    const room = house.rooms.find((entry) => entry.id === item.roomId);
-    const sizeLabel = `${formatFeetFine(item.width).construction} × ${formatFeetFine(item.depth).construction}`;
-    const current = SKYLIGHT_SIZES.find((size) => size.width === item.width && size.depth === item.depth);
+    const build = skylightBuild(house, item, isFutureShown(getViewState()));
+    const room = build.room;
+    const notes = skylightNotes(build);
+    const problems = build.problems.map((problem) => `<p class="sky-problem">${escapeHtml(problem.text)}</p>`).join("");
     inspector.innerHTML = `
-      ${gameHead("Skylight", [])}
-      <p>${escapeHtml(sizeLabel)}${room?.name ? ` over the ${escapeHtml(room.name.toLowerCase())}` : ", not over a room"}. Drag it to move it.</p>
-      <div class="swatch-row">${SKYLIGHT_SIZES.map((size) => `<button type="button" class="chip" data-sky-size="${size.id}" aria-pressed="${current?.id === size.id}">${size.label}</button>`).join("")}
-        <button type="button" class="chip" id="sky-turn">Turn 90°</button></div>
+      ${gameHead(`Skylight · ${build.model.id}`, [])}
+      <p>${room?.name ? `Over the ${escapeHtml(room.name.toLowerCase())}` : "Not over a room"}${build.roof ? `, ${escapeHtml(build.roof.face)} roof at ${build.pitchDeg.toFixed(1)}°` : ""}. Drag it to move it.</p>
+      ${problems}
+      <div class="swatch-row">${SKYLIGHT_MODELS.map((model) => `<button type="button" class="chip" data-sky-size="${model.id}" aria-pressed="${model.id === build.model.id}" title="${escapeHtml(modelLabel(model.id))}">${model.id}</button>`).join("")}</div>
+      <details class="tech sky-build">
+        <summary>How it's built</summary>
+        ${notes.map((note) => `<p class="fine">${escapeHtml(note)}</p>`).join("")}
+      </details>
+      ${selectionCostHtml(house, selection)}
       ${quietDelete("Delete skylight")}
     `;
-    const change = (fn, note) => {
-      const next = cloneHouse(house);
-      const target = (next.skylights || []).find((entry) => entry.id === item.id);
-      if (!target) return;
-      fn(target);
-      commit(next, house, note);
-      publish();
-    };
     inspector.querySelectorAll("[data-sky-size]").forEach((button) => {
-      button.addEventListener("click", () => change((target) => {
-        const size = skylightSize(button.dataset.skySize);
-        target.width = size.width;
-        target.depth = size.depth;
-      }, "resizing a skylight"));
+      button.addEventListener("click", () => {
+        const next = cloneHouse(house);
+        const target = (next.skylights || []).find((entry) => entry.id === item.id);
+        if (!target) return;
+        target.model = button.dataset.skySize;
+        refreshSkylight(next, target);
+        commit(next, house, "changing a skylight size");
+        publish();
+      });
     });
-    inspector.querySelector("#sky-turn").addEventListener("click", () => change((target) => {
-      target.rotation = ((target.rotation || 0) + 90) % 180;
-    }, "turning a skylight"));
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
   }
 

@@ -1698,3 +1698,6 @@ button:focus-visible {
 @media (max-width: 860px) {
   .sun-panel { top: auto; bottom: 74px; right: 6px; left: 6px; width: auto; }
 }
+
+.sky-problem { margin: 0; padding: 6px 9px; border-radius: 9px; background: rgba(196, 92, 60, 0.12); color: #8a3b22; font-size: 0.78rem; font-weight: 600; }
+.sky-build .fine { margin: 4px 0; }

@@ -10,10 +10,10 @@
  * stronger the more of the room is sunlit.
  */
 import * as THREE from "three";
-import { isPhaseVisible } from "./visibility.js";
+import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { glazing, roofed, roomSun, sunPatches } from "../sun/light.js";
 import { boundsOf } from "../build/areas.js";
-import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
+import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
 import { pointInPolygon } from "../lib/geom.js";
 
 const BOUNCE_LIGHTS = 6;
@@ -43,6 +43,7 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
   });
   let casterKey = "";
   let casterHouse = null;
+  let lids = [];
 
   function pick(cam) {
     return { left: cam.left, right: cam.right, top: cam.top, bottom: cam.bottom, far: cam.far };
@@ -106,11 +107,42 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       for (const skylight of house.skylights || []) {
         if (!isPhaseVisible(skylight.phase, state || {})) continue;
         if (!pointInPolygon(skylight, room.polygon)) continue;
-        shape.holes.push(new THREE.Path(skylightFootprint(skylight).map((point) => new THREE.Vector2(point.x, point.y))));
+        shape.holes.push(new THREE.Path(skylightFootprint(skylight, house, (!!state?.layers && isFutureShown(state))).map((point) => new THREE.Vector2(point.x, point.y))));
       }
       const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
       geometry.rotateX(-Math.PI / 2);
       add(geometry, new THREE.Vector3(0, top, 0));
+    }
+    // Each skylight's shaft through the attic: four walls from the ceiling up to
+    // the roof, and a lid that closes the shaft when the sun is behind its roof face.
+    lids = [];
+    const full = !!state?.layers && isFutureShown(state);
+    for (const skylight of house?.skylights || []) {
+      if (!isPhaseVisible(skylight.phase, state || {})) continue;
+      const build = skylightBuild(house, skylight, full);
+      if (!build.roof) continue;
+      const corners = build.footprint;
+      const cx = corners.reduce((sum, p) => sum + p.x, 0) / 4;
+      const cy = corners.reduce((sum, p) => sum + p.y, 0) / 4;
+      for (const side of build.shaft.sides) {
+        const height = (side.heightA + side.heightB) / 2;
+        if (side.length < 0.05 || height < 0.05) continue;
+        const mx = (side.a.x + side.b.x) / 2;
+        const my = (side.a.y + side.b.y) / 2;
+        // Push the wall out by half its thickness so the opening stays the full size.
+        const out = Math.hypot(mx - cx, my - cy) || 1;
+        const px = mx + ((mx - cx) / out) * 0.15;
+        const py = my + ((my - cy) / out) * 0.15;
+        const angle = Math.atan2(side.b.y - side.a.y, side.b.x - side.a.x);
+        add(new THREE.BoxGeometry(side.length + 0.3, height, 0.3), new THREE.Vector3(px, top + height / 2, -py), angle);
+      }
+      const lidShape = new THREE.Shape(corners.map((point) => new THREE.Vector2(point.x, point.y)));
+      const lidGeometry = new THREE.ExtrudeGeometry(lidShape, { depth: 0.2, bevelEnabled: false });
+      lidGeometry.rotateX(-Math.PI / 2);
+      add(lidGeometry, new THREE.Vector3(0, top + build.shaft.tallest + 0.05, 0));
+      const lid = casters.children[casters.children.length - 1];
+      lid.userData.roof = build.roof;
+      lids.push(lid);
     }
   }
 
@@ -152,6 +184,10 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
         return;
       }
       const v = sun.vector;
+      for (const lid of lids) {
+        const roof = lid.userData.roof;
+        lid.visible = v.x * roof.downhill.x * roof.slope + v.y * roof.downhill.y * roof.slope + v.z <= 0.001;
+      }
       const reach = radius + 80;
       light.visible = true;
       light.target.position.set(cx, 0, -cy);
@@ -169,6 +205,7 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       hemisphere.color.copy(defaults.hemiSky);
       // Bounce: sunlit floors light up the rest of the room a little.
       const patches = sunPatches(house, sun, {
+        full: (!!state?.layers && isFutureShown(state)),
         wallVisible: (wall) => isPhaseVisible(wall.phase, state || {}),
         roomVisible: (room) => isPhaseVisible(room.phase, state || {}),
       });

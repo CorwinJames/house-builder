@@ -150,11 +150,12 @@
       "required": ["id", "x", "y", "width", "depth"],
       "properties": {
         "id": { "type": "string" },
-        "x": { "type": "number" },
+        "x": { "type": "number", "description": "Middle of the ceiling opening, plan feet." },
         "y": { "type": "number" },
-        "width": { "type": "number", "exclusiveMinimum": 0 },
-        "depth": { "type": "number", "exclusiveMinimum": 0 },
-        "rotation": { "type": "number", "description": "Degrees counter-clockwise from east." },
+        "model": { "enum": ["C01", "C04", "C06", "M02", "M04", "M06", "S06"], "description": "VELUX FS deck-mount size code. Sets the rough opening." },
+        "width": { "type": "number", "exclusiveMinimum": 0, "description": "Ceiling opening across the slope, feet (written from the model)." },
+        "depth": { "type": "number", "exclusiveMinimum": 0, "description": "Ceiling opening down the slope as seen from above, feet (written from the model and the pitch)." },
+        "rotation": { "type": "number", "description": "Degrees counter-clockwise from east. 90 when the roof face slopes east or west." },
         "roomId": { "type": "string" },
         "phase": { "type": "string" },
         "note": { "type": "string" }

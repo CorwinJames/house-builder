@@ -9,15 +9,17 @@
  *   openings, on walls where outside is on the sunny side and a room is on the other.
  * - The patch on the floor is the opening, from its sill to its head, pushed
  *   along the sun's direction down to the floor, then trimmed to that room.
- * - Skylights let sun in from the ceiling: the opening, pushed along the sun
- *   from ceiling height down to the floor, then trimmed to the room below.
+ * - Skylights let sun in when the sun is in front of their roof face. The light
+ *   comes down a straight shaft from the roof to the ceiling, so each of the
+ *   shaft's four walls trims the patch twice: at its top (where it meets the
+ *   roof) and at the ceiling. What gets through lands on the floor below.
  * - Walls cast shadows outside: each wall's top edge, pushed along the sun to the ground.
  * It does not follow light through a second window, bounce it, or account
  * for the roof overhang, trees, or the slope of the ground.
  */
 
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
-import { ceilingHeight, skylightFootprint } from "../build/skylights.js";
+import { skylightBuild } from "../build/skylights.js";
 
 const DEFAULT_HEIGHT = 10;
 
@@ -46,7 +48,7 @@ function roomAt(rooms, point) {
  * untrimmed patch (the plan clips it to the room) and `area` is the part
  * inside the room, in square feet (approximate).
  */
-export function sunPatches(house, sun, { wallVisible = () => true, roomVisible = () => true } = {}) {
+export function sunPatches(house, sun, { wallVisible = () => true, roomVisible = () => true, full = false } = {}) {
   if (!sun?.up) return [];
   const v = sun.vector;
   const rooms = (house.rooms || []).filter((room) => roofed(room) && roomVisible(room));
@@ -94,21 +96,9 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
       area: clippedArea(polygon, room.polygon),
     });
   }
-  const ceiling = ceilingHeight(house);
-  const dx = (-v.x / v.z) * ceiling;
-  const dy = (-v.y / v.z) * ceiling;
   for (const skylight of house.skylights || []) {
-    const room = roomAt(rooms, skylight);
-    if (!room) continue;
-    const polygon = skylightFootprint(skylight).map((point) => ({ x: point.x + dx, y: point.y + dy }));
-    patches.push({
-      openingId: skylight.id,
-      skylightId: skylight.id,
-      wallId: null,
-      roomId: room.id,
-      polygon,
-      area: clippedArea(polygon, room.polygon),
-    });
+    const patch = skylightPatch(house, skylight, sun, rooms, full);
+    if (patch) patches.push(patch);
   }
   return patches;
 }
@@ -165,4 +155,53 @@ export function clippedArea(a, b, step = 0.25) {
     }
   }
   return count * step * step;
+}
+
+/**
+ * The floor patch under one skylight, or null when no sun gets down its shaft.
+ * Worked in the skylight's own axes: u across the slope, w down it.
+ */
+export function skylightPatch(house, skylight, sun, rooms = (house.rooms || []).filter(roofed), full = false) {
+  if (!sun?.up) return null;
+  const build = skylightBuild(house, skylight, full);
+  const room = roomAt(rooms, skylight);
+  if (!room || !build.roof) return null;
+  const v = sun.vector;
+  // The sun has to be in front of the roof face to shine on the glass.
+  const d = build.roof.downhill;
+  const s = build.roof.slope;
+  if (v.x * d.x * s + v.y * d.y * s + v.z <= 0.001) return null;
+  const corners = build.footprint;
+  const u = unit(corners[0], corners[1]);
+  const w = unit(corners[0], corners[3]);
+  const halfU = Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y) / 2;
+  const halfW = Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y) / 2;
+  const k = { x: -v.x / v.z, y: -v.y / v.z };
+  const ku = k.x * u.x + k.y * u.y;
+  const kw = k.x * w.x + k.y * w.y;
+  const H = build.ceiling;
+  // Wall tops (as heights above the floor): sides are c0→c1 (−w), c1→c2 (+u), c2→c3 (+w), c3→c0 (−u).
+  const top = build.shaft.sides.map((side) => H + (side.heightA + side.heightB) / 2);
+  const range = (half, kk, topLow, topHigh) => ({
+    lo: Math.max(-half + kk * H, -half + kk * topLow),
+    hi: Math.min(half + kk * H, half + kk * topHigh),
+  });
+  const across = range(halfU, ku, top[3], top[1]);
+  const down = range(halfW, kw, top[0], top[2]);
+  if (across.hi - across.lo < 0.01 || down.hi - down.lo < 0.01) return null;
+  const at = (a, b) => ({ x: skylight.x + u.x * a + w.x * b, y: skylight.y + u.y * a + w.y * b });
+  const polygon = [at(across.lo, down.lo), at(across.hi, down.lo), at(across.hi, down.hi), at(across.lo, down.hi)];
+  return {
+    openingId: skylight.id,
+    skylightId: skylight.id,
+    wallId: null,
+    roomId: room.id,
+    polygon,
+    area: clippedArea(polygon, room.polygon),
+  };
+}
+
+function unit(a, b) {
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
 }

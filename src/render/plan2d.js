@@ -746,7 +746,7 @@ export function createPlanView(canvas, initialHouse) {
     ctx.save();
     for (const item of house.skylights || []) {
       if (state && !isPhaseVisible(item.phase, state)) continue;
-      const corners = skylightFootprint(item);
+      const corners = skylightFootprint(item, house, !!state && isFutureShown(state));
       trace(corners);
       ctx.fillStyle = "rgba(196, 226, 240, 0.55)";
       ctx.fill();
@@ -1180,7 +1180,7 @@ export function createPlanView(canvas, initialHouse) {
       mask.globalCompositeOperation = "destination-out";
       for (const item of house.skylights || []) {
         if (state && !isPhaseVisible(item.phase, state)) continue;
-        const corners = skylightFootprint(item);
+        const corners = skylightFootprint(item, house, !!state && isFutureShown(state));
         const middle = worldToScreen(item.x, item.y);
         const reach = Math.max(item.width, item.depth) * camera.pxPerFt * 1.4;
         const glow = mask.createRadialGradient(middle.x, middle.y, 0, middle.x, middle.y, reach);
@@ -1201,7 +1201,7 @@ export function createPlanView(canvas, initialHouse) {
     if (!sun.up) return;
     // Sun patches: warm, brightest near the window.
     const warmth = Math.max(0.35, Math.min(1, sun.elevation / 35));
-    for (const patch of sunPatches(house, sun, { wallVisible, roomVisible: visibleRoom })) {
+    for (const patch of sunPatches(house, sun, { wallVisible, roomVisible: visibleRoom, full: !!state && isFutureShown(state) })) {
       const room = (house.rooms || []).find((item) => item.id === patch.roomId);
       if (!room) continue;
       ctx.save();
@@ -2023,7 +2023,7 @@ export function createPlanView(canvas, initialHouse) {
       } else if (pick.type === "skylight") {
         const item = (house.skylights || []).find((entry) => entry.id === pick.id);
         if (!item) continue;
-        trace(skylightFootprint(item));
+        trace(skylightFootprint(item, house, !!state && isFutureShown(state)));
         strokePick();
       } else if (pick.type === "furniture") {
         const item = (house.furniture || []).find((entry) => entry.id === pick.id);
