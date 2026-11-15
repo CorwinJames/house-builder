@@ -5,6 +5,7 @@ import {
   assemblyById,
   catalogForTool,
   DEFAULT_EXTERIOR_ID,
+  headerForSpan,
   openingItems,
   suggestAssemblyId,
 } from "../build/catalog.js";
@@ -26,10 +27,12 @@ import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
+import { compassName, degreeDays, designPlace, wallFacing, windowSolar } from "../sun/passive.js";
+import { currentEaves, solarPanelHtml, sunSideKey } from "./solarPanel.js";
 import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, skylightBuild, skylightFootprint, skylightNotes } from "../build/skylights.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
-import { snapOpeningOffset } from "../build/openings.js";
+import { openingFits, snapOpeningOffset } from "../build/openings.js";
 import { FINE_GRID_FT, placePoint, projectOntoWall, snapAngleNear, snapToGrid, snapTranslation } from "../build/snap.js";
 import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import {
@@ -98,6 +101,7 @@ const TOOLS = [
   { id: "door", label: "Door", icon: "⌂", tip: "Drag a door along a wall" },
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
   { id: "skylight", label: "Skylight", icon: "◫", tip: "Click inside a room to put a skylight in its roof" },
+  { id: "solar", label: "Solar", icon: "☀", tip: "Passive solar: sun angles, eaves, awnings, and roof pitch" },
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
   { id: "plumbing", label: "Water", icon: "💧", tip: "Place sinks, toilets, and the entry" },
   { id: "site", label: "Site", icon: "🌳", tip: "Place the well, tank, and field" },
@@ -114,6 +118,7 @@ const TOOL_HINTS = {
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
+  solar: "Pick a place, then click a window to see its noon sun through the year. The panel suggests eaves, awnings, and roof pitch.",
   skylight: "Pick a size, then click inside a room. Turn on Sun and shade to see the light it lets in.",
   electrical: "Click a wall to place a device. Other systems fade.",
   plumbing: "Click a wall to place a fixture. Other systems fade.",
@@ -177,6 +182,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let siteKind = "well";
   let figureKind = "person";
   let skylightModelId = "C06";
+  // The Solar tool's panel state (not saved in the house file).
+  const solarUi = { focusId: null, results: [], query: "", searchNote: "", searching: false, climateBusy: false, climateNote: "", climateTriedFor: "" };
+  const houseStamps = new WeakMap();
+  let houseStampNext = 1;
+  const houseStamp = (doc) => {
+    if (!houseStamps.has(doc)) houseStamps.set(doc, houseStampNext++);
+    return houseStamps.get(doc);
+  };
   let siteGhosts = [];
   let hoverWorld = null;
   let advancedOn = false;
@@ -232,7 +245,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -918,6 +931,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       };
       publish();
       armPan();
+      return true;
+    }
+    if (tool === "solar") {
+      const hit = world ? hitTest(world) : null;
+      if (hit?.type === "opening") {
+        solarUi.focusId = hit.id;
+        choose({ type: "opening", id: hit.id });
+      }
+      publish();
       return true;
     }
     if (tool === "skylight") {
@@ -2166,6 +2188,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pushViews() {
+    plan.setRoofEdges?.(mode === "build" && tool === "solar");
     plan.setHouse(house);
     model.setHouse?.(house);
     model.setSelected?.(selection?.type === "wall" ? selection.id : null);
@@ -2253,7 +2276,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     model.setOverlay?.(overlay);
     model.setSelection?.(mode === "build" ? picks.map((item) => ({ ...item })) : null);
     model.setSelected?.(mode === "build" && picks.length === 1 && picks[0].type === "wall" ? picks[0].id : null);
-    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing", "scale", "skylight"].includes(tool) ? "crosshair" : "");
+    plan.setCursor?.(mode === "build" && ["site", "wall", "room", "door", "window", "electrical", "plumbing", "scale", "skylight", "solar"].includes(tool) ? "crosshair" : "");
     paintCoach();
   }
 
@@ -2404,12 +2427,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${tool === "solar" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
     }
     optionsKey = key;
+    if (tool === "solar") {
+      paintSolarOptions(box);
+      return;
+    }
     if (tool === "electrical") {
       paintElectricalOptions(box, rates);
       return;
@@ -2511,7 +2538,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       });
       return;
     }
-    if (tool === "door" || tool === "window" || selection?.type === "opening") {
+    if (tool === "door" || tool === "window") {
       let kind = tool === "window" ? "window" : "door";
       let selectedOpening = null;
       if (selection?.type === "opening") {
@@ -3535,8 +3562,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       syncSelectionLayout();
       return;
     } else if (selection.type === "opening") {
-      inspector.hidden = true;
-      inspector.innerHTML = "";
+      paintOpeningInspector();
       syncSelectionLayout();
       return;
     }
@@ -3563,6 +3589,355 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       <p>${escapeHtml(detail)}</p>
       ${quietDelete(remove)}
     `;
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+  }
+
+  /** The Solar tool panel: place, climate, the section, roof, windows, and checks. */
+  function paintSolarOptions(box) {
+    const view = getViewState();
+    const full = isFutureShown(view);
+    if (selection?.type === "opening") solarUi.focusId = selection.id;
+    box.innerHTML = solarPanelHtml(house, {
+      ...solarUi,
+      full,
+      phaseVisible: (phase) => isPhaseVisible(phase, view),
+    });
+    maybeFetchClimate();
+    const save = (fn, note) => {
+      const next = cloneHouse(house);
+      fn(next);
+      commit(next, house, note);
+      optionsKey = "";
+      publish();
+    };
+    box.querySelector("#place-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = box.querySelector("#place-query").value.trim();
+      solarUi.query = query;
+      const pair = query.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+      if (pair) {
+        const lat = Number(pair[1]);
+        const lon = Number(pair[2]);
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+          solarUi.searchNote = "Latitude goes to 90 and longitude to 180.";
+          optionsKey = "";
+          publish();
+          return;
+        }
+        pickPlace({ name: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon });
+        return;
+      }
+      if (query.length < 2) return;
+      solarUi.searchNote = "Searching…";
+      solarUi.results = [];
+      optionsKey = "";
+      publish();
+      fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=en&format=json`)
+        .then((response) => response.json())
+        .then((data) => {
+          solarUi.results = (data.results || []).map((item) => ({
+            name: [item.name, item.admin1, item.country_code].filter(Boolean).join(", "),
+            label: [item.name, item.admin1, item.country].filter(Boolean).join(", "),
+            lat: item.latitude,
+            lon: item.longitude,
+          }));
+          solarUi.searchNote = solarUi.results.length ? "" : "Nothing found. Try a nearby town, or type lat, lon.";
+        })
+        .catch(() => { solarUi.searchNote = "Couldn't reach the place search. Type lat, lon instead (for example 48.12, -122.76)."; })
+        .finally(() => { optionsKey = ""; publish(); });
+    });
+    box.querySelectorAll("[data-place-pick]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = solarUi.results[Number(button.dataset.placePick)];
+        if (item) pickPlace(item);
+      });
+    });
+    box.querySelector("#place-clear")?.addEventListener("click", () => {
+      solarUi.searching = true;
+      optionsKey = "";
+      publish();
+    });
+    box.querySelectorAll("[data-climate]").forEach((button) => {
+      button.addEventListener("click", () => save((next) => {
+        next.solar = { ...(next.solar || {}), climateChoice: button.dataset.climate };
+      }, "choosing the climate"));
+    });
+    box.querySelector("#climate-fetch")?.addEventListener("click", () => fetchClimate(true));
+    box.querySelectorAll("[data-eave]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const place = designPlace(house);
+        const side = sunSideKey(place);
+        const depth = Number(button.dataset.eave);
+        save((next) => {
+          next.roof = { ...next.roof, eaves: { ...currentEaves(house, full), [side]: depth } };
+          for (const item of next.skylights || []) refreshSkylight(next, item);
+        }, "setting the eave");
+        announce(`The ${side} eave now sticks out ${plainFeet(depth)} past the wall.`);
+      });
+    });
+    box.querySelectorAll("[data-pitch]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const deg = Number(button.dataset.pitch);
+        const rise = Math.tan((deg * Math.PI) / 180);
+        save((next) => {
+          next.roof = { ...next.roof, pitchRiseOverRun: Math.round(rise * 10000) / 10000, pitch: `${(rise * 12).toFixed(1).replace(/\.0$/, "")}:12` };
+          for (const item of next.skylights || []) refreshSkylight(next, item);
+        }, "changing the roof pitch");
+        announce(`Roof pitch set to ${(rise * 12).toFixed(1).replace(/\.0$/, "")}:12 (${deg.toFixed(0)}°).`);
+      });
+    });
+    box.querySelectorAll("[data-focus]").forEach((button) => {
+      button.addEventListener("click", () => {
+        solarUi.focusId = button.dataset.focus;
+        choose({ type: "opening", id: button.dataset.focus });
+        optionsKey = "";
+        publish();
+      });
+    });
+    box.querySelectorAll("[data-awning]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const place = designPlace(house);
+        const target = house.openings.find((item) => item.id === button.dataset.awning);
+        const info = target && windowSolar(house, { ...target, awning: null }, place, { full });
+        if (!info?.suggestion) return;
+        const depth = Math.ceil(info.suggestion.depth * 12) / 12;
+        save((next) => {
+          const item = next.openings.find((entry) => entry.id === target.id);
+          item.awning = { depth, gap: Math.floor(info.suggestion.gap * 24) / 24, extend: depth };
+        }, "adding an awning");
+        solarUi.focusId = target.id;
+        announce(`Added a ${plainFeet(depth)} awning, ${plainFeet(Math.floor(info.suggestion.gap * 24) / 24)} above the window top.`);
+      });
+    });
+  }
+
+  function pickPlace(item) {
+    const next = cloneHouse(house);
+    next.solar = { ...(next.solar || {}), place: { name: item.name, lat: Math.round(item.lat * 10000) / 10000, lon: Math.round(item.lon * 10000) / 10000 } };
+    solarUi.results = [];
+    solarUi.searching = false;
+    solarUi.searchNote = "";
+    commit(next, house, "choosing a reference place");
+    optionsKey = "";
+    announce(`Using ${item.name} for the sun.`);
+    publish();
+    fetchClimate(true);
+  }
+
+  /** Look up the climate once for a new place (the lot or a reference place). */
+  function maybeFetchClimate() {
+    const place = designPlace(house);
+    if (!place || solarUi.climateBusy) return;
+    const stored = house.solar?.climate;
+    const key = `${place.lat.toFixed(2)},${place.lon.toFixed(2)}`;
+    if (stored && Math.abs(stored.lat - place.lat) < 0.05 && Math.abs(stored.lon - place.lon) < 0.05) return;
+    if (solarUi.climateTriedFor === key) return;
+    fetchClimate(false);
+  }
+
+  /**
+   * Ten full years of daily mean temperature from Open-Meteo's historical
+   * archive, turned into heating (65 °F) and cooling (75 °F) degree days.
+   */
+  function fetchClimate(force) {
+    const place = designPlace(house);
+    if (!place || solarUi.climateBusy) return;
+    const key = `${place.lat.toFixed(2)},${place.lon.toFixed(2)}`;
+    if (!force && solarUi.climateTriedFor === key) return;
+    solarUi.climateTriedFor = key;
+    solarUi.climateBusy = true;
+    solarUi.climateNote = "";
+    const endYear = new Date().getFullYear() - 1;
+    const startYear = endYear - 9;
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${place.lat}&longitude=${place.lon}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_mean&timezone=auto`;
+    fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json();
+      })
+      .then((data) => {
+        const means = data?.daily?.temperature_2m_mean || [];
+        if (means.length < 365 * 5) throw new Error("short");
+        const days = degreeDays(means, means.length / 365.25);
+        const next = cloneHouse(house);
+        next.solar = {
+          ...(next.solar || {}),
+          climate: {
+            ...days,
+            years: `${startYear}–${endYear}`,
+            lat: place.lat,
+            lon: place.lon,
+            source: "Open-Meteo historical weather (ERA5 reanalysis), daily mean temperature",
+            url: "https://open-meteo.com/en/docs/historical-weather-api",
+            checked: new Date().toISOString().slice(0, 10),
+          },
+        };
+        commit(next, house, "looking up the climate");
+      })
+      .catch(() => {
+        solarUi.climateNote = "Couldn't reach the climate data, so it uses Moderate. Pick the climate below if you know it.";
+      })
+      .finally(() => {
+        solarUi.climateBusy = false;
+        optionsKey = "";
+        publish();
+      });
+  }
+
+  /** Which compass end of a wall its start (or end) point is. */
+  function endName(wall, which) {
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const startIs = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? "west" : "east") : (dy > 0 ? "south" : "north");
+    const opposite = { west: "east", east: "west", south: "north", north: "south" };
+    return which === "start" ? startIs : opposite[startIs];
+  }
+
+  /**
+   * The door or window card: width, height, sill, and head as typed tiles, and
+   * where it sits along the wall (from either end, or centered). Windows also
+   * get their noon sun through the year and an awning.
+   */
+  function paintOpeningInspector() {
+    const opening = house.openings.find((item) => item.id === selection.id);
+    const wall = opening && house.walls.find((item) => item.id === opening.wallId);
+    if (!opening || !wall) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const isWindow = opening.type === "window";
+    const length = wallLength(wall);
+    const wallTop = Number(wall.height) || 10;
+    const headerHeight = Number(opening.header?.height) || 0;
+    const head = (opening.sill || 0) + opening.height;
+    const facing = wallFacing(house, wall, isFutureShown(getViewState()) || wall.phase === "future");
+    const startEnd = endName(wall, "start");
+    const otherEnd = endName(wall, "end");
+    const fromOther = length - opening.offset - opening.width;
+    const place = designPlace(house);
+    const solar = isWindow && place ? windowSolar(house, opening, place, { full: isFutureShown(getViewState()) }) : null;
+    const sunLine = solar
+      ? `<p class="fine sun-line">Noon sun on the glass: ${solar.days.map((day) => `${day.label} <strong>${day.direct ? `${Math.round(day.litShare * 100)}%` : "none"}</strong>`).join(" · ")}</p>`
+      : "";
+    const awning = opening.awning;
+    const suggestion = solar?.suggestion;
+    const tile = (id, value, label) => `<label class="measure-tile"><input id="${id}" value="${escapeAttr(plainFeet(value))}" autocomplete="off" inputmode="decimal" /><span>${label}</span></label>`;
+    inspector.innerHTML = `
+      ${gameHead(`${isWindow ? "Window" : "Door"} · ${compassName(facing.azimuth)} wall`, warnings.filter((item) => item.target?.id === opening.id))}
+      <div class="measure-tiles op-tiles">
+        ${tile("op-width", opening.width, "Width")}
+        ${tile("op-height", opening.height, "Height")}
+        ${isWindow ? tile("op-sill", opening.sill || 0, "Sill") : ""}
+        ${isWindow ? tile("op-head", head, "Top") : ""}
+      </div>
+      <div class="measure-tiles op-tiles">
+        ${tile("op-from-start", opening.offset, `From ${startEnd} end`)}
+        ${tile("op-from-end", fromOther, `From ${otherEnd} end`)}
+        <button type="button" class="chip op-center" id="op-center">Center</button>
+      </div>
+      <p class="fine">Heights are from the floor. The header (${escapeHtml(opening.header?.label || "placeholder")}) needs ${escapeHtml(plainFeet(headerHeight))} above the top, so the top can go up to ${escapeHtml(plainFeet(wallTop - headerHeight))} on this ${escapeHtml(plainFeet(wallTop))} wall.</p>
+      ${sunLine}
+      ${isWindow ? `<details class="tech awning-box" ${awning ? "open" : ""}>
+        <summary>Awning${awning ? ` · ${escapeHtml(plainFeet(awning.depth))} deep` : ""}</summary>
+        ${awning ? `<div class="measure-tiles">
+          ${tile("aw-depth", awning.depth, "Sticks out")}
+          ${tile("aw-gap", awning.gap, "Above top")}
+          ${tile("aw-extend", awning.extend || 0, "Past sides")}
+        </div>` : `<p class="fine">A fixed shade over the window, on the outside of the wall.</p>`}
+        <div class="card-row">
+          ${suggestion ? `<button type="button" class="chip" id="aw-suggest" title="${escapeAttr(`${solar.rule.text}; all sun at Dec 21 noon`)}">${awning ? "Use" : "Add"} suggested: ${escapeHtml(plainFeet(suggestion.depth))} out, ${escapeHtml(plainFeet(suggestion.gap))} above</button>` : ""}
+          ${!awning && !suggestion ? `<button type="button" class="chip" id="aw-add">Add awning</button>` : ""}
+          ${awning ? `<button type="button" class="btn-quiet" id="aw-remove">Remove</button>` : ""}
+        </div>
+        ${suggestion?.capped ? `<p class="fine">The wall isn't tall enough to mount it high enough for full winter sun; the top ${escapeHtml(plainFeet(suggestion.winterShareLost))} of glass loses some Dec 21 noon sun.</p>` : ""}
+        ${!place ? `<p class="fine">Pick a place in the Solar tool to get a suggested size.</p>` : ""}
+      </details>` : ""}
+      ${quietDelete(isWindow ? "Delete window" : "Delete door")}
+    `;
+    const change = (fn, note) => {
+      const next = cloneHouse(house);
+      const target = next.openings.find((item) => item.id === opening.id);
+      const targetWall = next.walls.find((item) => item.id === opening.wallId);
+      if (!target || !targetWall) return;
+      const problem = fn(target, targetWall, next);
+      if (problem) {
+        announce(problem, false);
+        paintInspector();
+        return;
+      }
+      target.header = headerForSpan(target.width);
+      const top = (target.sill || 0) + target.height;
+      if (top + (target.header?.height || 0) > (Number(targetWall.height) || 10) + 1e-6) {
+        announce(`The top would be ${plainFeet(top)}, but the header needs ${plainFeet(target.header.height)} above it on a ${plainFeet(Number(targetWall.height) || 10)} wall. Lower it or raise the wall.`, false);
+        paintInspector();
+        return;
+      }
+      if ((target.sill || 0) < -1e-6) {
+        announce("The sill can't go below the floor.", false);
+        paintInspector();
+        return;
+      }
+      const fit = openingFits(targetWall, next.openings, target.offset, target.width, target.id);
+      if (!fit.ok) {
+        announce(fit.reason === "corner" ? "That would sit too close to the wall's end." : "That would overlap another door or window.", false);
+        paintInspector();
+        return;
+      }
+      commit(next, house, note);
+      publish();
+    };
+    const bind = (id, apply) => {
+      const input = inspector.querySelector(`#${id}`);
+      if (!input) return;
+      const run = () => {
+        const value = parseLength(input.value);
+        if (!Number.isFinite(value)) {
+          paintInspector();
+          return;
+        }
+        input.blur();
+        apply(value);
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        run();
+      });
+      input.addEventListener("change", run);
+    };
+    bind("op-width", (value) => change((t) => {
+      if (!(value > 0)) return "The width has to be more than zero.";
+      t.width = value;
+    }, "changing the width"));
+    bind("op-height", (value) => change((t) => {
+      if (!(value > 0)) return "The height has to be more than zero.";
+      t.height = value;
+    }, "changing the height"));
+    bind("op-sill", (value) => change((t) => { t.sill = value; }, "changing the sill height"));
+    bind("op-head", (value) => change((t) => {
+      t.sill = value - t.height;
+    }, "moving the window up or down"));
+    bind("op-from-start", (value) => change((t) => { t.offset = value; }, "moving it along the wall"));
+    bind("op-from-end", (value) => change((t, w) => { t.offset = wallLength(w) - value - t.width; }, "moving it along the wall"));
+    inspector.querySelector("#op-center")?.addEventListener("click", () => change((t, w) => {
+      t.offset = (wallLength(w) - t.width) / 2;
+    }, "centering it on the wall"));
+    const setAwning = (patch, note) => change((t) => {
+      t.awning = { depth: 2, gap: 0.5, extend: 1, ...(t.awning || {}), ...patch };
+      if (!(t.awning.depth > 0)) return "An awning has to stick out more than zero.";
+      if (t.awning.gap < 0 || t.awning.extend < 0) return "Use zero or more.";
+    }, note);
+    bind("aw-depth", (value) => setAwning({ depth: value }, "changing the awning"));
+    bind("aw-gap", (value) => setAwning({ gap: value }, "changing the awning"));
+    bind("aw-extend", (value) => setAwning({ extend: value }, "changing the awning"));
+    inspector.querySelector("#aw-add")?.addEventListener("click", () => setAwning({}, "adding an awning"));
+    inspector.querySelector("#aw-suggest")?.addEventListener("click", () => setAwning({
+      depth: Math.ceil(suggestion.depth * 12) / 12,
+      gap: Math.floor(suggestion.gap * 24) / 24,
+      extend: awning?.extend ?? Math.ceil(suggestion.depth * 12) / 12,
+    }, "sizing the awning for the sun"));
+    inspector.querySelector("#aw-remove")?.addEventListener("click", () => change((t) => { delete t.awning; }, "removing the awning"));
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
   }
 

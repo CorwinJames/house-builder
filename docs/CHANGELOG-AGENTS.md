@@ -3,6 +3,8 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
+2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/36 | Passive solar helper (Solar tool): reference place or the lot, climate from Open-Meteo, noon sun on Dec 21 / Mar 20 / Jun 21, a section through any window, eave and awning suggestions by climate rule, roof pitch for collectors, glass and orientation checks. Window awnings and per-side eaves, used by the sun in plan and 3D. New door/window card: exact width, height, sill, top, and position along the wall (Sophie's high north windows). | Plan north assumed to be true north. Awning sides and side fins not modelled.
+
 2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/35 | Skylights built properly and costed: real VELUX FS sizes on the roof face, a straight shaft through the attic to the ceiling, framing per IRC R802.9, 13+10 shaft insulation per WSEC-R, a "How it's built" note on the card, a Skylights cost group with published prices, and warnings when one can't be built as drawn. Sun now has to face the roof and get down the shaft. | Rafters/joists assumed 24 in. o.c.; M04, S06 and S06 flashing prices needed; straight shafts only.
 
 2026-11-14 | Claude | https://github.com/CorwinJames/house-builder/pull/34 | Skylights: a Skylight tool (2 × 2, 2 × 4, 4 × 4, 4 × 6 ft) that drops one into the roof over a room; select, drag, copy, resize, turn, delete. Sun and shade counts them: sun patches on the floor below in plan and 3D, softer shade under them for sky daylight, glass on the 3D roof, cooler daylight fill in rooms that have them. | Not in the cost yet. Light shaft through the attic not modelled.

@@ -15,6 +15,7 @@ import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
 import { createSunRig } from "./sun3d.js";
 import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
+import { awningPieces } from "../build/awnings.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -118,6 +119,8 @@ export function createView3d(canvas, initialHouse) {
   // With the roof hidden, skylights show as outlines at ceiling height.
   let skylightOutlines = buildSkylightOutlines(house);
   scene.add(skylightOutlines);
+  let awnings = buildAwnings(house);
+  scene.add(awnings);
 
   let phaseSlab = buildSlab(house, false);
   let fullSlab = buildSlab(house, true);
@@ -453,6 +456,10 @@ export function createView3d(canvas, initialHouse) {
     scene.remove(skylightOutlines);
     skylightOutlines = buildSkylightOutlines(house);
     scene.add(skylightOutlines);
+    disposeObject(awnings);
+    scene.remove(awnings);
+    awnings = buildAwnings(house);
+    scene.add(awnings);
     disposeObject(phaseSlab);
     disposeObject(fullSlab);
     scene.remove(phaseSlab);
@@ -500,7 +507,7 @@ export function createView3d(canvas, initialHouse) {
     roofPivot.visible = show;
     skylightOutlines.visible = !show || ghost;
     const futureOn = state ? isFutureShown(state) : false;
-    for (const child of skylightOutlines.children) {
+    for (const child of [...skylightOutlines.children, ...awnings.children]) {
       if (child.userData?.phase === "future") child.visible = futureOn;
     }
     roofPivot.traverse((obj) => {
@@ -1866,6 +1873,24 @@ function buildSkylightOutlines(house) {
       edge.userData.phase = item.phase;
       group.add(edge);
     }
+  }
+  return group;
+}
+
+const AWNING = new THREE.MeshStandardMaterial({ color: 0x7a5a3e, roughness: 0.7 });
+
+/** Fixed awnings over windows: a thin board out from the wall face. */
+function buildAwnings(house) {
+  const group = new THREE.Group();
+  for (const piece of awningPieces(house)) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(piece.length, 0.15, piece.depth), AWNING);
+    mesh.position.set(piece.center.x, piece.height + 0.075, -piece.center.y);
+    mesh.rotation.y = piece.angle;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.pick = { type: "opening", id: piece.opening.id };
+    mesh.userData.phase = piece.wall.phase;
+    group.add(mesh);
   }
   return group;
 }

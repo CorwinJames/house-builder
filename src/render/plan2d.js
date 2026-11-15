@@ -22,6 +22,8 @@ import { pieceOutline, wallJoints } from "../build/joins.js";
 import { endsAt, isClipped } from "../build/clips.js";
 import { roofed, sunPatches, wallShadows } from "../sun/light.js";
 import { skylightFootprint } from "../build/skylights.js";
+import { awningPieces } from "../build/awnings.js";
+import { roofFootprints } from "../build/roofShape.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
 import { areaKind, boundsOf } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
@@ -77,6 +79,7 @@ export function createPlanView(canvas, initialHouse) {
   let sunDrag = null;
   let onSunDrag = () => {};
   let shadeCanvas = null;
+  let showRoofEdges = false;
   let walkerDrag = null;
   let onWalkerMove = () => {};
   let ratioFontReady = false;
@@ -741,6 +744,38 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  /** Window awnings: a board on the outside face, drawn as a hatched strip. */
+  function drawAwnings() {
+    ctx.save();
+    for (const piece of awningPieces(house)) {
+      if (state && !isPhaseVisible(piece.wall.phase, state)) continue;
+      trace(piece.polygon);
+      ctx.fillStyle = "rgba(122, 90, 62, 0.28)";
+      ctx.fill();
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = "#7A5A3E";
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
+  /** The roof edge (eaves), dashed, while the sun layer or the solar tool is on. */
+  function drawRoofEdges() {
+    if (!showRoofEdges && !sun) return;
+    const full = !!state && isFutureShown(state);
+    ctx.save();
+    ctx.setLineDash([10, 5]);
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = "rgba(140, 70, 52, 0.7)";
+    for (const box of roofFootprints(house, full)) {
+      trace([{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /** Skylights: overhead glass, drawn dashed with the usual cross. */
   function drawSkylights() {
     ctx.save();
@@ -1117,6 +1152,8 @@ export function createPlanView(canvas, initialHouse) {
     drawPlumbing();
     drawAnnotations();
     drawSkylights();
+    drawAwnings();
+    drawRoofEdges();
     drawSitePieces();
     drawOverlay();
     drawDimensions();
@@ -2552,6 +2589,11 @@ export function createPlanView(canvas, initialHouse) {
     /** The sun for the Sun and shade layer (from currentSun), or null when it is off. */
     setSun(next) {
       sun = next || null;
+      requestRender();
+    },
+    /** Draw the roof edge (eaves) dashed, for the passive solar tool. */
+    setRoofEdges(on) {
+      showRoofEdges = !!on;
       requestRender();
     },
     setOnSunDrag(fn) {
