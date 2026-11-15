@@ -15,6 +15,7 @@ import { glazing, roofed, roomSun, sunPatches } from "../sun/light.js";
 import { boundsOf } from "../build/areas.js";
 import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
 import { roofFootprints } from "../build/roofShape.js";
+import { clerestoryBox, clerestoryGeometry, upperHeight } from "../build/clerestory.js";
 import { awningPieces } from "../build/awnings.js";
 import { pointInPolygon } from "../lib/geom.js";
 
@@ -102,9 +103,15 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       }
       box(cursor, len, 0, top);
     }
+    const full = !!state?.layers && isFutureShown(state);
+    const stepBox = house?.roof?.clerestory ? clerestoryBox(roofFootprints(house, full)) : null;
+    const step = stepBox ? clerestoryGeometry(house, stepBox, full) : null;
     for (const room of house?.rooms || []) {
       if (!roofed(room) || !(room.polygon?.length >= 3) || !isPhaseVisible(room.phase, state || {})) continue;
-      const shape = new THREE.Shape(room.polygon.map((point) => new THREE.Vector2(point.x, point.y)));
+      // Under a clerestory's high roof the ceiling is open to the roof: keep only the low side's ceiling.
+      const polygon = step ? clipToFront(room.polygon, step) : room.polygon;
+      if (polygon.length < 3) continue;
+      const shape = new THREE.Shape(polygon.map((point) => new THREE.Vector2(point.x, point.y)));
       // Skylights over this room are holes in its ceiling, so the sun comes through.
       for (const skylight of house.skylights || []) {
         if (!isPhaseVisible(skylight.phase, state || {})) continue;
@@ -115,6 +122,7 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       geometry.rotateX(-Math.PI / 2);
       add(geometry, new THREE.Vector3(0, top, 0));
     }
+    if (step) addClerestoryCasters(step);
     // The roof's eaves past the walls (the roof itself stops casting while the
     // layer is on, so skylights work), and each window's awning.
     for (const box of roofFootprints(house, full)) {
@@ -139,7 +147,6 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
     // Each skylight's shaft through the attic: four walls from the ceiling up to
     // the roof, and a lid that closes the shaft when the sun is behind its roof face.
     lids = [];
-    const full = !!state?.layers && isFutureShown(state);
     for (const skylight of house?.skylights || []) {
       if (!isPhaseVisible(skylight.phase, state || {})) continue;
       const build = skylightBuild(house, skylight, full);
@@ -166,6 +173,54 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       const lid = casters.children[casters.children.length - 1];
       lid.userData.roof = build.roof;
       lids.push(lid);
+    }
+  }
+
+  /** The clerestory's solid parts and its high roof, for the sun only. */
+  function addClerestoryCasters(g) {
+    const solid = (geometry, position) => {
+      const mesh = new THREE.Mesh(geometry, casterMaterial);
+      if (position) mesh.position.copy(position);
+      mesh.castShadow = true;
+      mesh.raycast = () => {};
+      casters.add(mesh);
+    };
+    const width = g.glassX1 - g.glassX0;
+    const mid = (g.glassX0 + g.glassX1) / 2;
+    // Wall from the ceiling up to the glass, and the header above it.
+    solid(new THREE.BoxGeometry(width, g.sill - g.plate, 0.3), new THREE.Vector3(mid, (g.plate + g.sill) / 2, -g.stepY));
+    solid(new THREE.BoxGeometry(width, g.top - g.glassTop, 0.3), new THREE.Vector3(mid, (g.glassTop + g.top) / 2, -g.stepY));
+    // The high roof, with holes for skylights in it.
+    const shape = new THREE.Shape([
+      new THREE.Vector2(g.box.x0, g.upperEdgeY), new THREE.Vector2(g.box.x1, g.upperEdgeY),
+      new THREE.Vector2(g.box.x1, g.backY), new THREE.Vector2(g.box.x0, g.backY),
+    ]);
+    for (const skylight of casterHouse?.skylights || []) {
+      const inside = g.sign > 0 ? skylight.y > g.stepY : skylight.y < g.stepY;
+      if (!inside) continue;
+      shape.holes.push(new THREE.Path(skylightFootprint(skylight, casterHouse).map((p) => new THREE.Vector2(p.x, p.y))));
+    }
+    const roofGeometry = new THREE.ShapeGeometry(shape);
+    const position = roofGeometry.attributes.position;
+    for (let i = 0; i < position.count; i += 1) {
+      const planY = position.getY(i);
+      position.setXYZ(i, position.getX(i), upperHeight(g, planY) + 0.05, -planY);
+    }
+    roofGeometry.computeVertexNormals();
+    solid(roofGeometry);
+    // Gable ends.
+    for (const x of [g.faces.x0, g.faces.x1]) {
+      const profile = [
+        [g.frontFace, g.plate], [g.stepY, g.plate], [g.stepY, g.top],
+        [g.backFace, upperHeight(g, g.backFace)], [g.backFace, g.plate],
+      ];
+      const end = new THREE.ShapeGeometry(new THREE.Shape(profile.map(([py, h]) => new THREE.Vector2(-py, h))));
+      end.rotateY(-Math.PI / 2);
+      const mesh = new THREE.Mesh(end, casterMaterial);
+      mesh.position.x = x;
+      mesh.castShadow = true;
+      mesh.raycast = () => {};
+      casters.add(mesh);
     }
   }
 
@@ -284,4 +339,22 @@ function wallBox(house, box, state) {
   }
   if (!Number.isFinite(x0)) return null;
   return { x0: Math.max(x0, box.x0 + 0.05), y0: Math.max(y0, box.y0 + 0.05), x1: Math.min(x1, box.x1 - 0.05), y1: Math.min(y1, box.y1 - 0.05) };
+}
+
+/** The part of a room on the low (front) side of a clerestory's glass line. */
+function clipToFront(polygon, g) {
+  const keep = (p) => (g.sign > 0 ? p.y <= g.stepY : p.y >= g.stepY);
+  const out = [];
+  for (let i = 0; i < polygon.length; i += 1) {
+    const a = polygon[i];
+    const b = polygon[(i + 1) % polygon.length];
+    const ka = keep(a);
+    const kb = keep(b);
+    if (ka) out.push(a);
+    if (ka !== kb) {
+      const t = (g.stepY - a.y) / (b.y - a.y);
+      out.push({ x: a.x + (b.x - a.x) * t, y: g.stepY });
+    }
+  }
+  return out;
 }

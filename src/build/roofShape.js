@@ -11,6 +11,7 @@
  * top of each hip is left out (it sits above the ridge, never over a skylight).
  */
 import { countsAsHeated, separatesSite } from "./areas.js";
+import { clerestoryBox, clerestoryGeometry, clerestoryRoofAt } from "./clerestory.js";
 
 function boxOf(points) {
   let x0 = Infinity;
@@ -126,8 +127,15 @@ export function roofAt(house, point, full = false) {
   const plate = Number(house?.roof?.plateHeight) || 10;
   const pitch = Number(house?.roof?.pitchRiseOverRun) || 0.5;
   let best = null;
-  for (const box of roofFootprints(house, full)) {
+  const boxes = roofFootprints(house, full);
+  const stepped = house?.roof?.clerestory ? clerestoryBox(boxes) : null;
+  for (const box of boxes) {
     if (point.x < box.x0 || point.x > box.x1 || point.y < box.y0 || point.y > box.y1) continue;
+    if (box === stepped) {
+      const at = clerestoryRoofAt(clerestoryGeometry(house, box, full), point);
+      if (!best || at.height > best.height) best = at;
+      continue;
+    }
     const depth = box.y1 - box.y0;
     const run = depth / 2;
     const rise = run * pitch;

@@ -27,7 +27,8 @@
  * Plan north is taken as true north. Sources are listed in SOLAR_SOURCES.
  */
 import { lotLocation } from "./solar.js";
-import { roofAt } from "../build/roofShape.js";
+import { roofAt, roofFootprints } from "../build/roofShape.js";
+import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
 
 export const DESIGN_DAYS = [
@@ -211,7 +212,7 @@ function tanProfile(day, wallAzimuth) {
 /** Glass height for a window or a glazed door, or null for a solid door. */
 function glassOf(opening) {
   if (opening.type === "window") return { sill: Number(opening.sill) || 0, height: Number(opening.height) || 0 };
-  if (opening.type === "door" && (opening.style === "sliding" || opening.style === "cased")) return { sill: 0, height: Number(opening.height) || 0 };
+  if (opening.type === "door" && (opening.style === "sliding" || opening.style === "cased" || opening.style === "folding")) return { sill: 0, height: Number(opening.height) || 0 };
   return null;
 }
 
@@ -337,6 +338,16 @@ export function houseSolar(house, place, { full = false, phaseVisible = () => tr
     windows.push(info);
     glass[info.side] += opening.width * info.glass.height;
   }
+  // A clerestory band counts as glass on the side it faces.
+  let clerestory = null;
+  if (house.roof?.clerestory) {
+    const g = clerestoryGeometry(house, clerestoryBox(roofFootprints(house, full)), full);
+    if (g) {
+      const side = sideOf(g.face === "south" ? 180 : 0, place.lat);
+      glass[side] += g.glassArea;
+      clerestory = { g, side };
+    }
+  }
   const share = (area) => (floor > 0 ? area / floor : 0);
   // The longest outside wall decides which way the house faces.
   let longest = null;
@@ -359,6 +370,7 @@ export function houseSolar(house, place, { full = false, phaseVisible = () => tr
     westShare: share(glass.west),
     awayShare: share(glass.away),
     windows,
+    clerestory,
     offSouth,
     collectors: {
       hotWater: lat,

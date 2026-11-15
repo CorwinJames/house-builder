@@ -133,6 +133,7 @@ export function takeoff(house, options = {}) {
   const framing = { "2x6": 0, "2x4": 0 };
   const framingWalls = [];
   let doors = 0;
+  let foldingFeet = 0;
   let windows = 0;
   let headerOther = 0;
   let headerTwoBySix = 0;
@@ -156,6 +157,7 @@ export function takeoff(house, options = {}) {
     headerOther += headers.other;
     for (const opening of wallOpenings) {
       if (opening.type === "window") windows += 1;
+      else if (opening.style === "folding") foldingFeet += opening.width;
       else doors += 1;
     }
     const exterior = assemblyById[wall.assemblyId]?.role === "exterior";
@@ -252,6 +254,7 @@ export function takeoff(house, options = {}) {
   });
 
   add({ id: "door-unit", category: "openings", quantity: doors, unit: "each", kind: "material", basis: "One line per door opening." });
+  add({ id: "folding-glass-wall", category: "openings", quantity: Math.round(foldingFeet * 100) / 100, unit: "linear foot", kind: "material", basis: "Folding glass walls, by width. Priced per foot once a bid or published system price is in." });
   add({ id: "window-unit", category: "openings", quantity: windows, unit: "each", kind: "material", basis: "One line per window opening." });
 
   const floors = { wood: 0, tile: 0, stone: 0, concrete: 0 };

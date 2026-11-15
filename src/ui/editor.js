@@ -5,6 +5,7 @@ import {
   assemblyById,
   catalogForTool,
   DEFAULT_EXTERIOR_ID,
+  foldingPanels,
   headerForSpan,
   openingItems,
   suggestAssemblyId,
@@ -27,7 +28,9 @@ import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
-import { compassName, degreeDays, designPlace, wallFacing, windowSolar } from "../sun/passive.js";
+import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noonSun, wallFacing, windowSolar } from "../sun/passive.js";
+import { clerestoryBox, clerestoryEaveRange, clerestoryGeometry } from "../build/clerestory.js";
+import { roofFootprints } from "../build/roofShape.js";
 import { currentEaves, solarPanelHtml, sunSideKey } from "./solarPanel.js";
 import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, skylightBuild, skylightFootprint, skylightNotes } from "../build/skylights.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
@@ -101,6 +104,7 @@ const TOOLS = [
   { id: "door", label: "Door", icon: "⌂", tip: "Drag a door along a wall" },
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
   { id: "skylight", label: "Skylight", icon: "◫", tip: "Click inside a room to put a skylight in its roof" },
+  { id: "roof", label: "Roof", icon: "△", tip: "Roof shape, pitch, eaves, and a clerestory band of high glass" },
   { id: "solar", label: "Solar", icon: "☀", tip: "Passive solar: sun angles, eaves, awnings, and roof pitch" },
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
   { id: "plumbing", label: "Water", icon: "💧", tip: "Place sinks, toilets, and the entry" },
@@ -108,6 +112,8 @@ const TOOLS = [
   { id: "scale", label: "Scale", icon: "🧍", tip: "Drop a person, bed, sofa, table, or car to judge size" },
   { id: "erase", label: "Delete", icon: "✕", tip: "Click something to remove it" },
 ];
+
+const DOOR_STYLES = [["swing", "Swing"], ["sliding", "Sliding glass"], ["folding", "Folding glass"], ["cased", "Open"], ["overhead", "Garage"]];
 
 /** Plan pieces that sit at a point: their house key, for move, copy, and paste. */
 const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights" };
@@ -118,6 +124,7 @@ const TOOL_HINTS = {
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
+  roof: "Pick the roof shape. Clerestory adds a band of high glass between a low roof and a raised one.",
   solar: "Pick a place, then click a window to see its noon sun through the year. The panel suggests eaves, awnings, and roof pitch.",
   skylight: "Pick a size, then click inside a room. Turn on Sun and shade to see the light it lets in.",
   electrical: "Click a wall to place a device. Other systems fade.",
@@ -245,7 +252,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar" || tool === "roof") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -2188,7 +2195,6 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pushViews() {
-    plan.setRoofEdges?.(mode === "build" && tool === "solar");
     plan.setHouse(house);
     model.setHouse?.(house);
     model.setSelected?.(selection?.type === "wall" ? selection.id : null);
@@ -2250,6 +2256,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function publish() {
+    plan.setRoofEdges?.(mode === "build" && (tool === "solar" || tool === "roof"));
     const focus = mode === "build" && (tool === "electrical" || tool === "plumbing" || tool === "site") ? tool : null;
     const issues = evaluateRules(house);
     patchViewState({
@@ -2427,7 +2434,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${tool === "solar" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${tool === "solar" || tool === "roof" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -2435,6 +2442,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     optionsKey = key;
     if (tool === "solar") {
       paintSolarOptions(box);
+      return;
+    }
+    if (tool === "roof") {
+      paintRoofOptions(box);
       return;
     }
     if (tool === "electrical") {
@@ -3711,6 +3722,167 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     });
   }
 
+  /**
+   * The Roof tool: shape (hip and gable, or clerestory), pitch, the four
+   * eaves, and for a clerestory where the glass sits, how tall it is, and
+   * the high roof's eave over it, with the sun numbers when there is a place.
+   */
+  function paintRoofOptions(box) {
+    const view = getViewState();
+    const full = isFutureShown(view);
+    const roof = house.roof || {};
+    const place = designPlace(house);
+    const eaves = currentEaves(house, full);
+    const rise = Number(roof.pitchRiseOverRun) || 0.5;
+    const pitchText = (r) => `${(r * 12).toFixed(1).replace(/\.0$/, "")}:12`;
+    const tile = (id, value, label) => `<label class="measure-tile"><input id="${id}" value="${escapeAttr(value)}" autocomplete="off" inputmode="decimal" /><span>${label}</span></label>`;
+    const c = roof.clerestory;
+    const g = c ? clerestoryGeometry(house, clerestoryBox(roofFootprints(house, full)), full) : null;
+    let clerestoryHtml = "";
+    if (g) {
+      const notes = [];
+      const upper = g.upperPitch * 12;
+      notes.push(`High roof ${upper.toFixed(1)}:12. ${Math.round(g.glassArea)} sq ft of glass, ${plainFeet(g.glassX1 - g.glassX0)} long, its bottom ${plainFeet(g.sill)} above the floor.`);
+      if (upper < 2) notes.push("The high roof is very flat (under 2:12). Make the glass shorter or move it back.");
+      if (upper > 12) notes.push("The high roof is steeper than 12:12. Move the glass forward or make it taller only if you want that look.");
+      let eaveHtml = "";
+      if (place) {
+        const sun = noonSun(place);
+        const winter = sun.find((d) => d.id === "winter");
+        const climate = climateClass(house);
+        const rule = CLIMATE_RULES[climate.kind];
+        const summer = sun.find((d) => d.id === rule.summerDay);
+        const faceAz = g.face === "south" ? 180 : 0;
+        const tanOf = (d) => {
+          const cos = Math.cos(((d.azimuth - faceAz) * Math.PI) / 180);
+          return cos > 0.02 ? Math.tan((d.altitude * Math.PI) / 180) / cos : null;
+        };
+        const tw = tanOf(winter);
+        const ts = tanOf(summer);
+        if (tw) {
+          const line = Math.min(g.glassTop, g.eaveHeight - g.eave * tw);
+          const room = Math.abs(g.backFace - g.stepY);
+          if (line <= g.sill) notes.push("The high roof's eave keeps the Dec 21 noon sun off the glass. Shorten the eave.");
+          else if (g.sill / tw <= room) notes.push(`Dec 21 noon sun reaches the floor ${plainFeet(g.sill / tw)} to ${plainFeet(Math.min(room, line / tw))} past the glass${line / tw > room ? ", and climbs the back wall" : ""} (if nothing is in the way).`);
+          else notes.push(`Dec 21 noon sun crosses the house and lands on the back wall, ${plainFeet(Math.max(0, g.sill - room * tw))} to ${plainFeet(line - room * tw)} up (if nothing is in the way). That is what thermal mass on that wall is for.`);
+        } else {
+          notes.push("This glass faces away from the sun: steady daylight, no direct winter sun.");
+        }
+        if (tw && ts) {
+          const target = rule.target === "middle" ? g.sill + g.glass / 2 : g.sill;
+          const range = clerestoryEaveRange(g, target, ts, tw);
+          if (range.ok && Number.isFinite(range.min)) {
+            const use = Math.ceil(range.min * 12) / 12;
+            eaveHtml = `<p class="fine">For ${escapeHtml(rule.label.toLowerCase())} climate rules, the high roof's eave works from ${escapeHtml(plainFeet(range.min))}${Number.isFinite(range.max) ? ` to ${escapeHtml(plainFeet(range.max))}` : " up"}.</p><button type="button" class="chip" data-cl-eave="${use}">Use ${escapeHtml(plainFeet(use))}</button>`;
+          } else {
+            eaveHtml = `<p class="fine">No eave depth both shades this glass at summer noon and leaves it in full winter sun. Shorter glass helps.</p>`;
+          }
+        }
+      } else {
+        notes.push("Pick a place in the Solar tool to see where the sun lands and get an eave size.");
+      }
+      clerestoryHtml = `
+        <p class="opt-label">Clerestory glass faces</p>
+        <div class="seg">${["south", "north"].map((face) => `<button type="button" data-cl-face="${face}" aria-pressed="${g.face === face}">${face === "south" ? "South" : "North"}</button>`).join("")}</div>
+        <div class="measure-tiles op-tiles">
+          ${tile("cl-glass", plainFeet(g.glass), "Glass height")}
+          ${tile("cl-setback", plainFeet(g.setback), `Back from ${g.face} wall`)}
+          ${tile("cl-eave", plainFeet(g.eave), "High roof eave")}
+        </div>
+        ${notes.map((note) => `<p class="fine">${escapeHtml(note)}</p>`).join("")}
+        ${eaveHtml}`;
+    }
+    box.innerHTML = `<div class="solar-panel roof-panel">
+      <section class="solar-sec">
+        <p class="opt-label">Roof shape</p>
+        <div class="seg">
+          <button type="button" data-roof-shape="hip" aria-pressed="${!c}">Hip and gable</button>
+          <button type="button" data-roof-shape="clerestory" aria-pressed="${!!c}">Clerestory</button>
+        </div>
+        ${clerestoryHtml}
+      </section>
+      <section class="solar-sec">
+        <p class="opt-label">${g ? "Low roof pitch" : "Pitch"} · ${escapeHtml(pitchText(g ? g.pitch : rise))} (${(Math.atan(g ? g.pitch : rise) * 180 / Math.PI).toFixed(1)}°)</p>
+        <div class="swatch-row">${[2, 3, 4, 6, 8, 10, 12].map((n) => `<button type="button" class="chip" data-roof-pitch="${n}" aria-pressed="${Math.abs((g ? g.pitch : rise) * 12 - n) < 0.05}">${n}:12</button>`).join("")}</div>
+        ${g ? `<p class="fine">The high roof's pitch follows from the glass height and where the glass sits.</p>` : ""}
+      </section>
+      <section class="solar-sec">
+        <p class="opt-label">Eaves past the walls</p>
+        <div class="measure-tiles op-tiles">
+          ${["south", "north", "east", "west"].map((side) => tile(`eave-${side}`, plainFeet(eaves[side]), side[0].toUpperCase() + side.slice(1))).join("")}
+        </div>
+        <p class="fine">The Solar tool suggests the sun-side eave. The roof is still placeholder massing, not a framed roof.</p>
+      </section>
+    </div>`;
+    const save = (fn, note) => {
+      const next = cloneHouse(house);
+      fn(next);
+      for (const item of next.skylights || []) refreshSkylight(next, item);
+      commit(next, house, note);
+      optionsKey = "";
+      publish();
+    };
+    const bind = (id, apply) => {
+      const input = box.querySelector(`#${id}`);
+      if (!input) return;
+      const run = () => {
+        const value = parseLength(input.value);
+        if (!Number.isFinite(value) || value < 0) {
+          optionsKey = "";
+          publish();
+          return;
+        }
+        apply(value);
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        input.blur();
+      });
+      input.addEventListener("change", run);
+    };
+    box.querySelectorAll("[data-roof-shape]").forEach((button) => {
+      button.addEventListener("click", () => save((next) => {
+        if (button.dataset.roofShape === "hip") {
+          delete next.roof.clerestory;
+          return;
+        }
+        if (next.roof.clerestory) return;
+        next.roof.clerestory = { face: place && place.lat < 0 ? "north" : "south", setback: 0, glass: 3, eave: 2, lowPitch: 0.25 };
+        const made = clerestoryGeometry(next, clerestoryBox(roofFootprints(next, full)), full);
+        if (made) next.roof.clerestory.setback = Math.round(made.setback * 4) / 4;
+      }, "changing the roof shape"));
+    });
+    box.querySelectorAll("[data-cl-face]").forEach((button) => {
+      button.addEventListener("click", () => save((next) => { next.roof.clerestory.face = button.dataset.clFace; }, "turning the clerestory"));
+    });
+    bind("cl-glass", (value) => save((next) => { next.roof.clerestory.glass = Math.max(0.5, value); }, "changing the clerestory glass"));
+    bind("cl-setback", (value) => save((next) => { next.roof.clerestory.setback = Math.max(1, value); }, "moving the clerestory"));
+    bind("cl-eave", (value) => save((next) => { next.roof.clerestory.eave = value; }, "changing the clerestory eave"));
+    box.querySelector("[data-cl-eave]")?.addEventListener("click", (event) => {
+      const value = Number(event.currentTarget.dataset.clEave);
+      save((next) => { next.roof.clerestory.eave = value; }, "sizing the clerestory eave");
+    });
+    box.querySelectorAll("[data-roof-pitch]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const n = Number(button.dataset.roofPitch);
+        save((next) => {
+          if (next.roof.clerestory) {
+            next.roof.clerestory.lowPitch = n / 12;
+            return;
+          }
+          next.roof.pitchRiseOverRun = n / 12;
+          next.roof.pitch = `${n}:12`;
+        }, "changing the roof pitch");
+      });
+    });
+    for (const side of ["south", "north", "east", "west"]) {
+      bind(`eave-${side}`, (value) => save((next) => {
+        next.roof.eaves = { ...currentEaves(house, full), [side]: value };
+      }, "changing an eave"));
+    }
+  }
+
   function pickPlace(item) {
     const next = cloneHouse(house);
     next.solar = { ...(next.solar || {}), place: { name: item.name, lat: Math.round(item.lat * 10000) / 10000, lon: Math.round(item.lon * 10000) / 10000 } };
@@ -3824,7 +3996,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const suggestion = solar?.suggestion;
     const tile = (id, value, label) => `<label class="measure-tile"><input id="${id}" value="${escapeAttr(plainFeet(value))}" autocomplete="off" inputmode="decimal" /><span>${label}</span></label>`;
     inspector.innerHTML = `
-      ${gameHead(`${isWindow ? "Window" : "Door"} · ${compassName(facing.azimuth)} wall`, warnings.filter((item) => item.target?.id === opening.id))}
+      ${gameHead(`${isWindow ? "Window" : opening.style === "folding" ? "Folding glass wall" : "Door"} · ${compassName(facing.azimuth)} wall`, warnings.filter((item) => item.target?.id === opening.id))}
+      ${isWindow ? "" : `<div class="swatch-row">${DOOR_STYLES.map(([id, label]) => `<button type="button" class="chip" data-door-style="${id}" aria-pressed="${(opening.style || "swing") === id}">${label}</button>`).join("")}</div>`}
+      ${opening.style === "folding" ? `<p class="fine">${foldingPanels(opening.width)} glass panels, about ${escapeHtml(plainFeet(opening.width / foldingPanels(opening.width)))} each, that fold and stack to the sides. Over 16 ft the header becomes a beam the engineer sizes.</p>` : ""}
       <div class="measure-tiles op-tiles">
         ${tile("op-width", opening.width, "Width")}
         ${tile("op-height", opening.height, "Height")}
@@ -3920,6 +4094,15 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }, "moving the window up or down"));
     bind("op-from-start", (value) => change((t) => { t.offset = value; }, "moving it along the wall"));
     bind("op-from-end", (value) => change((t, w) => { t.offset = wallLength(w) - value - t.width; }, "moving it along the wall"));
+    inspector.querySelectorAll("[data-door-style]").forEach((button) => {
+      button.addEventListener("click", () => change((t) => {
+        t.style = button.dataset.doorStyle;
+        if (t.style === "folding" && t.height < 7) t.height = 8;
+        delete t.hinge;
+        delete t.swingSide;
+        if (t.style === "swing") { t.hinge = "start"; t.swingSide = "left"; }
+      }, "changing the door style"));
+    });
     inspector.querySelector("#op-center")?.addEventListener("click", () => change((t, w) => {
       t.offset = (wallLength(w) - t.width) / 2;
     }, "centering it on the wall"));

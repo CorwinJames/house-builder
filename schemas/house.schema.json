@@ -339,7 +339,7 @@
         "id": { "type": "string" },
         "wallId": { "type": "string" },
         "type": { "enum": ["door", "window"] },
-        "style": { "enum": ["swing", "sliding", "cased", "overhead"] },
+        "style": { "enum": ["swing", "sliding", "cased", "overhead", "folding"], "description": "Doors: swing, sliding glass, cased (open), overhead (garage), or folding glass panels that stack to one side." },
         "offset": {
           "type": "number",
           "minimum": 0,
@@ -479,6 +479,18 @@
           }
         },
         "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "clerestory": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional stepped roof over the main building: a low roof in front, a band of high glass, and a raised roof behind.",
+          "properties": {
+            "face": { "enum": ["south", "north"], "description": "Which way the glass looks." },
+            "setback": { "type": "number", "minimum": 0, "description": "Feet from the outer face of the front wall back to the glass. 0 means 40% of the way back." },
+            "glass": { "type": "number", "exclusiveMinimum": 0, "description": "Height of the glass band, feet." },
+            "eave": { "type": "number", "minimum": 0, "description": "How far the high roof sticks out over the glass, feet." },
+            "lowPitch": { "type": "number", "exclusiveMinimum": 0, "description": "Rise per foot of the low roof in front (0.25 is 3:12)." }
+          }
+        },
         "note": { "type": "string" }
       }
     },

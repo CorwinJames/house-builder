@@ -22,8 +22,11 @@ import { pieceOutline, wallJoints } from "../build/joins.js";
 import { endsAt, isClipped } from "../build/clips.js";
 import { roofed, sunPatches, wallShadows } from "../sun/light.js";
 import { skylightFootprint } from "../build/skylights.js";
+import { foldingPanels } from "../build/catalog.js";
 import { awningPieces } from "../build/awnings.js";
 import { roofFootprints } from "../build/roofShape.js";
+import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
+import { plainFeet } from "../build/angle.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
 import { areaKind, boundsOf } from "../build/areas.js";
 import { CIRCUIT_COLORS, buildElectrical, devicePoint, panelPoint } from "../electrical/design.js";
@@ -579,6 +582,31 @@ export function createPlanView(canvas, initialHouse) {
       strokeWorld(a, b, "#5C5148", 1.5, [4, 3]);
       return;
     }
+    if (opening.style === "folding") {
+      // Glass panels folded part-open, as a zigzag inside the opening.
+      strokeWorld(a, b, "#6E98A6", 1.25, [3, 3]);
+      const panels = foldingPanels(opening.width);
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const step = opening.width / panels;
+      const depth = Math.min(1.2, step * 0.45);
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i <= panels; i += 1) {
+        const p = pointAlong(wall, opening.offset + i * step);
+        const out = i % 2 ? depth : 0;
+        const s = worldToScreen(p.x + nx * out, p.y + ny * out);
+        if (i === 0) ctx.moveTo(s.x, s.y);
+        else ctx.lineTo(s.x, s.y);
+      }
+      ctx.strokeStyle = "#4F8297";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (opening.style === "sliding") {
       strokeWorld(a, b, "#6E98A6", 2);
       const dx = wall.end.x - wall.start.x;
@@ -772,6 +800,32 @@ export function createPlanView(canvas, initialHouse) {
     for (const box of roofFootprints(house, full)) {
       trace([{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }]);
       ctx.stroke();
+    }
+    // A clerestory: the glass line, and the high roof's edge over it.
+    const g = house.roof?.clerestory ? clerestoryGeometry(house, clerestoryBox(roofFootprints(house, full)), full) : null;
+    if (g) {
+      ctx.setLineDash([]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(79, 130, 151, 0.9)";
+      const a = worldToScreen(g.glassX0, g.stepY);
+      const b = worldToScreen(g.glassX1, g.stepY);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "rgba(140, 70, 52, 0.7)";
+      const c = worldToScreen(g.box.x0, g.upperEdgeY);
+      const d = worldToScreen(g.box.x1, g.upperEdgeY);
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(d.x, d.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = "600 11px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(79, 130, 151, 0.95)";
+      ctx.fillText(`clerestory · ${plainFeet(g.glass)} glass`, a.x + 6, a.y - 6);
     }
     ctx.restore();
   }

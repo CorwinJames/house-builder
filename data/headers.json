@@ -7,6 +7,7 @@
     { "maxSpan": 3.5, "label": "2x6", "depth": 0.125, "height": 0.458 },
     { "maxSpan": 6, "label": "2-2x10", "depth": 0.25, "height": 0.771 },
     { "maxSpan": 8.5, "label": "2-2x12", "depth": 0.25, "height": 0.938 },
-    { "maxSpan": 16, "label": "deep header", "depth": 0.25, "height": 1.167 }
+    { "maxSpan": 16, "label": "deep header", "depth": 0.25, "height": 1.167 },
+    { "maxSpan": 40, "label": "beam (size by engineer)", "depth": 0.5, "height": 1.5 }
   ]
 }

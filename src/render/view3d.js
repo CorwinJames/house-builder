@@ -10,12 +10,14 @@ import { SETBACKS } from "../site/design.js";
 import { plainPlaceLabel } from "../electrical/design.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
-import { createHipAndGableGeometry, roofFootprints } from "./roof.js";
+import { createClerestoryRoof, createHipAndGableGeometry, roofFootprints } from "./roof.js";
+import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
 import { createSunRig } from "./sun3d.js";
 import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
 import { awningPieces } from "../build/awnings.js";
+import { foldingPanels } from "../build/catalog.js";
 import { areaKind, boundsOf, nearRoom } from "../build/areas.js";
 
 /**
@@ -1679,6 +1681,15 @@ function addWallMeshes(wall, openings, parent, mats, cap = Infinity, joint = nul
       place(piece.s0 + 0.05, piece.s1 - 0.05, piece.z0 + 0.05, piece.z1 - 0.05, 0.06, mats.glass);
     } else if (piece.kind === "overhead") {
       place(piece.s0 + 0.08, piece.s1 - 0.08, 0.08, piece.z1 - 0.08, 0.16, mats.overhead);
+    } else if (piece.kind === "folding") {
+      place(piece.s0 + 0.05, piece.s1 - 0.05, 0.04, piece.z1 - 0.04, 0.06, mats.glass);
+      const panels = foldingPanels(piece.s1 - piece.s0);
+      const step = (piece.s1 - piece.s0) / panels;
+      for (let i = 0; i <= panels; i += 1) {
+        const s = piece.s0 + i * step;
+        place(Math.max(piece.s0, s - 0.06), Math.min(piece.s1, s + 0.06), 0.02, piece.z1, 0.14, mats.door);
+      }
+      place(piece.s0, piece.s1, piece.z1 - 0.12, piece.z1, 0.14, mats.door);
     } else if (piece.kind === "swing" || piece.kind === "sliding") {
       place(piece.s0 + 0.06, piece.s1 - 0.06, 0.04, piece.z1 - 0.04, piece.kind === "sliding" ? 0.08 : 0.14, piece.kind === "sliding" ? mats.glass : mats.door);
     }
@@ -1762,7 +1773,18 @@ function buildRoof(house, futureShown) {
   const group = new THREE.Group();
   const footprints = roofFootprints(house, futureShown);
   let largest = null;
+  const stepped = house.roof?.clerestory ? clerestoryBox(footprints) : null;
   for (const footprint of footprints) {
+    if (footprint === stepped) {
+      const clerestory = createClerestoryRoof(
+        clerestoryGeometry(house, footprint, futureShown),
+        new THREE.MeshStandardMaterial({ color: 0x8c4634, roughness: 0.86, side: THREE.DoubleSide }),
+      );
+      for (const child of [...clerestory.children]) group.add(child);
+      const span = (footprint.x1 - footprint.x0) * (footprint.y1 - footprint.y0);
+      if (!largest || span > largest.span) largest = { footprint, span };
+      continue;
+    }
     const geometry = createHipAndGableGeometry({
       ...footprint,
       plate: house.roof.plateHeight,
