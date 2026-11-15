@@ -14,12 +14,15 @@
  *   shaft's four walls trims the patch twice: at its top (where it meets the
  *   roof) and at the ceiling. What gets through lands on the floor below.
  * - Walls cast shadows outside: each wall's top edge, pushed along the sun to the ground.
+ * - The roof eave over a wall and any awning over a window throw a shadow line
+ *   down the glass; only the glass below it lets sun in.
  * It does not follow light through a second window, bounce it, or account
- * for the roof overhang, trees, or the slope of the ground.
+ * for trees, the sides of an awning, or the slope of the ground.
  */
 
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
 import { skylightBuild } from "../build/skylights.js";
+import { shadowLine, windowShades } from "./passive.js";
 
 const DEFAULT_HEIGHT = 10;
 
@@ -85,9 +88,13 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
       const d = drop(z);
       return { x: wall.start.x + ux * s + face.x + d.x, y: wall.start.y + uy * s + face.y + d.y };
     };
+    // The eave above and any awning throw a shadow line down the glass.
+    const shades = windowShades(house, opening, wall, { out: { x: nx * sunSide, y: ny * sunSide } }, full);
+    const top = Math.min(glass.z1, shadowLine(shades, v.z / Math.abs(facing)));
+    if (top <= glass.z0 + 0.01) continue;
     const a = opening.offset;
     const b = opening.offset + opening.width;
-    const polygon = [corner(a, glass.z0), corner(b, glass.z0), corner(b, glass.z1), corner(a, glass.z1)];
+    const polygon = [corner(a, glass.z0), corner(b, glass.z0), corner(b, top), corner(a, top)];
     patches.push({
       openingId: opening.id,
       wallId: wall.id,

@@ -101,6 +101,39 @@
       "description": "Optional drawn icons: beds, counters, appliances, and similar. Not a price.",
       "items": { "$ref": "#/$defs/furniture" }
     },
+    "solar": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional passive-solar settings: a reference place when the plan has no real lot, the climate for overhang sizing, and what solar collectors on the roof would be for.",
+      "properties": {
+        "place": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "lat", "lon"],
+          "properties": {
+            "name": { "type": "string" },
+            "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+            "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+          }
+        },
+        "climate": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Average heating degree days (base 65 °F) and cooling degree days (base 75 °F) a year, from daily mean temperatures.",
+          "properties": {
+            "hdd65": { "type": "number", "minimum": 0 },
+            "cdd75": { "type": "number", "minimum": 0 },
+            "years": { "type": "string" },
+            "lat": { "type": "number" },
+            "lon": { "type": "number" },
+            "source": { "type": "string" },
+            "url": { "type": "string" },
+            "checked": { "type": "string" }
+          }
+        },
+        "climateChoice": { "enum": ["auto", "cold", "moderate", "hot"] }
+      }
+    },
     "skylights": {
       "type": "array",
       "description": "Optional skylights: glass in the roof over a room. x, y is the middle of the opening on the plan; width and depth are in feet. Allowed in version 8 files.",
@@ -320,6 +353,17 @@
           "enum": ["left", "right"],
           "description": "Which side of the start→end direction the swing opens toward. Left is counterclockwise."
         },
+        "awning": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["depth", "gap"],
+          "description": "Optional fixed horizontal shade over a window, on the outside face of the wall.",
+          "properties": {
+            "depth": { "type": "number", "exclusiveMinimum": 0, "description": "How far it sticks out from the wall face, feet." },
+            "gap": { "type": "number", "minimum": 0, "description": "Its underside above the window head, feet." },
+            "extend": { "type": "number", "minimum": 0, "description": "How far it runs past each side of the window, feet." }
+          }
+        },
         "header": { "$ref": "#/$defs/header" }
       }
     },
@@ -423,6 +467,17 @@
         "pitch": { "type": "string" },
         "pitchRiseOverRun": { "type": "number", "exclusiveMinimum": 0 },
         "overhang": { "type": "number", "minimum": 0 },
+        "eaves": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional eave overhang on each side, feet past the walls. When set it replaces overhang for both phases.",
+          "properties": {
+            "south": { "type": "number", "minimum": 0 },
+            "north": { "type": "number", "minimum": 0 },
+            "east": { "type": "number", "minimum": 0 },
+            "west": { "type": "number", "minimum": 0 }
+          }
+        },
         "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
         "note": { "type": "string" }
       }

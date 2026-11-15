@@ -14,6 +14,8 @@ import { isFutureShown, isPhaseVisible } from "./visibility.js";
 import { glazing, roofed, roomSun, sunPatches } from "../sun/light.js";
 import { boundsOf } from "../build/areas.js";
 import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
+import { roofFootprints } from "../build/roofShape.js";
+import { awningPieces } from "../build/awnings.js";
 import { pointInPolygon } from "../lib/geom.js";
 
 const BOUNCE_LIGHTS = 6;
@@ -112,6 +114,27 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.6, bevelEnabled: false });
       geometry.rotateX(-Math.PI / 2);
       add(geometry, new THREE.Vector3(0, top, 0));
+    }
+    // The roof's eaves past the walls (the roof itself stops casting while the
+    // layer is on, so skylights work), and each window's awning.
+    for (const box of roofFootprints(house, full)) {
+      const inner = wallBox(house, box, state);
+      if (!inner) continue;
+      const shape = new THREE.Shape([
+        new THREE.Vector2(box.x0, box.y0), new THREE.Vector2(box.x1, box.y0),
+        new THREE.Vector2(box.x1, box.y1), new THREE.Vector2(box.x0, box.y1),
+      ]);
+      shape.holes.push(new THREE.Path([
+        new THREE.Vector2(inner.x0, inner.y0), new THREE.Vector2(inner.x0, inner.y1),
+        new THREE.Vector2(inner.x1, inner.y1), new THREE.Vector2(inner.x1, inner.y0),
+      ]));
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: false });
+      geometry.rotateX(-Math.PI / 2);
+      add(geometry, new THREE.Vector3(0, Number(house.roof?.plateHeight) || 10, 0));
+    }
+    for (const piece of awningPieces(house)) {
+      if (!isPhaseVisible(piece.wall.phase, state || {})) continue;
+      add(new THREE.BoxGeometry(piece.length, 0.15, piece.depth), new THREE.Vector3(piece.center.x, piece.height + 0.075, -piece.center.y), piece.angle);
     }
     // Each skylight's shaft through the attic: four walls from the ceiling up to
     // the roof, and a lid that closes the shaft when the sun is behind its roof face.
@@ -240,4 +263,25 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       });
     },
   };
+}
+
+/** The outer faces of the walls inside one roof footprint, as a box. */
+function wallBox(house, box, state) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const wall of house.walls || []) {
+    if (!isPhaseVisible(wall.phase, state || {})) continue;
+    const half = (Number(wall.thickness) || 0.5) / 2;
+    for (const p of [wall.start, wall.end]) {
+      if (p.x < box.x0 || p.x > box.x1 || p.y < box.y0 || p.y > box.y1) continue;
+      x0 = Math.min(x0, p.x - half);
+      y0 = Math.min(y0, p.y - half);
+      x1 = Math.max(x1, p.x + half);
+      y1 = Math.max(y1, p.y + half);
+    }
+  }
+  if (!Number.isFinite(x0)) return null;
+  return { x0: Math.max(x0, box.x0 + 0.05), y0: Math.max(y0, box.y0 + 0.05), x1: Math.min(x1, box.x1 - 0.05), y1: Math.min(y1, box.y1 - 0.05) };
 }

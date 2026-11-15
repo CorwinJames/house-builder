@@ -46,12 +46,7 @@ export function roofFootprints(house, futureShown) {
   for (const points of groups.values()) {
     const box = boxOf(points);
     if (!box) continue;
-    boxes.push({
-      x0: box.x0 - overhang,
-      y0: box.y0 - overhang,
-      x1: box.x1 + overhang,
-      y1: box.y1 + overhang,
-    });
+    boxes.push(withEaves(house, box, overhang, futureShown));
   }
   return boxes.length ? boxes : [roofFootprint(house, futureShown)];
 }
@@ -68,12 +63,57 @@ export function roofFootprint(house, futureShown) {
     base.x1 = Math.max(base.x1, wall.start.x, wall.end.x);
     base.y1 = Math.max(base.y1, wall.start.y, wall.end.y);
   }
+  return withEaves(house, base, overhang, futureShown);
+}
+
+/**
+ * Grow the walls' box by the eaves. With house.roof.eaves set, each side's
+ * eave is measured past the outer face of the walls on that edge; otherwise
+ * the old single overhang is measured from the wall centerlines.
+ */
+function withEaves(house, box, overhang, futureShown) {
+  const eaves = house.roof?.eaves;
+  if (!eaves) {
+    return { x0: box.x0 - overhang, y0: box.y0 - overhang, x1: box.x1 + overhang, y1: box.y1 + overhang };
+  }
+  const half = (side) => edgeHalfThickness(house, box, side, futureShown);
+  const pick = (side) => (Number.isFinite(eaves[side]) ? eaves[side] : overhang);
   return {
-    x0: base.x0 - overhang,
-    y0: base.y0 - overhang,
-    x1: base.x1 + overhang,
-    y1: base.y1 + overhang,
+    x0: box.x0 - pick("west") - half("west"),
+    y0: box.y0 - pick("south") - half("south"),
+    x1: box.x1 + pick("east") + half("east"),
+    y1: box.y1 + pick("north") + half("north"),
   };
+}
+
+/**
+ * How far the outer face of the walls along one edge of the box sits past that
+ * edge: half a wall when the box runs through wall centerlines, nothing when
+ * it already runs along the outer faces. 0.5 ft when no wall lies on the edge.
+ */
+export function edgeHalfThickness(house, box, side, futureShown = true) {
+  const near = (a, b) => Math.abs(a - b) < 0.05;
+  let best = null;
+  for (const wall of house.walls || []) {
+    if (!futureShown && wall.phase === "future") continue;
+    const half = (Number(wall.thickness) || 0) / 2;
+    const horizontal = near(wall.start.y, wall.end.y);
+    const vertical = near(wall.start.x, wall.end.x);
+    let c = null;
+    let edge = null;
+    let outward = 1;
+    if (side === "south" && horizontal) { c = wall.start.y; edge = box.y0; outward = -1; }
+    if (side === "north" && horizontal) { c = wall.start.y; edge = box.y1; outward = 1; }
+    if (side === "west" && vertical) { c = wall.start.x; edge = box.x0; outward = -1; }
+    if (side === "east" && vertical) { c = wall.start.x; edge = box.x1; outward = 1; }
+    if (c === null) continue;
+    const face = c + outward * half;
+    if (near(c, edge) || near(face, edge)) {
+      const past = (face - edge) * outward;
+      if (best === null || past > best) best = past;
+    }
+  }
+  return best === null ? 0.5 : best;
 }
 
 /**

@@ -1701,3 +1701,44 @@ button:focus-visible {
 
 .sky-problem { margin: 0; padding: 6px 9px; border-radius: 9px; background: rgba(196, 92, 60, 0.12); color: #8a3b22; font-size: 0.78rem; font-weight: 600; }
 .sky-build .fine { margin: 4px 0; }
+
+/* Passive solar panel (Solar tool). Taller and a fixed width so the section reads. */
+.tool-options:has(.solar-panel) { width: min(400px, calc(100vw - 24px)); max-height: min(68dvh, 640px); }
+.solar-panel { display: grid; gap: 10px; font-size: 0.8rem; }
+.solar-sec { display: grid; gap: 5px; }
+.solar-sec + .solar-sec { border-top: 1px solid rgba(42, 36, 27, 0.1); padding-top: 8px; }
+.solar-sec .fine { margin: 0; }
+.solar-place { margin: 0; font-weight: 650; display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.solar-search { display: flex; gap: 6px; }
+.solar-search input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 10px; border: 1px solid rgba(42, 36, 27, 0.18); background: rgba(255, 255, 255, 0.7); font: inherit; }
+.solar-climate { justify-self: start; }
+.solar-noon { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.76rem; }
+.solar-noon span { display: inline-flex; align-items: center; gap: 5px; }
+.solar-noon i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.solar-section { width: 100%; height: auto; background: linear-gradient(#eaf2f6, #f6f1e6); border-radius: 10px; }
+.solar-section .sec-ground { stroke: #8d7a5f; stroke-width: 1.5; }
+.solar-section .sec-wall { fill: #b9a585; }
+.solar-section .sec-glass { fill: #9fd0e6; }
+.solar-section .sec-ceiling { stroke: rgba(42, 36, 27, 0.35); stroke-dasharray: 3 3; }
+.solar-section .sec-eave { fill: #8c4634; }
+.solar-section .sec-awning { fill: #7a5a3e; }
+.solar-section .sec-ray { stroke-width: 2; opacity: 0.9; }
+.solar-section .sec-label { font-size: 10px; font-weight: 700; }
+.solar-section .sec-muted { fill: rgba(42, 36, 27, 0.5); font-weight: 600; }
+.solar-group { display: grid; gap: 4px; }
+.solar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 6px; border-radius: 9px; }
+.solar-row.is-focus { background: rgba(224, 162, 30, 0.14); }
+.solar-name { border: 0; background: none; padding: 0; min-height: 0; font: inherit; font-weight: 650; color: var(--ink); text-align: left; cursor: pointer; }
+.solar-status { display: inline-flex; gap: 6px; font-size: 0.74rem; color: var(--muted); }
+.solar-status .ok, .solar-checks .ok { color: #2f6b45; }
+.solar-status .bad, .solar-checks .bad { color: #a4472c; }
+.solar-meter { position: relative; height: 8px; border-radius: 4px; background: rgba(42, 36, 27, 0.1); overflow: hidden; }
+.solar-meter span { position: absolute; inset: 0 auto 0 0; background: #E0A21E; }
+.solar-meter i { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(42, 36, 27, 0.45); }
+.solar-checks { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: 0.76rem; }
+.solar-sources { margin: 4px 0 0; padding-left: 16px; font-size: 0.74rem; }
+.sun-line { margin: 0; }
+.op-center { align-self: center; }
+.awning-box .measure-tiles { margin-top: 6px; }
+.measure-tiles.op-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.measure-tiles.op-tiles .op-center { grid-column: 1 / -1; justify-self: start; }
