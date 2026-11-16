@@ -26,6 +26,7 @@ import {
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
+import { duplicateSelection, flipSelection, isEmptySet, nudgeSelection, rotateSelection, selectionBounds, selectionSet, separateSelection, shiftContents } from "../build/transform.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noonSun, wallFacing, windowSolar } from "../sun/passive.js";
@@ -349,6 +350,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (meta && event.key.toLowerCase() === "v" && mode === "build" && !event.shiftKey && !event.altKey) {
       event.preventDefault();
       pasteClipboard();
+    } else if (meta && event.key.toLowerCase() === "d" && mode === "build" && tool === "select" && picks.length) {
+      event.preventDefault();
+      duplicateBeside();
+    } else if (meta && event.key.toLowerCase() === "a" && mode === "build" && tool === "select") {
+      event.preventDefault();
+      selectAllVisible();
+    } else if (!meta && !event.altKey && event.key.toLowerCase() === "r" && mode === "build" && tool === "select" && picks.length) {
+      event.preventDefault();
+      rotateBy(event.shiftKey ? 90 : -90);
+    } else if (!meta && event.shiftKey && (event.key === "H" || event.key === "V") && mode === "build" && tool === "select" && picks.length) {
+      event.preventDefault();
+      flipBy(event.key === "H" ? "horizontal" : "vertical");
+    } else if (!meta && event.key.startsWith("Arrow") && mode === "build" && tool === "select" && picks.length && !gesture) {
+      event.preventDefault();
+      const step = event.shiftKey ? 1 : 1 / 12;
+      const dx = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
+      const dy = event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
+      nudgeBy(dx, dy);
     } else if (mode === "build" && tool === "select" && (event.key === "Delete" || event.key === "Backspace") && picks.length && !typingTarget(event.target)) {
       event.preventDefault();
       eraseSelection();
@@ -896,6 +915,23 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         plan.beginPan(event);
       }, 480);
     };
+    if (tool === "select" && world && onRotateHandle(world)) {
+      const frame = selectionFrame();
+      gesture = {
+        kind: "rotate",
+        snapshot: cloneHouse(frame.house),
+        set: frame.set,
+        pivot: { x: frame.box.cx, y: frame.box.cy },
+        start: Math.atan2(world.y - frame.box.cy, world.x - frame.box.cx),
+        before: house,
+        angle: 0,
+        moved: false,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      publish();
+      return true;
+    }
     if (tool === "select") {
       const pickedPiece = pieceSelection(extra?.pick);
       const hit = pickedPiece || hitTest(world) || extra?.pick || null;
@@ -924,14 +960,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const selectedWall = hit.type === "wall" || hit.type === "endpoint"
         ? house.walls.find((wall) => wall.id === item.id)
         : null;
+      const groupPicks = inGroup ? picks : (item.type === "room" && !movablePiece(item) ? [item] : null);
+      // Moving a room on its own takes only its stretch of any wall it shares with a neighbour.
+      const separated = groupPicks ? separateSelection(house, groupPicks).house : house;
       gesture = {
         kind: hit?.type === "endpoint" ? "endpoint" : "select",
         hit,
         origin: world,
         moved: false,
-        snapshot: cloneHouse(house),
+        snapshot: cloneHouse(separated),
         wasLength: selectedWall ? wallLength(selectedWall) : null,
-        group: inGroup ? groupFrom(picks) : (item.type === "room" && !movablePiece(item) ? groupFrom([item]) : null),
+        group: groupPicks ? groupFrom(groupPicks, separated) : null,
         clickItem: inGroup ? item : null,
         clientX: event.clientX,
         clientY: event.clientY,
@@ -1080,6 +1119,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     gesture.clientX = event.clientX;
     gesture.clientY = event.clientY;
+    if (gesture.kind === "rotate") {
+      window.clearTimeout(longTimer);
+      let angle = ((Math.atan2(world.y - gesture.pivot.y, world.x - gesture.pivot.x) - gesture.start) * 180) / Math.PI;
+      angle = ((angle + 540) % 360) - 180;
+      // Shift: steps of 15°. Otherwise free, but it clicks onto 15° steps when close.
+      const step = Math.round(angle / 15) * 15;
+      if (event.shiftKey || Math.abs(angle - step) < 3) angle = step;
+      else angle = Math.round(angle * 10) / 10;
+      if (!gesture.moved && Math.abs(angle) < 0.5) return;
+      gesture.moved = true;
+      gesture.angle = angle;
+      scheduleLive(rotateSelection(gesture.snapshot, gesture.set, angle, gesture.pivot).house);
+      return;
+    }
     if (gesture.kind === "marquee") {
       window.clearTimeout(longTimer);
       const screen = Math.hypot(event.clientX - gesture.downX, event.clientY - gesture.downY);
@@ -1131,7 +1184,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       scheduleLive(moveEnd(base, gesture.hit.wallId, endName, snapped));
       return;
     }
-    if (gesture.kind === "select" && (gesture.hit?.type === "wall" || gesture.group?.walls.length)) {
+    if (gesture.kind === "select" && (gesture.hit?.type === "wall" || gesture.group?.walls.length || gesture.group?.pieces.length > 1)) {
       const dx = world.x - gesture.origin.x;
       const dy = world.y - gesture.origin.y;
       if (!gesture.moved && !movedEnough(gesture.origin, world)) return;
@@ -1140,7 +1193,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const step = snapping(event) ? grid : 0;
       const sdx = step ? snapToGrid(dx, step) : dx;
       const sdy = step ? snapToGrid(dy, step) : dy;
-      const ids = gesture.group?.walls.length ? gesture.group.walls : [gesture.hit.id];
+      const ids = gesture.group ? gesture.group.walls : [gesture.hit.id];
       // Lay on: the wall you drag comes off whatever it was clipped to.
       // Clip on (or Option): clipped neighbours stretch along, as one piece.
       const detach = !clipping(event);
@@ -1155,7 +1208,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       gesture.movedWalls = ids;
       gesture.delta = { dx: move.dx, dy: move.dy };
       let next = translateWalls(base, ids, move.dx, move.dy);
-      for (const piece of gesture.group?.pieces || []) next = movePiece(next, piece, move.dx, move.dy, 0);
+      if (gesture.group?.set) next = shiftContents(next, gesture.group.set, move.dx, move.dy);
       scheduleLive(next);
       return;
     }
@@ -1207,6 +1260,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     gesture = null;
     if (!current) return;
     current.clip = clipping(event);
+    if (current.kind === "rotate") {
+      if (current.moved && current.angle) {
+        const result = rotateSelection(current.snapshot, current.set, current.angle, current.pivot);
+        holdCamera();
+        commit(syncRooms(result.house), current.before, "turning");
+        prunePicks();
+        announce(`Turned ${formatTurn(current.angle)}.${detachNote(result.detached)}`);
+      } else {
+        house = current.before;
+        plan.setHouse(house);
+        model.setHouse?.(house);
+      }
+      publish();
+      return;
+    }
     if (current.kind === "marquee") {
       finishMarquee(current);
       publish();
@@ -1453,18 +1521,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return `<div class="wall-ends"><p class="opt-label">Ends</p>${rows.join("")}${detach}</div>`;
   }
 
-  /** The walls (and loose pieces) a multi-selection moves together. Rooms bring their walls. */
-  function groupFrom(list) {
-    const walls = new Set();
-    const pieces = [];
-    for (const pick of list || []) {
-      if (pick.type === "wall") walls.add(pick.id);
-      else if (pick.type === "room" && !movablePiece(pick)) {
-        const room = (house.rooms || []).find((item) => item.id === pick.id);
-        for (const id of wallsTouchingRoom(house, room)) walls.add(id);
-      } else if (movablePiece(pick)) pieces.push({ type: pick.type, id: pick.id });
-    }
-    return { walls: [...walls], pieces };
+  /**
+   * What a drag moves together: rooms bring their walls and everything inside
+   * them (furniture, skylights, labels, outlets and fixtures), walls bring
+   * what is mounted on them, and loose pieces come on their own.
+   */
+  function groupFrom(list, doc = house) {
+    const set = selectionSet(doc, list);
+    return { walls: [...set.walls], pieces: set.pieces, set };
   }
 
   /**
@@ -2057,6 +2121,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   /** Copy doors, windows, figures, labels, and site marks. Walls, rooms, power, and water stay put. */
   function copySelection() {
+    if (picks.some((pick) => pick.type === "room" || pick.type === "wall")) {
+      const frame = selectionFrame() || (() => {
+        const set = selectionSet(house, picks);
+        const box = selectionBounds(house, set);
+        return box ? { set, box } : null;
+      })();
+      if (!frame) return;
+      clipboard = { design: true, picks: picks.map((pick) => ({ ...pick })), anchor: { x: frame.box.cx, y: frame.box.cy } };
+      const key = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘V" : "Ctrl+V";
+      announce(`Copied ${selectionSummary(frame.set)}. Point where its middle goes and press ${key}.`, false);
+      return;
+    }
     const items = [];
     let skipped = 0;
     for (const pick of picks) {
@@ -2072,7 +2148,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       else skipped += 1;
     }
     if (!items.length) {
-      announce("Copy works for doors, windows, skylights, scale figures, labels, and site marks. Walls and rooms can't be copied yet.", false);
+      announce("Select something to copy first.", false);
       return;
     }
     const anchor = {
@@ -2087,6 +2163,27 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   /** Paste at the pointer. A door or window lands on the clear wall nearest the pointer. */
   function pasteClipboard() {
+    if (clipboard?.design) {
+      const still = clipboard.picks.filter((pick) => selectionExists(pick, house));
+      const source = separateSelection(house, still).house;
+      const set = selectionSet(source, still);
+      if (isEmptySet(set)) {
+        announce("What you copied has since been deleted.", false);
+        return;
+      }
+      const target = pointerWorld || { x: clipboard.anchor.x + 4, y: clipboard.anchor.y };
+      const step = snapOn ? grid : 0.25;
+      const dx = Math.round((target.x - clipboard.anchor.x) / step) * step;
+      const dy = Math.round((target.y - clipboard.anchor.y) / step) * step;
+      const result = duplicateSelection(source, set, dx, dy, nextId);
+      holdCamera();
+      commit(syncRooms(result.house), house, "pasting");
+      applyPicks(result.picks);
+      prunePicks();
+      announce(`Pasted ${selectionSummary(set)}.`);
+      publish();
+      return;
+    }
     if (!clipboard?.items?.length) {
       announce("Select a door or window and press ⌘C first.", false);
       return;
@@ -2247,7 +2344,165 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       } : null,
       measure,
       moveLabel: moveLabel(measure),
+      frame: frameOverlay(),
     };
+  }
+
+  /* ---------- Design-software arranging: frame, rotate, flip, nudge, duplicate ---------- */
+
+  /** The selection that can be turned, flipped, and duplicated, with its box. Null when there is none. */
+  let frameCache = { doc: null, key: "", frame: null };
+  function selectionFrame() {
+    if (mode !== "build" || tool !== "select" || !picks.length) return null;
+    const usable = picks.filter((pick) => pick.type !== "opening" && pick.type !== "endpoint");
+    if (!usable.length) return null;
+    const key = usable.map((pick) => `${pick.type}:${pick.id}`).join("|");
+    if (frameCache.doc === house && frameCache.key === key) return frameCache.frame;
+    // Rooms picked on their own take only their own stretch of shared walls.
+    const doc = separateSelection(house, usable).house;
+    const set = selectionSet(doc, usable);
+    const box = isEmptySet(set) ? null : selectionBounds(doc, set);
+    const frame = box ? { house: doc, set, box } : null;
+    frameCache = { doc: house, key, frame };
+    return frame;
+  }
+
+  function rotateHandleAt(box) {
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return { x: box.cx, y: box.y1 + 34 / scale };
+  }
+
+  function onRotateHandle(world) {
+    if (gesture) return false;
+    const frame = selectionFrame();
+    if (!frame) return false;
+    const handle = rotateHandleAt(frame.box);
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return Math.hypot(world.x - handle.x, world.y - handle.y) * scale <= 12;
+  }
+
+  function frameOverlay() {
+    if (gesture && gesture.kind !== "rotate") return null;
+    const frame = selectionFrame();
+    if (!frame) return null;
+    const active = gesture?.kind === "rotate";
+    return {
+      box: frame.box,
+      handle: rotateHandleAt(frame.box),
+      active,
+      label: active && gesture.moved ? formatTurn(gesture.angle) : "",
+    };
+  }
+
+  /** "90° clockwise", "12.5° counter-clockwise". */
+  function formatTurn(angle) {
+    const size = Math.abs(Math.round(angle * 10) / 10);
+    return `${String(size).replace(/\.0$/, "")}° ${angle < 0 ? "clockwise" : "counter-clockwise"}`;
+  }
+
+  function detachNote(count) {
+    return count ? ` It let go of ${count} wall end${count > 1 ? "s" : ""} it was clipped to outside the selection.` : "";
+  }
+
+  /** Run one arranging step on the selection and keep it selected. */
+  function arrange(fn, note, said) {
+    const frame = selectionFrame();
+    if (!frame) {
+      announce("Select a room, a wall, or a piece first. Shift-click or drag a box to pick more.", false);
+      return;
+    }
+    const result = fn(frame);
+    if (!result || result.house === house) return;
+    holdCamera();
+    commit(syncRooms(result.house), house, note);
+    if (result.picks) applyPicks(result.picks);
+    prunePicks();
+    if (said) announce(`${said}${detachNote(result.detached)}`);
+    publish();
+  }
+
+  function rotateBy(degrees) {
+    arrange((frame) => rotateSelection(frame.house, frame.set, degrees), "turning", `Turned ${formatTurn(degrees)}.`);
+  }
+
+  function flipBy(axis) {
+    arrange((frame) => flipSelection(frame.house, frame.set, axis), "flipping", axis === "horizontal" ? "Flipped left to right." : "Flipped top to bottom.");
+  }
+
+  function nudgeBy(dx, dy) {
+    arrange((frame) => nudgeSelection(frame.house, frame.set, dx, dy), "nudging", "");
+  }
+
+  /** Copy the selection beside itself (to the east), and select the copy. */
+  function duplicateBeside() {
+    arrange((frame) => duplicateSelection(frame.house, frame.set, Math.ceil(frame.box.width) + 2, 0, nextId), "duplicating", "Duplicated it to the right. Drag it where you want it.");
+  }
+
+  function selectAllVisible() {
+    const view = getViewState();
+    const all = [];
+    for (const wall of house.walls || []) if (isPhaseVisible(wall.phase, view)) all.push({ type: "wall", id: wall.id });
+    for (const room of house.rooms || []) if (isPhaseVisible(room.phase, view)) all.push({ type: "room", id: room.id });
+    for (const [type, key] of Object.entries(PIECE_KEYS)) for (const item of house[key] || []) if (isPhaseVisible(item.phase, view)) all.push({ type, id: item.id });
+    applyPicks(all);
+    announce(`Selected ${all.length} things. Drag the round handle to turn them, or drag any of them to move them all.`, false);
+    publish();
+  }
+
+  /** What the selection holds, in words, for the bar and the card. */
+  function selectionSummary(set) {
+    const parts = [];
+    const count = (n, one, many = `${one}s`) => n && parts.push(`${n} ${n === 1 ? one : many}`);
+    const rooms = [...set.rooms].map((id) => house.rooms.find((room) => room.id === id)).filter(Boolean);
+    if (rooms.length === 1 && set.rooms.size === 1 && !set.pieces.length) return rooms[0].name || "Room";
+    count(rooms.length, "room");
+    count(set.walls.size, "wall");
+    const openings = (house.openings || []).filter((item) => set.walls.has(item.wallId)).length;
+    count(openings, "door or window", "doors and windows");
+    count(set.pieces.length, "piece");
+    count(set.devices.size + set.fixtures.size, "outlet or fixture", "outlets and fixtures");
+    return parts.join(", ");
+  }
+
+  /** The floating Arrange bar over the plan. */
+  function paintArrangeBar() {
+    const bar = document.querySelector("#arrange-bar");
+    if (!bar) return;
+    const frame = gesture ? null : selectionFrame();
+    if (!frame) {
+      bar.hidden = true;
+      bar.dataset.key = "";
+      return;
+    }
+    const summary = selectionSummary(frame.set);
+    const key = `${summary}|${picks.length}`;
+    bar.hidden = false;
+    if (bar.dataset.key === key) return;
+    bar.dataset.key = key;
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    const cmd = mac ? "⌘" : "Ctrl+";
+    bar.innerHTML = `
+      <span class="arrange-what" title="${escapeAttr(summary)}">${escapeHtml(summary)}</span>
+      <button type="button" data-arrange="ccw" title="Turn 90° counter-clockwise (Shift+R)">⟲ 90°</button>
+      <button type="button" data-arrange="cw" title="Turn 90° clockwise (R)">⟳ 90°</button>
+      <label class="arrange-angle" title="Turn by any angle (counter-clockwise; use a minus for clockwise)"><input id="arrange-angle" placeholder="Turn °" inputmode="decimal" autocomplete="off" /></label>
+      <button type="button" data-arrange="flip-h" title="Flip left to right (Shift+H)">⇆ Flip</button>
+      <button type="button" data-arrange="flip-v" title="Flip top to bottom (Shift+V)">⇅ Flip</button>
+      <button type="button" data-arrange="dup" title="Duplicate (${cmd}D)">Duplicate</button>`;
+    bar.querySelector('[data-arrange="ccw"]').addEventListener("click", () => rotateBy(90));
+    bar.querySelector('[data-arrange="cw"]').addEventListener("click", () => rotateBy(-90));
+    bar.querySelector('[data-arrange="flip-h"]').addEventListener("click", () => flipBy("horizontal"));
+    bar.querySelector('[data-arrange="flip-v"]').addEventListener("click", () => flipBy("vertical"));
+    bar.querySelector('[data-arrange="dup"]').addEventListener("click", duplicateBeside);
+    const input = bar.querySelector("#arrange-angle");
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const value = Number(String(input.value).replace("°", "").trim());
+      input.value = "";
+      input.blur();
+      if (Number.isFinite(value) && value) rotateBy(value);
+    });
   }
 
   function moveLabel(measure) {
@@ -2257,6 +2512,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function publish() {
     plan.setRoofEdges?.(mode === "build" && (tool === "solar" || tool === "roof"));
+    try { paintArrangeBar(); } catch (error) { console.error(error); }
     const focus = mode === "build" && (tool === "electrical" || tool === "plumbing" || tool === "site") ? tool : null;
     const issues = evaluateRules(house);
     patchViewState({
@@ -3293,8 +3549,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     inspector.hidden = false;
     if (picks.length > 1) {
       inspector.innerHTML = `
-        <header class="game-head"><h2>${picks.length} items selected</h2></header>
-        <p>Shift-click adds or removes one. Drag a box to choose more.</p>
+        <header class="game-head"><h2>${picks.length} selected</h2></header>
+        <p>${escapeHtml(selectionFrame() ? `Moves together: ${selectionSummary(selectionFrame().set)}.` : "")}</p>
+        <p class="fine">Drag any of them to move them all. Drag the round handle above to turn them. Shift-click adds or removes one; drag a box on empty floor to pick more.</p>
         ${quietDelete("Delete selected")}
       `;
       inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
