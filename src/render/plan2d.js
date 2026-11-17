@@ -801,6 +801,18 @@ export function createPlanView(canvas, initialHouse) {
     ctx.strokeStyle = "rgba(47, 93, 69, 0.85)";
     ctx.strokeRect(left, top, right - left, bottom - top);
     ctx.setLineDash([]);
+    if (frame.corners) {
+      // Corner squares: drag one to make the selection bigger or smaller.
+      for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) {
+        ctx.beginPath();
+        ctx.rect(x - 5, y - 5, 10, 10);
+        ctx.fillStyle = "#FFF8F4";
+        ctx.fill();
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = "#2F5D45";
+        ctx.stroke();
+      }
+    }
     if (frame.handle) {
       const h = worldToScreen(frame.handle.x, frame.handle.y);
       const mid = (left + right) / 2;

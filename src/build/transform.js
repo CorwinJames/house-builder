@@ -23,6 +23,7 @@ import { furnitureFootprint } from "./annotations.js";
 import { detachWalls, withJoins } from "./clips.js";
 import { refreshSkylight } from "./skylights.js";
 import { areaKind } from "./areas.js";
+import { imageCorners } from "./images.js";
 
 const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns", image: "images" };
 
@@ -132,6 +133,7 @@ function setPoints(house, set) {
     const item = (house[PIECE_KEYS[piece.type]] || []).find((entry) => entry.id === piece.id);
     if (!item) continue;
     if (piece.type === "furniture" || piece.type === "skylight") points.push(...furnitureFootprint(item));
+    else if (piece.type === "image") points.push(...imageCorners(item));
     else points.push({ x: item.x, y: item.y });
   }
   for (const device of house.electrical?.devices || []) if (set.devices.has(device.id)) points.push({ x: device.x, y: device.y });
@@ -231,6 +233,43 @@ export function flipSelection(house, set, axis, options = {}) {
   const horizontal = axis === "horizontal";
   const map = (p) => (horizontal ? { x: 2 * box.cx - p.x, y: p.y } : { x: p.x, y: 2 * box.cy - p.y });
   return mapSelection(house, set, map, { ...options, mirror: true, turn: (deg) => (horizontal ? 180 - deg : -deg) });
+}
+
+/**
+ * Make the selection bigger or smaller by `k` (1.5 is half again as big),
+ * about `anchor` (its middle by default), keeping its proportions. Walls,
+ * rooms, and where everything sits scale; things with a real size do not:
+ * wall thickness and height, door and window sizes (they keep their place
+ * along the wall), furniture, fixtures, columns, and skylights. Pictures
+ * scale with it.
+ */
+export function scaleSelection(house, set, k, anchor = null, options = {}) {
+  if (!(k > 0) || Math.abs(k - 1) < 1e-9) return { house, detached: 0 };
+  const box = selectionBounds(house, set);
+  const pivot = anchor || (box ? { x: box.cx, y: box.cy } : { x: 0, y: 0 });
+  const result = mapSelection(house, set, (p) => ({ x: pivot.x + (p.x - pivot.x) * k, y: pivot.y + (p.y - pivot.y) * k }), options);
+  const next = result.house;
+  for (const opening of next.openings || []) {
+    if (!set.walls.has(opening.wallId)) continue;
+    const wall = next.walls.find((item) => item.id === opening.wallId);
+    if (!wall) continue;
+    const length = wallLength(wall);
+    const center = (opening.offset + opening.width / 2) * k;
+    opening.offset = clean(Math.max(0.5, Math.min(length - opening.width - 0.5, center - opening.width / 2)));
+  }
+  for (const list of [next.electrical?.devices || [], next.plumbing?.fixtures || []]) {
+    for (const item of list) {
+      if (!item.wallId || !set.walls.has(item.wallId) || !Number.isFinite(item.offset)) continue;
+      item.offset = clean(item.offset * k);
+    }
+  }
+  const pictures = new Set(set.pieces.filter((piece) => piece.type === "image").map((piece) => piece.id));
+  for (const item of next.images || []) {
+    if (!pictures.has(item.id)) continue;
+    item.width = clean(item.width * k);
+    item.height = clean(item.height * k);
+  }
+  return result;
 }
 
 export function nudgeSelection(house, set, dx, dy, options = {}) {
