@@ -74,11 +74,13 @@ app.innerHTML = `
               <button type="button" id="export-materials-json">Export materials JSON</button>
               <button type="button" id="import-json">Import JSON</button>
               <button type="button" id="import-site">Import parcel JSON</button>
+              <button type="button" id="add-picture">Add a picture…</button>
               <button type="button" id="reset-sample">Reset to sample</button>
             </div>
           </details>
           <div id="account" class="account"></div>
           <input id="import-file" type="file" accept="application/json,.json" hidden />
+          <input id="picture-file" type="file" accept="image/*,.svg" hidden />
           <input id="import-site-file" type="file" accept="application/json,.json" hidden />
         </div>
       </div>

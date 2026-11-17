@@ -33,6 +33,9 @@ import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noon
 import { clerestoryBox, clerestoryEaveRange, clerestoryGeometry } from "../build/clerestory.js";
 import { ASSEMBLY_2D } from "../theme.js";
 import { ROOF_STYLES, roofFootprints, roofSpec } from "../build/roofShape.js";
+import { addTracedPlan, imagePxPerFt, makeImage, pointOnImage, rescaleImage, segmentsToFeet } from "../build/images.js";
+import { planFromSegments, rasterSegments, sizedSvg, svgSegments } from "../build/trace.js";
+import { FURNISHINGS, FURNISH_SOURCES, furnishPose, furnishing, isFurnishing, makeFurnishing, syncFurnishings } from "../build/furnish.js";
 import { BAYS, TEMPLATES, TEMPLATE_SOURCES, placeTemplate, templateById, templateClashes, templateGeometry, templateGhost } from "../build/templates.js";
 import { currentEaves, solarPanelHtml, sunSideKey } from "./solarPanel.js";
 import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, skylightBuild, skylightFootprint, skylightNotes } from "../build/skylights.js";
@@ -109,6 +112,7 @@ const TOOLS = [
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
   { id: "skylight", label: "Skylight", icon: "◫", tip: "Click inside a room to put a skylight in its roof" },
   { id: "column", label: "Column", icon: "◉", tip: "Timber posts for verandas, galleries, and open halls" },
+  { id: "furnish", label: "Furnish", icon: "🛋", tip: "Toilet, sinks, shower, stove, dishwasher, fridge, washer, dryer, and wardrobe at real size" },
   { id: "roof", label: "Roof", icon: "△", tip: "Roof shape, pitch, eaves, and a clerestory band of high glass" },
   { id: "solar", label: "Solar", icon: "☀", tip: "Passive solar: sun angles, eaves, awnings, and roof pitch" },
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
@@ -126,7 +130,10 @@ const COLUMN_SIZES = [[0.5, "6 in"], [0.75, "9 in"], [1, "12 in"], [1.25, "15 in
 const DOOR_STYLES = [["swing", "Swing"], ["sliding", "Sliding glass"], ["folding", "Folding glass"], ["cased", "Open"], ["overhead", "Garage"]];
 
 /** Plan pieces that sit at a point: their house key, for move, copy, and paste. */
-const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns" };
+const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns", image: "images" };
+
+/** What an in-app copy puts on the system clipboard, so a later paste knows to paste it (and not an older picture). */
+const COPY_MARK = "house-builder:copied-items";
 
 const TOOL_HINTS = {
   select: "Click anything to open its card.",
@@ -134,6 +141,7 @@ const TOOL_HINTS = {
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
+  furnish: "Pick a piece, move it near a wall, and click. Its back goes to the wall. R turns it away from walls. Shift-click to keep placing.",
   templates: "Pick a template, move it over the plan, and click to place it. R turns it. Then edit it like anything you drew.",
   column: "Click to place a post. Row: drag along a line and posts go in at the spacing you picked.",
   roof: "Click a roof to pick it. Each building has its own form, ridge, curve, and platform. Clerestory adds a band of high glass between a low roof and a raised one.",
@@ -211,6 +219,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let columnRow = false;
   let columnSpacing = 8;
   let roofBuilding = null;
+  // Furnish tool: the piece in hand, its turn away from walls, and where its ghost sits.
+  let furnishKind = null;
+  let furnishTurn = 0;
+  let furnishAt = null;
+  // Pictures: setting a scale (two clicks, then a length), and a trace waiting to be kept.
+  let scaleMeasure = null;
+  let tracePreview = null;
+  let traceDoors = true;
+  let pasteTimer = 0;
+  let copiedAt = 0;
   // The Solar tool's panel state (not saved in the house file).
   const solarUi = { focusId: null, results: [], query: "", searchNote: "", searching: false, climateBusy: false, climateNote: "", climateTriedFor: "" };
   const houseStamps = new WeakMap();
@@ -274,7 +292,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar" || tool === "roof" || tool === "templates" || tool === "column") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar" || tool === "roof" || tool === "templates" || tool === "column" || tool === "furnish") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -366,17 +384,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       redo();
     } else if (meta && event.key.toLowerCase() === "c" && mode === "build" && !event.shiftKey && !event.altKey) {
       if (!picks.length) return;
-      event.preventDefault();
+      // The copy event that follows marks the system clipboard as ours.
       copySelection();
-    } else if (meta && event.key.toLowerCase() === "v" && mode === "build" && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      pasteClipboard();
+      copiedAt = Date.now();
+    } else if (meta && event.key.toLowerCase() === "v" && !event.shiftKey && !event.altKey) {
+      // The paste event decides: a picture from another app, or our own copy.
+      // Browsers that send no paste event here still get our own copy.
+      window.clearTimeout(pasteTimer);
+      if (mode === "build") pasteTimer = window.setTimeout(() => pasteClipboard(), 150);
     } else if (meta && event.key.toLowerCase() === "d" && mode === "build" && tool === "select" && picks.length) {
       event.preventDefault();
       duplicateBeside();
     } else if (meta && event.key.toLowerCase() === "a" && mode === "build" && tool === "select") {
       event.preventDefault();
       selectAllVisible();
+    } else if (!meta && !event.altKey && event.key.toLowerCase() === "r" && mode === "build" && tool === "furnish" && furnishKind) {
+      event.preventDefault();
+      furnishTurn = (furnishTurn + (event.shiftKey ? 90 : 270)) % 360;
+      refreshOverlay();
     } else if (!meta && !event.altKey && event.key.toLowerCase() === "r" && mode === "build" && tool === "templates" && templateId) {
       event.preventDefault();
       turnTemplate(event.shiftKey ? 1 : -1);
@@ -412,6 +437,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       hoverWorld = null;
       hoverPlace = null;
       lastPreview = null;
+      if (scaleMeasure || tracePreview) {
+        scaleMeasure = null;
+        tracePreview = null;
+        refreshOverlay();
+        publish();
+        return;
+      }
+      if (tool === "furnish" && furnishKind) {
+        furnishKind = null;
+        furnishAt = null;
+        optionsKey = "";
+        publish();
+        return;
+      }
       if (tool !== "select") {
         tool = "select";
         optionsOpen = false;
@@ -435,6 +474,302 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     altHeld = false;
     paintJoinButtons();
   });
+
+  // Copy marks the system clipboard as ours, so a later paste is ours and not an older picture.
+  document.addEventListener("copy", (event) => {
+    if (typingTarget(event.target) || Date.now() - copiedAt > 1000) return;
+    event.clipboardData?.setData("text/plain", COPY_MARK);
+    event.preventDefault();
+  });
+  // Paste: a picture or SVG from another app (Affinity Designer) becomes a picture on the plan.
+  document.addEventListener("paste", (event) => {
+    if (typingTarget(event.target)) return;
+    window.clearTimeout(pasteTimer);
+    const data = event.clipboardData;
+    const text = data?.getData("text/plain") || "";
+    if (text === COPY_MARK) {
+      event.preventDefault();
+      if (mode === "build") pasteClipboard();
+      return;
+    }
+    const svg = data?.getData("image/svg+xml") || (/<svg[\s>]/i.test(text) ? text : "") || (/<svg[\s>]/i.test(data?.getData("text/html") || "") ? data.getData("text/html") : "");
+    const file = [...(data?.items || [])].find((item) => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile();
+    if (svg || file) {
+      event.preventDefault();
+      importPicture({ svg: svg ? svg.slice(svg.search(/<svg[\s>]/i)) : "", file: svg ? null : file, name: "Pasted picture" });
+      return;
+    }
+    if (mode === "build" && clipboard) {
+      event.preventDefault();
+      pasteClipboard();
+    }
+  });
+  // Drop a picture file on the plan.
+  const planBox = document.querySelector("#plan-canvas")?.parentElement || document.body;
+  planBox.addEventListener("dragover", (event) => {
+    if ([...(event.dataTransfer?.items || [])].some((item) => item.kind === "file")) event.preventDefault();
+  });
+  planBox.addEventListener("drop", (event) => {
+    const file = [...(event.dataTransfer?.files || [])].find((item) => item.type.startsWith("image/") || /\.svg$/i.test(item.name));
+    if (!file) return;
+    event.preventDefault();
+    readPictureFile(file);
+  });
+  document.querySelector("#add-picture")?.addEventListener("click", () => {
+    document.querySelector("#file-menu").open = false;
+    document.querySelector("#picture-file").click();
+  });
+  document.querySelector("#picture-file")?.addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) readPictureFile(file);
+  });
+
+  function readPictureFile(file) {
+    if (file.type === "image/svg+xml" || /\.svg$/i.test(file.name)) {
+      file.text().then((svg) => importPicture({ svg, name: file.name }));
+      return;
+    }
+    importPicture({ file, name: file.name });
+  }
+
+  function loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("That picture could not be read."));
+      img.src = url;
+    });
+  }
+
+  /**
+   * Store a picture in the plan: shrunk to at most 1600 px across (so the
+   * plan stays small enough to save), kept as PNG unless that is large.
+   * An SVG also keeps its straight lines for an exact trace.
+   */
+  async function importPicture({ svg = "", file = null, name = "Picture" }) {
+    try {
+      let img;
+      let lines = null;
+      let url = "";
+      const MAX = 1600;
+      if (svg) {
+        const parsed = svgSegments(svg);
+        if (!parsed.box) throw new Error("That SVG has nothing to draw.");
+        const k = MAX / Math.max(parsed.box.w, parsed.box.h);
+        url = URL.createObjectURL(new Blob([sizedSvg(svg, parsed.box.w * k, parsed.box.h * k)], { type: "image/svg+xml" }));
+        img = await loadImage(url);
+        lines = parsed.segments.map((seg) => [seg.a.u, seg.a.v, seg.b.u, seg.b.v].map((n) => Math.round(n * 1e5) / 1e5));
+      } else {
+        url = URL.createObjectURL(file);
+        img = await loadImage(url);
+      }
+      const natW = img.naturalWidth || img.width;
+      const natH = img.naturalHeight || img.height;
+      if (!natW || !natH) throw new Error("That picture has no size.");
+      const k = Math.min(1, MAX / Math.max(natW, natH));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(natW * k));
+      canvas.height = Math.max(1, Math.round(natH * k));
+      const g = canvas.getContext("2d");
+      g.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      let src = canvas.toDataURL("image/png");
+      if (src.length > 1500000) {
+        // A photo: JPEG on white is far smaller than PNG.
+        const flat = document.createElement("canvas");
+        flat.width = canvas.width;
+        flat.height = canvas.height;
+        const fg = flat.getContext("2d");
+        fg.fillStyle = "#ffffff";
+        fg.fillRect(0, 0, flat.width, flat.height);
+        fg.drawImage(canvas, 0, 0);
+        src = flat.toDataURL("image/jpeg", 0.82);
+      }
+      const camera = plan.getCamera();
+      const planCanvas = document.querySelector("#plan-canvas");
+      const viewFeet = (planCanvas?.clientWidth || 800) / (camera?.pxPerFt || 8);
+      const at = pointerWorld || { x: camera?.cx || 0, y: camera?.cy || 0 };
+      const width = Math.round(Math.max(10, Math.min(120, viewFeet * 0.5)));
+      const picture = makeImage({ src, pxWidth: canvas.width, pxHeight: canvas.height, name, lines }, at, width);
+      const next = cloneHouse(house);
+      next.images = [...(next.images || []), picture];
+      mode = "build";
+      tool = "select";
+      optionsOpen = false;
+      setOptionsOpen(false);
+      commit(next, house, "adding a picture");
+      choose({ type: "image", id: picture.id });
+      announce(lines?.length
+        ? `Added the drawing with ${lines.length} lines. Set its scale on its card, then Turn into walls.`
+        : "Added the picture. Set its scale on its card. A clean line drawing can then turn into walls.");
+      publish();
+      onChange();
+    } catch (error) {
+      announce(error.message || "That picture could not be added.", false);
+    }
+  }
+
+  /** Lines of a picture: an SVG's own lines, or strokes found in its pixels. */
+  async function pictureSegments(picture) {
+    if (picture.lines?.length) {
+      return picture.lines.map(([u1, v1, u2, v2]) => ({ a: { u: u1, v: v1 }, b: { u: u2, v: v2 }, thick: 0 }));
+    }
+    const img = await loadImage(picture.src);
+    const canvas = document.createElement("canvas");
+    canvas.width = picture.pxWidth || img.naturalWidth;
+    canvas.height = picture.pxHeight || img.naturalHeight;
+    const g = canvas.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return rasterSegments(g.getImageData(0, 0, canvas.width, canvas.height), { pxPerFt: imagePxPerFt(picture) });
+  }
+
+  async function startTrace(picture) {
+    announce("Tracing…", false);
+    try {
+      const segments = await pictureSegments(picture);
+      const traced = planFromSegments(segmentsToFeet(picture, segments), { doors: traceDoors });
+      if (!traced.walls.length) {
+        tracePreview = null;
+        announce("No walls found. A clean line drawing with straight walls works best; set the scale first so wall sizes make sense.", false);
+      } else {
+        tracePreview = { imageId: picture.id, plan: traced };
+        announce(`Found ${traced.walls.length} wall${traced.walls.length === 1 ? "" : "s"}${traceDoors ? ` and ${traced.openings.length} door${traced.openings.length === 1 ? "" : "s"} or opening${traced.openings.length === 1 ? "" : "s"}` : ""}. Keep them on the picture's card.`, false);
+      }
+    } catch (error) {
+      tracePreview = null;
+      announce(error.message || "That picture could not be traced.", false);
+    }
+    refreshOverlay();
+    publish();
+  }
+
+  function keepTrace() {
+    if (!tracePreview) return;
+    const result = addTracedPlan(house, tracePreview.plan);
+    tracePreview = null;
+    holdCamera();
+    commit(result.house, house, "turning a picture into walls");
+    applyPicks(result.picks);
+    const c = result.counts;
+    const many = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    announce(`Added ${many(c.walls, "wall")}, ${many(c.doors, "door")}${c.openings ? `, ${many(c.openings, "wide opening")}` : ""}, and ${many(c.rooms, "room")}. They are selected: drag, turn, or click any part to change it.`);
+    publish();
+  }
+
+  function paintImageInspector() {
+    const item = (house.images || []).find((entry) => entry.id === selection.id);
+    if (!item) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const measuring = scaleMeasure?.imageId === item.id;
+    const ready = measuring && scaleMeasure.a && scaleMeasure.b;
+    const previewing = tracePreview?.imageId === item.id;
+    const opacity = Number.isFinite(item.opacity) ? item.opacity : 0.6;
+    inspector.innerHTML = `
+      ${gameHead(item.name || "Picture", [])}
+      <p>${escapeHtml(plainFeet(item.width))} × ${escapeHtml(plainFeet(item.height))} on the plan${item.lines?.length ? `, ${item.lines.length} vector lines` : ""}. Drag it to move it; the Arrange bar turns it.</p>
+      <div class="measure-tiles op-tiles"><label class="measure-tile"><input id="img-width" value="${escapeAttr(plainFeet(item.width))}" autocomplete="off" inputmode="decimal" /><span>Width</span></label></div>
+      <p class="opt-label">See-through</p>
+      <div class="swatch-row">${[[1, "Solid"], [0.6, "60%"], [0.3, "30%"]].map(([value, label]) => `<button type="button" class="chip" data-img-opacity="${value}" aria-pressed="${Math.abs(opacity - value) < 0.01}">${label}</button>`).join("")}</div>
+      <section class="card-section">
+        <p class="opt-label">Scale</p>
+        ${ready
+          ? `<p class="fine">How long is the line you drew?</p><div class="measure-tiles op-tiles"><label class="measure-tile"><input id="img-scale-len" autocomplete="off" inputmode="decimal" placeholder="12 ft" /><span>Real length</span></label></div><div class="swatch-row"><button type="button" class="chip" id="img-scale-apply">Apply</button><button type="button" class="chip" id="img-scale-cancel">Cancel</button></div>`
+          : measuring
+            ? `<p class="fine">Click the two ends of something on the picture whose real length you know (a wall, a scale bar).</p><button type="button" class="chip" id="img-scale-cancel">Cancel</button>`
+            : `<button type="button" class="chip" id="img-scale">Set the scale</button>${item.scaled ? "" : `<p class="fine">Not set yet: walls traced now may be the wrong size.</p>`}`}
+      </section>
+      <section class="card-section">
+        <p class="opt-label">Turn into walls</p>
+        <div class="seg"><button type="button" data-trace-doors="0" aria-pressed="${!traceDoors}">Walls only</button><button type="button" data-trace-doors="1" aria-pressed="${traceDoors}">Walls and doors</button></div>
+        ${previewing
+          ? `<p class="fine">${tracePreview.plan.walls.length} walls${traceDoors ? `, ${tracePreview.plan.openings.length} doors or openings` : ""}, shown in blue.</p><div class="swatch-row"><button type="button" class="chip" id="trace-keep">Keep them</button><button type="button" class="chip" id="trace-cancel">Cancel</button></div>`
+          : `<button type="button" class="chip" id="trace-go">Trace the drawing</button>`}
+        <p class="fine">${item.lines?.length ? "Uses the drawing's own lines, at any angle." : "Finds straight lines running across and down the picture. For walls at an angle, copy from Affinity with Settings → General → Copy items as SVG turned on."} Gaps 1 ft 10 in to 8 ft wide become doors (wider than 4 ft, an open doorway).</p>
+      </section>
+      ${quietDelete("Delete picture")}
+    `;
+    const save = (fn, note) => {
+      const next = cloneHouse(house);
+      const target = (next.images || []).find((entry) => entry.id === item.id);
+      if (!target) return;
+      fn(target);
+      commit(next, house, note);
+      publish();
+    };
+    const widthInput = inspector.querySelector("#img-width");
+    widthInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        widthInput.blur();
+      }
+    });
+    widthInput?.addEventListener("change", () => {
+      const value = parseLength(widthInput.value);
+      if (!(value > 0)) return publish();
+      save((target) => {
+        target.height = target.height * (value / target.width);
+        target.width = value;
+        target.scaled = true;
+      }, "sizing a picture");
+    });
+    inspector.querySelectorAll("[data-img-opacity]").forEach((button) => {
+      button.addEventListener("click", () => save((target) => { target.opacity = Number(button.dataset.imgOpacity); }, "changing how see-through a picture is"));
+    });
+    inspector.querySelector("#img-scale")?.addEventListener("click", () => {
+      scaleMeasure = { imageId: item.id, a: null, b: null };
+      tracePreview = null;
+      announce("Click the two ends of something whose real length you know.", false);
+      publish();
+    });
+    inspector.querySelector("#img-scale-cancel")?.addEventListener("click", () => {
+      scaleMeasure = null;
+      refreshOverlay();
+      publish();
+    });
+    const lenInput = inspector.querySelector("#img-scale-len");
+    const applyScale = () => {
+      const feet = parseLength(lenInput?.value || "");
+      if (!(feet > 0)) {
+        announce("Type a length, like 12 ft or 12' 6\".", false);
+        return;
+      }
+      const { a, b } = scaleMeasure;
+      scaleMeasure = null;
+      save((target) => {
+        Object.assign(target, rescaleImage(target, a, b, feet));
+        target.scaled = true;
+      }, "setting a picture's scale");
+      refreshOverlay();
+      announce(`Scaled the picture: that line is now ${plainFeet(feet)}.`);
+    };
+    lenInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyScale();
+      }
+    });
+    if (lenInput) window.setTimeout(() => lenInput.focus(), 0);
+    inspector.querySelector("#img-scale-apply")?.addEventListener("click", applyScale);
+    inspector.querySelectorAll("[data-trace-doors]").forEach((button) => {
+      button.addEventListener("click", () => {
+        traceDoors = button.dataset.traceDoors === "1";
+        if (tracePreview?.imageId === item.id) startTrace(item);
+        else publish();
+      });
+    });
+    inspector.querySelector("#trace-go")?.addEventListener("click", () => startTrace(item));
+    inspector.querySelector("#trace-keep")?.addEventListener("click", keepTrace);
+    inspector.querySelector("#trace-cancel")?.addEventListener("click", () => {
+      tracePreview = null;
+      refreshOverlay();
+      publish();
+    });
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+  }
 
   refreshWarnings();
   pushViews();
@@ -656,6 +991,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const room = hitRoom(world);
     if (room) return room;
+    const picture = hitImage(world);
+    if (picture) return picture;
+    return null;
+  }
+
+  /** A picture is hit last, so walls, rooms, and pieces drawn over it still win. */
+  function hitImage(world) {
+    if (getViewState().layers?.images === false) return null;
+    const list = house.images || [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      if (pointOnImage(list[i], world)) return { type: "image", id: list[i].id };
+    }
     return null;
   }
 
@@ -715,7 +1062,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pointFor(activeTool, world, extra) {
-    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale" || activeTool === "skylight" || activeTool === "templates" || activeTool === "column") return world || extra?.surface || null;
+    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale" || activeTool === "skylight" || activeTool === "templates" || activeTool === "column" || activeTool === "furnish") return world || extra?.surface || null;
     return extra?.surface || world || null;
   }
 
@@ -938,6 +1285,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     world = pointFor(tool, world, extra);
     if (!world || mode !== "build" || spaceHeld || event.button === 1 || event.button === 2) return false;
     window.clearTimeout(longTimer);
+    if (scaleMeasure) {
+      if (!scaleMeasure.a || scaleMeasure.b) scaleMeasure = { imageId: scaleMeasure.imageId, a: { ...world }, b: null };
+      else {
+        scaleMeasure.b = { ...world };
+        announce("Now type how long that line really is on the picture's card.", false);
+      }
+      choose({ type: "image", id: scaleMeasure.imageId });
+      refreshOverlay();
+      publish();
+      return true;
+    }
     const armPan = () => {
       window.clearTimeout(longTimer);
       longTimer = window.setTimeout(() => {
@@ -1058,6 +1416,23 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (tool === "templates") {
       if (!world) return true;
       placeChosenTemplate(world);
+      return true;
+    }
+    if (tool === "furnish") {
+      if (!world) return true;
+      const piece = hitPiece(world);
+      if (!furnishKind) {
+        if (piece) {
+          choose(piece);
+          publish();
+        } else {
+          announce("Pick a piece in the options first.", false);
+          optionsOpen = true;
+          setOptionsOpen(true);
+        }
+        return true;
+      }
+      placeFurnishing(world, event.shiftKey);
       return true;
     }
     if (tool === "roof") {
@@ -1445,7 +1820,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function pieceSelection(pick) {
     if (!pick?.type || !pick.id) return null;
-    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel" && pick.type !== "skylight" && pick.type !== "column") return null;
+    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel" && pick.type !== "skylight" && pick.type !== "column" && pick.type !== "image") return null;
     return { type: pick.type, id: pick.id };
   }
 
@@ -1637,7 +2012,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function movablePiece(hit, doc = house) {
     if (!hit?.type) return false;
-    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel" || hit.type === "skylight" || hit.type === "column") return true;
+    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel" || hit.type === "skylight" || hit.type === "column" || hit.type === "image") return true;
     if (hit.type !== "room") return false;
     const room = (doc?.rooms || house.rooms || []).find((item) => item.id === hit.id);
     const kind = areaKind(room || {});
@@ -1667,6 +2042,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     item.x += shift;
     item.y += nudge;
     if (hit.type === "skylight") refreshSkylight(next, item);
+    if (hit.type === "furniture" && isFurnishing(item)) {
+      const base = (snapshot.furniture || []).find((entry) => entry.id === hit.id) || item;
+      Object.assign(item, furnishPose(next, item.kind, { x: item.x, y: item.y }, base.rotation || 0));
+      delete item.wallId;
+    }
     return next;
   }
 
@@ -1775,6 +2155,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     hoverPlace = tool === "door" || tool === "window" ? openingSpot(point) : null;
     templateAt = tool === "templates" && templateId ? { x: Math.round(point.x), y: Math.round(point.y) } : null;
+    furnishAt = tool === "furnish" && furnishKind ? { x: point.x, y: point.y } : null;
     hoverWorld = tool === "site" || tool === "electrical" || tool === "plumbing" ? point : null;
     lastPreview = hoverWorld && (tool === "electrical" || tool === "plumbing") ? placeGhostAt(hoverWorld) : null;
     paintCoach();
@@ -1885,6 +2266,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const solved = solveConstraints(next);
     next = solved.house;
+    // Furnishings keep their plumbing and power points with them.
+    if ((next.furniture || []).some(isFurnishing) || (next.plumbing?.fixtures || []).some((item) => item.furnitureId) || (next.electrical?.devices || []).some((item) => item.furnitureId)) {
+      next = syncFurnishings(cloneHouse(next));
+    }
     // Forget clips to walls that were deleted or cut apart.
     if (Array.isArray(next.joins)) next = pruneJoins(cloneHouse(next));
     const previous = baseline || house;
@@ -1912,11 +2297,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       local.hidden = false;
       local.textContent = "Saved on this device";
     }
-    try {
-      localStorage.setItem(DOC_KEY, JSON.stringify(house));
-    } catch {
-      // Ignore a full browser store. Export still works.
-    }
+    saveLocal();
     pushViews();
     onDocument?.("edit");
     return true;
@@ -1939,6 +2320,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (sel.type === "planLabel") return (doc.planLabels || []).some((item) => item.id === sel.id);
     if (sel.type === "skylight") return (doc.skylights || []).some((item) => item.id === sel.id);
     if (sel.type === "column") return (doc.columns || []).some((item) => item.id === sel.id);
+    if (sel.type === "image") return (doc.images || []).some((item) => item.id === sel.id);
     if (sel.type === "entry") return !!doc.plumbing?.entry;
     return false;
   }
@@ -2134,6 +2516,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (item.type === "furniture") return "furniture";
     if (item.type === "skylight") return "skylight";
     if (item.type === "column") return "column";
+    if (item.type === "image") return "picture";
     if (item.type === "siteFeature") return "site mark";
     if (item.type === "planLabel") return "note";
     if (item.type === "device") return "device";
@@ -2173,7 +2556,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     prunePicks();
     syncSuggestOverlay();
     refreshWarnings();
-    localStorage.setItem(DOC_KEY, JSON.stringify(house));
+    saveLocal();
     pushViews();
     publish();
     onDocument?.("edit");
@@ -2190,7 +2573,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     prunePicks();
     syncSuggestOverlay();
     refreshWarnings();
-    localStorage.setItem(DOC_KEY, JSON.stringify(house));
+    saveLocal();
     pushViews();
     publish();
     onDocument?.("edit");
@@ -2210,6 +2593,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (type === "planLabel") return "label";
     if (type === "skylight") return "skylight";
     if (type === "column") return "column";
+    if (type === "image") return "picture";
     return String(item.kind || "mark").toLowerCase();
   }
 
@@ -2352,6 +2736,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const labels = idsOf(items, "planLabel");
     const skylights = idsOf(items, "skylight");
     const columns = idsOf(items, "column");
+    const pictures = idsOf(items, "image");
     const devices = idsOf(items, "device");
     const fixtures = idsOf(items, "fixture");
     let next = cloneHouse(house);
@@ -2365,6 +2750,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (labels.size) next.planLabels = dropIds(next.planLabels, labels);
     if (skylights.size) next.skylights = dropIds(next.skylights, skylights);
     if (columns.size) next.columns = dropIds(next.columns, columns);
+    if (pictures.size) next.images = dropIds(next.images, pictures);
     if (rooms.size) pruneBuildings(next);
     if (devices.size && next.electrical) next.electrical.devices = dropIds(next.electrical.devices, devices);
     if (idsOf(items, "panel").size && next.electrical) next.electrical.panel = null;
@@ -2392,6 +2778,19 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (used.has(id)) continue;
       delete doc.buildings[id];
       doc.columns = (doc.columns || []).filter((column) => column.building !== id);
+    }
+  }
+
+  /** Save on this device. Pictures can fill the browser's store; say so instead of failing quietly. */
+  let storeFullTold = false;
+  function saveLocal() {
+    try {
+      localStorage.setItem(DOC_KEY, JSON.stringify(house));
+      storeFullTold = false;
+    } catch {
+      if (storeFullTold) return;
+      storeFullTold = true;
+      window.setTimeout(() => announce("This browser's storage is full, so this plan isn't saved on this device. Save it to Drive or Export JSON, or delete a picture.", false), 0);
     }
   }
 
@@ -2453,8 +2852,85 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       measure,
       moveLabel: moveLabel(measure),
       frame: frameOverlay(),
-      templateGhost: templateOverlay(),
+      templateGhost: tracePreview && selection?.id === tracePreview.imageId ? traceGhost() : scaleMeasure?.a ? scaleGhost() : templateOverlay(),
+      furnishGhost: mode === "build" && tool === "furnish" && furnishKind && furnishAt && !gesture
+        ? makeFurnishing(house, furnishKind, furnishAt, furnishTurn, "ghost")
+        : null,
     };
+  }
+
+  function scaleGhost() {
+    const a = scaleMeasure.a;
+    const b = scaleMeasure.b || pointerWorld || a;
+    return { walls: [{ start: a, end: b, thickness: 0.12 }], columns: [{ ...a, size: 0.4 }, { ...b, size: 0.4 }], label: "" };
+  }
+
+  /** The traced walls before they are kept, with the doors left as gaps. */
+  function traceGhost() {
+    const { plan: traced } = tracePreview;
+    const walls = [];
+    traced.walls.forEach((wall, index) => {
+      const len = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y) || 1;
+      const at = (t) => ({ x: wall.start.x + ((wall.end.x - wall.start.x) * t) / len, y: wall.start.y + ((wall.end.y - wall.start.y) * t) / len });
+      const gaps = traced.openings.filter((item) => item.wall === index).sort((p, q) => p.offset - q.offset);
+      let from = 0;
+      for (const gap of gaps) {
+        walls.push({ start: at(from), end: at(gap.offset), thickness: 0.7 });
+        from = gap.offset + gap.width;
+      }
+      walls.push({ start: at(from), end: at(len), thickness: 0.7 });
+    });
+    return { walls, ok: true, label: "" };
+  }
+
+  function refreshOverlay() {
+    const overlay = makeOverlay();
+    plan.setOverlay(overlay);
+    model.setOverlay?.(overlay);
+  }
+
+  function placeFurnishing(world, keep) {
+    const spec = furnishing(furnishKind);
+    if (!spec) return;
+    const item = makeFurnishing(house, furnishKind, world, furnishTurn);
+    const next = cloneHouse(house);
+    next.furniture = [...(next.furniture || []), item];
+    commit(next, house, `placing a ${spec.name.toLowerCase()}`);
+    choose({ type: "furniture", id: item.id });
+    const placed = house.furniture.find((entry) => entry.id === item.id);
+    const linked = placed?.link
+      ? (placed.link.system === "plumbing" ? " Its plumbing point came with it." : " Its 240 V outlet came with it.")
+      : spec.link ? " Put it against a wall to connect its plumbing or power." : "";
+    announce(`Placed a ${spec.name.toLowerCase()}.${linked} Drag it to move it; R turns it.`);
+    if (!keep) {
+      furnishKind = null;
+      furnishAt = null;
+      optionsKey = "";
+    }
+    publish();
+  }
+
+  function paintFurnishOptions(box) {
+    const groups = [...new Set(FURNISHINGS.map((item) => item.group))];
+    const size = (item) => `${item.w} × ${item.d} in`;
+    box.innerHTML = `<div class="solar-panel tpl-panel">
+      <p class="fine">${furnishKind ? `Move near a wall and click to place the ${escapeHtml(furnishing(furnishKind).name.toLowerCase())}. Shift-click keeps it in hand. Esc puts it back.` : "Pick a piece. It follows the pointer and sits with its back to the nearest wall."}</p>
+      ${groups.map((group) => `<p class="opt-label">${group}</p>
+        <div class="tpl-grid">${FURNISHINGS.filter((item) => item.group === group).map((item) => `
+          <button type="button" class="tpl-card furn-card" data-furnish="${item.kind}" aria-pressed="${item.kind === furnishKind}" title="${escapeAttr(item.note)}">
+            <span class="furn-icon" aria-hidden="true">${item.icon}</span><span>${escapeHtml(item.name)}</span><span class="fine">${size(item)}</span>
+          </button>`).join("")}</div>`).join("")}
+      <p class="fine">Toilet, sinks, shower, dishwasher, and washer are also their plumbing points; stove and dryer are their 240 V outlets. Moving one moves its point.</p>
+      <details class="tech"><summary>Sizes from</summary>${Object.values(FURNISH_SOURCES).map((src) => `<p class="fine"><a href="${escapeAttr(src.url)}" target="_blank" rel="noopener">${escapeHtml(src.name)}</a></p>`).join("")}</details>
+    </div>`;
+    box.querySelectorAll("[data-furnish]").forEach((button) => {
+      button.addEventListener("click", () => {
+        furnishKind = button.dataset.furnish === furnishKind ? null : button.dataset.furnish;
+        furnishTurn = 0;
+        optionsKey = "";
+        publish();
+      });
+    });
   }
 
   /** The ghost under the pointer: the chosen template, or a row of posts being dragged. */
@@ -2874,7 +3350,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${templateId}|${templateTurns}|${columnSize}|${columnShape}|${columnRow}|${columnSpacing}|${roofBuilding}|${tool === "solar" || tool === "roof" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${templateId}|${templateTurns}|${furnishKind}|${columnSize}|${columnShape}|${columnRow}|${columnSpacing}|${roofBuilding}|${tool === "solar" || tool === "roof" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -2890,6 +3366,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "templates") {
       paintTemplateOptions(box);
+      return;
+    }
+    if (tool === "furnish") {
+      paintFurnishOptions(box);
       return;
     }
     if (tool === "column") {
@@ -3909,6 +4389,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       paintColumnInspector();
       syncSelectionLayout();
       return;
+    } else if (selection.type === "image") {
+      paintImageInspector();
+      syncSelectionLayout();
+      return;
     } else if (selection.type === "furniture" || selection.type === "siteFeature" || selection.type === "planLabel") {
       paintPieceInspector();
       syncSelectionLayout();
@@ -4077,13 +4561,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     const title = kind === "planLabel" ? "Note" : (item.name || plainPiece(item.kind));
+    const spec = kind === "furniture" ? furnishing(item.kind) : null;
     const detail = kind === "planLabel"
       ? item.text
-      : `${plainPiece(item.kind)}. Drag it on the plan to move it.`;
+      : spec
+        ? `${spec.w} × ${spec.d} in, ${spec.h} in tall. ${spec.note} Drag it to move it; it sits back against the nearest wall. R or the Arrange bar turns it.${item.link ? (item.link.system === "plumbing" ? " It is also its plumbing point, so pipes, code checks, and cost follow it." : " It is also its 240 V outlet, so its circuit and cost follow it.") : ""}`
+        : `${plainPiece(item.kind)}. Drag it on the plan to move it.`;
+    const unlinked = spec?.link && !item.link ? " Not against a wall, so it has no plumbing or power point yet." : "";
     const remove = kind === "furniture" ? "Delete furniture" : kind === "siteFeature" ? "Delete this" : "Delete note";
     inspector.innerHTML = `
       ${gameHead(title, [])}
-      <p>${escapeHtml(detail)}</p>
+      <p>${escapeHtml(detail + (unlinked || ""))}</p>
       ${quietDelete(remove)}
     `;
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
@@ -4862,7 +5350,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         document.dispatchEvent(new CustomEvent("plan-imported"));
         fromSave = true;
         choose(null);
-        localStorage.setItem(DOC_KEY, JSON.stringify(house));
+        saveLocal();
         refreshWarnings();
         pushViews();
         publish();
@@ -4929,7 +5417,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     fromSave = true;
     if (!keepView) document.dispatchEvent(new CustomEvent("plan-imported"));
     try {
-      localStorage.setItem(DOC_KEY, JSON.stringify(house));
+      saveLocal();
     } catch {
       // The Drive copy is still the one that was just read.
     }
@@ -4968,7 +5456,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     house = decorateHouse(doc);
     fromSave = false;
     try {
-      localStorage.setItem(DOC_KEY, JSON.stringify(house));
+      saveLocal();
     } catch {
       // Export still works if the browser store is full.
     }

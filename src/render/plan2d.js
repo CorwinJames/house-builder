@@ -25,6 +25,8 @@ import { skylightFootprint } from "../build/skylights.js";
 import { foldingPanels } from "../build/catalog.js";
 import { awningPieces } from "../build/awnings.js";
 import { platformRect, roofFootprints, roofLines } from "../build/roofShape.js";
+import { isFurnishing } from "../build/furnish.js";
+import { imageCorners } from "../build/images.js";
 import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { plainFeet } from "../build/angle.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
@@ -911,6 +913,45 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   /** Skylights: overhead glass, drawn dashed with the usual cross. */
+  /** Pictures under the plan, at their size, turn, and see-through setting. */
+  const pictureCache = new Map();
+  function pictureFor(item) {
+    const key = `${item.src.length}:${item.src.slice(-48)}`;
+    let entry = pictureCache.get(item.id);
+    if (!entry || entry.key !== key) {
+      const img = new Image();
+      entry = { key, img, ready: false };
+      img.onload = () => {
+        entry.ready = true;
+        render();
+      };
+      img.src = item.src;
+      pictureCache.set(item.id, entry);
+    }
+    return entry.ready ? entry.img : null;
+  }
+
+  function drawImages() {
+    if (state?.layers?.images === false) return;
+    for (const item of house.images || []) {
+      if (!item?.src) continue;
+      const img = pictureFor(item);
+      const at = worldToScreen(item.x, item.y);
+      const w = item.width * camera.pxPerFt;
+      const h = item.height * camera.pxPerFt;
+      ctx.save();
+      ctx.translate(at.x, at.y);
+      ctx.rotate((-(item.rotation || 0) * Math.PI) / 180);
+      ctx.globalAlpha = Number.isFinite(item.opacity) ? item.opacity : 0.6;
+      if (img) ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      else {
+        ctx.fillStyle = "rgba(90, 70, 40, 0.08)";
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+      }
+      ctx.restore();
+    }
+  }
+
   /** Building platforms: a stone band out past the walls, under the eaves. */
   function drawPlatforms() {
     const boxes = roofFootprints(house, true).filter((box) => box.platform > 0);
@@ -944,6 +985,103 @@ export function createPlanView(canvas, initialHouse) {
       ctx.strokeStyle = "#2A1A10";
       ctx.lineWidth = 1;
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * A fixture or appliance from above, in its own frame (feet, +y is the
+   * front, back against the wall): a body, and the detail that says what it
+   * is, a bowl, a basin, burners, a drum, doors.
+   */
+  function drawFurnishing(item, ghost) {
+    const W = item.width || 2;
+    const D = item.depth || 2;
+    const at = worldToScreen(item.x, item.y);
+    const k = camera.pxPerFt;
+    ctx.save();
+    ctx.translate(at.x, at.y);
+    ctx.rotate((-(item.rotation || 0) * Math.PI) / 180);
+    ctx.scale(k, -k);
+    ctx.lineWidth = 1.2 / k;
+    ctx.lineJoin = "round";
+    if (ghost) ctx.globalAlpha = 0.6;
+    const fills = { toilet: "#FBFBF8", "bath-sink": "#F4EEE4", "kitchen-sink": "#F3E2B8", shower: "#DDEFF5", stove: "#E6E8EA", dishwasher: "#E6E8EA", fridge: "#EEF1F3", washer: "#F2F4F6", dryer: "#F2F4F6", wardrobe: "#C9A27C" };
+    const ink = "#3F342C";
+    const box = (x0, y0, x1, y1, fill) => {
+      ctx.beginPath();
+      ctx.rect(x0, y0, x1 - x0, y1 - y0);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+    };
+    const oval = (cx, cy, rx, ry, fill) => {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, Math.max(0.01, rx), Math.max(0.01, ry), 0, 0, Math.PI * 2);
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+    };
+    const line = (x0, y0, x1, y1) => {
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.strokeStyle = ink;
+      ctx.stroke();
+    };
+    const x0 = -W / 2;
+    const x1 = W / 2;
+    const y0 = -D / 2;
+    const y1 = D / 2;
+    const kind = item.kind;
+    if (kind === "toilet") {
+      const tank = Math.min(0.75, D * 0.28);
+      box(x0, y0, x1, y0 + tank, fills.toilet);
+      oval(0, (y0 + tank + y1) / 2, W * 0.4, (y1 - y0 - tank) / 2, fills.toilet);
+      oval(0, (y0 + tank + y1) / 2 + 0.05, W * 0.26, (y1 - y0 - tank) / 2 * 0.62, "#DCE7EC");
+    } else if (kind === "bath-sink") {
+      box(x0, y0, x1, y1, fills["bath-sink"]);
+      oval(0, 0.05, W * 0.3, D * 0.28, "#DCE7EC");
+    } else if (kind === "kitchen-sink") {
+      box(x0, y0, x1, y1, fills["kitchen-sink"]);
+      box(x0 + 0.25, y0 + 0.3, -0.06, y1 - 0.3, "#DCE7EC");
+      box(0.06, y0 + 0.3, x1 - 0.25, y1 - 0.3, "#DCE7EC");
+    } else if (kind === "shower") {
+      box(x0, y0, x1, y1, fills.shower);
+      line(x0, y0, x1, y1);
+      line(x0, y1, x1, y0);
+      oval(0, 0, 0.18, 0.18, "#FFFFFF");
+    } else if (kind === "stove") {
+      box(x0, y0, x1, y1, fills.stove);
+      for (const [bx, by] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) oval(bx * W * 0.24, by * D * 0.22, Math.min(W, D) * 0.17, Math.min(W, D) * 0.17, "#3B3B3B");
+    } else if (kind === "dishwasher") {
+      box(x0, y0, x1, y1, fills.dishwasher);
+      line(x0 + 0.15, y1 - 0.25, x1 - 0.15, y1 - 0.25);
+    } else if (kind === "fridge") {
+      box(x0, y0, x1, y1, fills.fridge);
+      line(0, y1 - 0.4, 0, y1);
+      line(x0, y1 - 0.12, x1, y1 - 0.12);
+    } else if (kind === "washer" || kind === "dryer") {
+      box(x0, y0, x1, y1, fills[kind]);
+      oval(0, 0.1, Math.min(W, D) * 0.33, Math.min(W, D) * 0.33, kind === "washer" ? "#CFE3EC" : "#E8E2D6");
+    } else if (kind === "wardrobe") {
+      box(x0, y0, x1, y1, fills.wardrobe);
+      line(0, y0, 0, y1);
+      line(x0, y1 - 0.1, x1, y1 - 0.1);
+    } else {
+      box(x0, y0, x1, y1, "#E7DDD0");
+    }
+    if (ghost) {
+      ctx.setLineDash([0.3, 0.2]);
+      ctx.lineWidth = 2 / k;
+      ctx.strokeStyle = "#1F6F8B";
+      ctx.strokeRect(x0 - 0.05, y0 - 0.05, W + 0.1, D + 0.1);
     }
     ctx.restore();
   }
@@ -1025,6 +1163,10 @@ export function createPlanView(canvas, initialHouse) {
       if (!markVisible(item.roomId)) continue;
       if (item.kind === "person") {
         drawPersonTop(item);
+        continue;
+      }
+      if (isFurnishing(item)) {
+        drawFurnishing(item, false);
         continue;
       }
       const footprint = furnitureFootprint(item);
@@ -1353,6 +1495,8 @@ export function createPlanView(canvas, initialHouse) {
     drawSiteGround();
     drawPlatforms();
     drawRooms();
+    // Pictures sit over the room colours (see-through) and under the walls, like tracing paper.
+    drawImages();
     drawSunLight();
     drawWalls((house.walls || []).filter((wall) => wall?.start && wall?.end && wallVisible(wall)));
     for (const wall of house.walls || []) {
@@ -2280,6 +2424,11 @@ export function createPlanView(canvas, initialHouse) {
         if (!item) continue;
         trace(skylightFootprint(item, house, !!state && isFutureShown(state)));
         strokePick();
+      } else if (pick.type === "image") {
+        const item = (house.images || []).find((entry) => entry.id === pick.id);
+        if (!item) continue;
+        trace(imageCorners(item));
+        strokePick();
       } else if (pick.type === "furniture") {
         const item = (house.furniture || []).find((entry) => entry.id === pick.id);
         if (!item) continue;
@@ -2301,6 +2450,7 @@ export function createPlanView(canvas, initialHouse) {
       }
     }
     drawTemplateGhost(overlay.templateGhost);
+    if (overlay.furnishGhost) drawFurnishing(overlay.furnishGhost, true);
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
     for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
     for (const ghost of overlay.suggestMarks || []) drawPlaceGhost(ghost, true);

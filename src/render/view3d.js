@@ -15,6 +15,8 @@ import { platformRect, roofAt } from "../build/roofShape.js";
 import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
+import { isFurnishing } from "../build/furnish.js";
+import { furnishingModel } from "./furnish3d.js";
 import { createSunRig } from "./sun3d.js";
 import { ceilingHeight, skylightBuild, skylightFootprint } from "../build/skylights.js";
 import { awningPieces } from "../build/awnings.js";
@@ -1206,9 +1208,11 @@ function addPlacedItems(house, buckets) {
 
 function clearGroup(group) {
   for (const child of [...group.children]) {
-    child.geometry?.dispose();
-    if (child.material?.map) child.material.map.dispose();
-    child.material?.dispose?.();
+    child.traverse((node) => {
+      node.geometry?.dispose();
+      if (node.material?.map) node.material.map.dispose();
+      node.material?.dispose?.();
+    });
     group.remove(child);
   }
 }
@@ -1233,6 +1237,20 @@ function addPlanArc(group, x, y, fromDeg, toDeg, radius, shorter) {
 function syncGhost(group, house, overlay) {
   clearGroup(group);
   if (!overlay) return;
+  if (overlay.furnishGhost) {
+    const ghost = furnishingModel(overlay.furnishGhost);
+    ghost.traverse((child) => {
+      if (!child.isMesh) return;
+      child.material = child.material.clone();
+      child.material.transparent = true;
+      child.material.opacity = 0.5;
+      child.material.depthWrite = false;
+      child.castShadow = false;
+      delete child.userData.pick;
+    });
+    delete ghost.userData.pick;
+    group.add(ghost);
+  }
   const measure = overlay.measure;
   const lengthText = measure?.text || overlay.moveLabel?.text || overlay.draft?.lengthLabel;
   const lengthAt = overlay.moveLabel || measure?.at || (overlay.draft?.start && overlay.draft?.end ? {
@@ -1429,7 +1447,7 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
   addPlacedItems(house, buckets);
-  addAnnotations(house, buckets.labels);
+  addAnnotations(house, buckets.labels, buckets.finishes);
 }
 
 const PLATFORM_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xa79f92, roughness: 0.95 });
@@ -1548,11 +1566,16 @@ function personFigure(item) {
   return group;
 }
 
-function addAnnotations(house, parent) {
+function addAnnotations(house, parent, finishes = parent) {
   const furnMaterial = new THREE.MeshStandardMaterial({ color: 0xd9cfc2, roughness: 0.8, transparent: true, opacity: 0.85 });
   for (const item of house.furniture || []) {
     if (item.kind === "person") {
       parent.add(personFigure(item));
+      continue;
+    }
+    if (isFurnishing(item)) {
+      // Fixtures and appliances are part of the house, so they show with Finishes, not Labels.
+      finishes.add(furnishingModel(item));
       continue;
     }
     const width = item.width || 2;
