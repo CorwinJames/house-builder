@@ -24,7 +24,7 @@ import { detachWalls, withJoins } from "./clips.js";
 import { refreshSkylight } from "./skylights.js";
 import { areaKind } from "./areas.js";
 
-const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns" };
+const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns", image: "images" };
 
 /**
  * The walls around a room: the old rule (the wall's middle sits by the room
@@ -92,6 +92,7 @@ export function selectionSet(house, picks) {
   // What sits inside the chosen rooms.
   for (const [type, key] of Object.entries(PIECE_KEYS)) {
     for (const item of house[key] || []) {
+      if (type === "image") continue;
       if (inside(item) || (type === "column" && onEdge(item, (Number(item.size) || 0.75) / 2 + 0.75))) addPiece(type, item.id);
     }
   }
@@ -184,7 +185,7 @@ export function mapSelection(house, set, map, { turn = (deg) => deg, mirror = fa
     const item = (next[PIECE_KEYS[piece.type]] || []).find((entry) => entry.id === piece.id);
     if (!item) continue;
     Object.assign(item, move(item));
-    if (piece.type === "furniture") item.rotation = clean(((turn(item.rotation || 0) % 360) + 360) % 360);
+    if (piece.type === "furniture" || piece.type === "image") item.rotation = clean(((turn(item.rotation || 0) % 360) + 360) % 360);
   }
   for (const device of next.electrical?.devices || []) {
     if (set.devices.has(device.id) && Number.isFinite(device.x)) Object.assign(device, move(device));

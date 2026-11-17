@@ -15,6 +15,7 @@ export const LAYER_DEFS = [
   { id: "electrical", label: "Electrical", stub: false },
   { id: "plumbing", label: "Plumbing", stub: false },
   { id: "site", label: "Site", stub: false },
+  { id: "images", label: "Pictures", stub: false },
   { id: "sun", label: "Sun and shade", stub: false, defaultOn: false },
 ];
 

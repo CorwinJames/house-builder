@@ -149,6 +149,30 @@
       "description": "Optional free-standing posts: timber columns of a veranda, a gallery, or an open hall. Height runs from the floor to the roof plate.",
       "items": { "$ref": "#/$defs/column" }
     },
+    "images": {
+      "type": "array",
+      "description": "Optional pictures on the plan (pasted from Affinity Designer, dropped, or added from the File menu), drawn under the walls. src is a data URL. lines are a pasted SVG's straight lines, normalized [u1, v1, u2, v2] across and down the picture, for tracing.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "x", "y", "width", "height", "src"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "x": { "type": "number", "description": "Middle of the picture, plan feet." },
+          "y": { "type": "number" },
+          "width": { "type": "number", "exclusiveMinimum": 0 },
+          "height": { "type": "number", "exclusiveMinimum": 0 },
+          "rotation": { "type": "number", "description": "Degrees counter-clockwise." },
+          "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "scaled": { "type": "boolean", "description": "True once its scale was set from a known length or a typed width." },
+          "src": { "type": "string" },
+          "pxWidth": { "type": "number" },
+          "pxHeight": { "type": "number" },
+          "lines": { "type": "array", "items": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } } }
+        }
+      }
+    },
     "buildings": {
       "type": "object",
       "description": "Optional settings per building, keyed by the building name used on rooms. A building with no entry uses the house roof.",
@@ -429,7 +453,17 @@
         "width": { "type": "number", "exclusiveMinimum": 0 },
         "depth": { "type": "number", "exclusiveMinimum": 0 },
         "roomId": { "type": "string" },
-        "note": { "type": "string" }
+        "note": { "type": "string" },
+        "link": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["system", "id"],
+          "description": "A furnishing that is also a plumbing fixture or an electrical device (its furnitureId points back). Kept in step by syncFurnishings.",
+          "properties": {
+            "system": { "enum": ["plumbing", "electrical"] },
+            "id": { "type": "string" }
+          }
+        }
       }
     },
     "planLabel": {

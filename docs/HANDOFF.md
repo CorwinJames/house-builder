@@ -1,6 +1,6 @@
 # House Builder: handoff brief (for Claude, and back to Grok Bot)
 
-Last updated by Claude: 2026-11-16. Main includes PR #39 (Templates: Chinese, Japanese, and Korean buildings, with roof forms, posts, raised floors, platforms, and new wall types). Plan schema is 8.
+Last updated by Claude: 2026-11-16. Main includes PR #40 (Furnish tool; pictures pasted from Affinity; tracing a drawing into walls and doors). Plan schema is 8.
 
 ## The project
 James Corwin and his wife Sophie are planning a small house built from natural materials, with hempcrete preferred. It sits on about 5 acres in Jefferson County, WA. They'll start small and add on later. Sophie does the design. James does the finish work himself: paint, flooring and tile.
@@ -44,6 +44,8 @@ Read the code before you change anything. Don't trust this brief on implementati
 - **Clerestory and folding glass walls (from Sophie's photo):** the Roof tool's Clerestory shape makes a low front roof, a band of high glass, and a raised roof behind; set the glass height, how far back it sits, and the high roof's eave (with a suggestion). The Door card's Style row makes any door a folding glass wall.
 - **Design-software arranging (for Sophie):** select one or more rooms, walls, or pieces (Shift-click, drag a box, or ⌘A) and drag the round handle to turn them, or use the Arrange bar: turn 90°, turn by any angle, flip, duplicate. R, Shift+H/V, arrow keys, and ⌘D work too. A room takes its contents and only its own stretch of shared walls; ⌘C/⌘V copy rooms and walls.
 - **Templates (for Sophie):** the Templates tool lists twelve traditional buildings with small plans: from China a three-bay and a five-bay hall, a siheyuan, a sanheyuan, and a southern skywell house; from Japan a minka farmhouse, a Kyoto machiya, and a shoin house with engawa; from Korea hanok in ㅡ, ㄱ, ㄷ, and ㅁ shapes. Pick one, a see-through copy follows the pointer (R turns it, red means it would land on walls), click to place it, and it is selected as ordinary walls, rooms, doors, windows, and posts to edit. To build what these styles need, the app gained: a roof per building with four forms (hip and gable, hip, gable, flush gable), ridge direction, an eave curve, its own pitch, and a stone platform (all in the Roof tool, click a roof to pick it); a Column tool (one post or a row); a Floor height on the room card for raised floors; three wall types (timber frame with earth infill, fired brick, sliding paper screens); and jian / kan / ken bay grids in More options. New cost lines are all price needed.
+- **Furnish (Sims-style):** a toilet, bathroom sink, shower, kitchen sink, stove, dishwasher, fridge, washing machine, dryer, and wardrobe at real published sizes. The piece follows the pointer, sits back against the nearest wall, and shows in plan and 3D. Pieces that need water or a 240 V circuit are also that plumbing or power point (James chose one object), so pipes, circuits, code checks, and cost follow them.
+- **Pictures and tracing (for Sophie):** paste from Affinity Designer (⌘V), drop a file, or File → Add a picture…; it lies see-through over the plan, saved in the plan file. Its card sets the scale from a line of known length and turns a line drawing into walls, or walls and doors. With Affinity's "Copy items as SVG" setting on, the exact lines come across at any angle; a plain picture is traced for straight walls across and down only. A blue preview comes first; Keep adds walls, doors, and rooms.
 - **Plan schema 7:** furniture icons, labels, site features, and outdoor and study areas.
 
 ## Known leftovers and open questions
@@ -59,6 +61,8 @@ Read the code before you change anything. Don't trust this brief on implementati
 - The clerestory applies to the main building's roof only, uses placeholder 1 ft curb and header heights, and the sun through it ignores interior walls. Folding glass walls need a bid for price.
 - Sun and shade ignores roof overhangs, trees, terrain and the second bounce of light. Lot times assume Pacific time.
 - Templates don't build single-slope (shed) roofs (the skywell house's inward roofs), stepped horse-head gable walls, second storeys, or roof ornaments. Platform and raised-floor heights in the templates are placeholders, except the minka's 50 cm. Front walls of Chinese halls are drawn as solid infill with windows, not lattice. Posts are not sized.
+- Tracing doesn't find curved walls or windows, and doesn't read a scale bar or dimension text: set the scale by clicking a line. Big pictures can fill the browser's storage (a toast says so); Drive still saves.
+- Furnishings have no clearance zones (space in front of a toilet or washer) yet, and a fridge has no outlet point.
 - Many "price needed" items are still open.
 
 ## What's next (only when James says go)
