@@ -960,6 +960,12 @@ export function createPlanView(canvas, initialHouse) {
         ctx.fillStyle = "rgba(90, 70, 40, 0.08)";
         ctx.fillRect(-w / 2, -h / 2, w, h);
       }
+      // A thin outline: the edge is where a click picks the picture.
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "#5A4632";
+      ctx.strokeRect(-w / 2, -h / 2, w, h);
       ctx.restore();
     }
   }

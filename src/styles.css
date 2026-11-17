@@ -1810,3 +1810,8 @@ button:focus-visible {
 .tpl-card:hover { background: #fff; }
 .tpl-thumb { width: 100%; height: 64px; }
 .tpl-chosen { border-bottom: 1px solid rgba(63, 52, 44, 0.12); padding-bottom: 8px; }
+
+/* Line-up buttons sit on their own row of the Arrange bar. */
+.arrange-bar { flex-wrap: wrap; justify-content: center; width: max-content; }
+.arrange-break { flex-basis: 100%; height: 0; }
+.arrange-bar .align-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 6px; }

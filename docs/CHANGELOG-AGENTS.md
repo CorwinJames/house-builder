@@ -3,6 +3,8 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
+2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/42 | Line up: Arrange bar buttons align left, centre, right, top, middle, or bottom edges of selected groups, sections of house, and pictures to the first thing picked; Shift-click takes whole groups; pictures pick from their outline or a box; the Arrange bar sits above the dock's tip. | No "spread evenly" (distribute) and no snapping guides while dragging.
+
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/41 | Resize: corner squares on the selection frame and a Size box (150% or 40 ft) make any selection, a picture, or a traced plan bigger or smaller; walls keep thickness, doors and furniture keep real size. Groups: a traced drawing and a placed template select as one; click again to pick a part; Group / Ungroup on the Arrange bar. | Resizing only keeps proportions (no stretching one way). The source picture isn't in the traced group.
 
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/40 | Furnish tool: toilet, sinks, shower, stove, dishwasher, fridge, washer, dryer, wardrobe at real sizes, back to the wall, in plan and 3D; plumbing and 240 V pieces are also their points. Pictures: paste from Affinity (PNG, or SVG lines with "Copy items as SVG"), drop, or File → Add a picture; set the scale; trace into walls, or walls and doors, with a preview. | No curved walls, windows, or scale-bar reading in tracing; no clearance zones on furnishings.

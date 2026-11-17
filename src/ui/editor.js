@@ -33,8 +33,9 @@ import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noon
 import { clerestoryBox, clerestoryEaveRange, clerestoryGeometry } from "../build/clerestory.js";
 import { ASSEMBLY_2D } from "../theme.js";
 import { ROOF_STYLES, roofFootprints, roofSpec } from "../build/roofShape.js";
-import { addTracedPlan, imagePxPerFt, makeImage, pointOnImage, rescaleImage, segmentsToFeet } from "../build/images.js";
+import { addTracedPlan, imageCorners, imagePxPerFt, makeImage, pointOnImage, rescaleImage, segmentsToFeet } from "../build/images.js";
 import { planFromSegments, rasterSegments, sizedSvg, svgSegments } from "../build/trace.js";
+import { ALIGNMENTS, alignSelection, selectionUnits } from "../build/align.js";
 import { groupMembers, groupOf, isWholeGroup, makeGroup, pruneGroups, ungroup } from "../build/groups.js";
 import { FURNISHINGS, FURNISH_SOURCES, furnishPose, furnishing, isFurnishing, makeFurnishing, syncFurnishings } from "../build/furnish.js";
 import { BAYS, TEMPLATES, TEMPLATE_SOURCES, placeTemplate, templateById, templateClashes, templateGeometry, templateGhost } from "../build/templates.js";
@@ -125,6 +126,21 @@ const TOOLS = [
 
 /** Raised floor heights: on grade, a step, a maru or tatami floor, a high hanok floor. */
 const FLOOR_LEVELS = [[0, "On grade"], [0.5, "6 in"], [1.5, "1 ft 6 in"], [2.5, "2 ft 6 in"]];
+
+/** Small pictures for the line-up buttons: a guide line and two boxes against it. */
+function alignIcon(id) {
+  const box = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1" fill="currentColor" opacity="0.55"/>`;
+  const line = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="1.6"/>`;
+  const shapes = {
+    left: line(2, 1, 2, 17) + box(4, 3, 10, 4) + box(4, 10, 6, 5),
+    center: line(9, 1, 9, 17) + box(3, 3, 12, 4) + box(5, 10, 8, 5),
+    right: line(16, 1, 16, 17) + box(4, 3, 10, 4) + box(8, 10, 6, 5),
+    top: line(1, 2, 17, 2) + box(3, 4, 4, 10) + box(10, 4, 5, 6),
+    middle: line(1, 9, 17, 9) + box(3, 3, 4, 12) + box(10, 5, 5, 8),
+    bottom: line(1, 16, 17, 16) + box(3, 4, 4, 10) + box(10, 8, 5, 6),
+  };
+  return `<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">${shapes[id] || ""}</svg>`;
+}
 
 const COLUMN_SIZES = [[0.5, "6 in"], [0.75, "9 in"], [1, "12 in"], [1.25, "15 in"]];
 
@@ -941,6 +957,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function hitTest(world) {
+    const edgePicture = hitImageEdge(world);
+    if (edgePicture) return edgePicture;
     const reach = magnetRadius();
     // An end handle is grabbed only on the drawn dot (about 11 screen pixels),
     // so the rest of a short wall still drags the whole wall.
@@ -998,6 +1016,25 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (room) return room;
     const picture = hitImage(world);
     if (picture) return picture;
+    return null;
+  }
+
+  /** Its outline is a handle: a click right on a picture's edge picks it, even over rooms. */
+  function hitImageEdge(world) {
+    if (getViewState().layers?.images === false) return null;
+    const tol = 6 / (plan.getCamera()?.pxPerFt || 8);
+    const list = house.images || [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const corners = imageCorners(list[i]);
+      const near = corners.some((a, k) => {
+        const b = corners[(k + 1) % 4];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((world.x - a.x) * dx + (world.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+        return Math.hypot(world.x - (a.x + dx * t), world.y - (a.y + dy * t)) <= tol;
+      });
+      if (near) return { type: "image", id: list[i].id };
+    }
     return null;
   }
 
@@ -2417,8 +2454,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function togglePick(hit) {
     const item = pickItem(hit);
     if (!item) return;
-    const next = picks.filter((pick) => !(pick.type === item.type && pick.id === item.id));
-    if (next.length === picks.length) next.push(item);
+    // Shift-click on a grouped thing adds or removes its whole group.
+    const group = enteredGroup ? null : groupOf(house, item);
+    const members = group ? groupMembers(house, group) : [item];
+    const has = (m) => picks.some((pick) => pick.type === m.type && pick.id === m.id);
+    const next = members.every(has)
+      ? picks.filter((pick) => !members.some((m) => m.type === pick.type && m.id === pick.id))
+      : [...picks, ...members.filter((m) => !has(m))];
     applyPicks(next);
   }
 
@@ -2535,6 +2577,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     for (const item of house.columns || []) {
       if (!phaseOk(item)) continue;
       if (pointInRect(item, rect, (Number(item.size) || 0.75) / 2)) add("column", item.id);
+    }
+    // A picture joins a box selection only when the box takes in all of it.
+    if (getViewState().layers?.images !== false) {
+      for (const item of house.images || []) {
+        if (imageCorners(item).every((corner) => pointInRect(corner, rect, 0))) add("image", item.id);
+      }
     }
     for (const item of house.planLabels || []) {
       if (pointInRect(item, rect, 2)) add("planLabel", item.id);
@@ -3225,6 +3273,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }, "duplicating", "Duplicated it to the right. Drag it where you want it.");
   }
 
+  /** Line the selection up with the first thing picked. */
+  function alignBy(how) {
+    const spec = ALIGNMENTS.find((item) => item.id === how);
+    const result = alignSelection(house, picks, how);
+    if (!result.moved) {
+      announce(result.units < 2 ? "Pick two or more things to line up: click one, then Shift-click the others." : "They already line up.", false);
+      return;
+    }
+    holdCamera();
+    commit(syncRooms(result.house), house, "lining up");
+    prunePicks();
+    announce(`Lined up the ${spec.label.toLowerCase()}. The first thing picked stayed still.${detachNote(result.detached)}`);
+    publish();
+  }
+
   function groupSelection(name = "Group") {
     const next = cloneHouse(house);
     const made = makeGroup(next, picks, typeof name === "string" ? name : "Group", nextId("group"));
@@ -3273,11 +3336,18 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       bar.dataset.key = "";
       return;
     }
+    // Sit just above the build dock and any tip over it, so neither covers the other.
+    window.requestAnimationFrame(() => {
+      const hudBox = hud && !hud.hidden ? hud.getBoundingClientRect() : null;
+      const parentBox = bar.offsetParent?.getBoundingClientRect();
+      bar.style.bottom = hudBox && parentBox && hudBox.height ? `${Math.max(10, parentBox.bottom - hudBox.top + 8)}px` : "";
+    });
     const summary = selectionSummary(frame.set);
     const group = picks.length ? groupOf(house, picks[0]) : null;
     const whole = group && isWholeGroup(house, group, picks);
     const canGroup = !whole && picks.filter((pick) => pick.type !== "opening").length > 1;
-    const key = `${summary}|${picks.length}|${whole ? group.id : ""}|${canGroup}|${Math.round(frame.box.x1 - frame.box.x0)}`;
+    const units = selectionUnits(frame.house, picks);
+    const key = `${summary}|${picks.length}|${whole ? group.id : ""}|${canGroup}|${Math.round(frame.box.x1 - frame.box.x0)}|${units.length}`;
     bar.hidden = false;
     if (bar.dataset.key === key) return;
     bar.dataset.key = key;
@@ -3291,14 +3361,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       <button type="button" data-arrange="flip-h" title="Flip left to right (Shift+H)">⇆ Flip</button>
       <button type="button" data-arrange="flip-v" title="Flip top to bottom (Shift+V)">⇅ Flip</button>
       <button type="button" data-arrange="dup" title="Duplicate (${cmd}D)">Duplicate</button>
-      <label class="arrange-angle arrange-size" title="Make it bigger or smaller, keeping its shape: 150% or a width like 40 ft. Or drag a corner square."><input id="arrange-size" placeholder="Size ${escapeAttr(plainFeet(frame.box.x1 - frame.box.x0))}" inputmode="decimal" autocomplete="off" /></label>
-      ${whole ? `<button type="button" data-arrange="ungroup" title="Let the parts select on their own">Ungroup</button>` : canGroup ? `<button type="button" data-arrange="group" title="Keep these together: one click selects them all">Group</button>` : ""}`;
+      <label class="arrange-angle arrange-size" title="Now ${escapeAttr(plainFeet(frame.box.x1 - frame.box.x0))} wide. Make it bigger or smaller, keeping its shape: 150% or a width like 40 ft. Or drag a corner square."><input id="arrange-size" placeholder="Size %" inputmode="decimal" autocomplete="off" /></label>
+      ${whole ? `<button type="button" data-arrange="ungroup" title="Let the parts select on their own">Ungroup</button>` : canGroup ? `<button type="button" data-arrange="group" title="Keep these together: one click selects them all">Group</button>` : ""}
+      ${units.length > 1 ? `<span class="arrange-break" aria-hidden="true"></span><span class="arrange-what" title="The first thing you picked stays still; the others move to line up with it.">Line up ${units.length} with the first picked:</span>${ALIGNMENTS.map((item) => `<button type="button" class="align-btn" data-align="${item.id}" title="${escapeAttr(item.label)}" aria-label="${escapeAttr(item.label)}">${alignIcon(item.id)}</button>`).join("")}` : ""}`;
     bar.querySelector('[data-arrange="ccw"]').addEventListener("click", () => rotateBy(90));
     bar.querySelector('[data-arrange="cw"]').addEventListener("click", () => rotateBy(-90));
     bar.querySelector('[data-arrange="flip-h"]').addEventListener("click", () => flipBy("horizontal"));
     bar.querySelector('[data-arrange="flip-v"]').addEventListener("click", () => flipBy("vertical"));
     bar.querySelector('[data-arrange="dup"]').addEventListener("click", duplicateBeside);
     bar.querySelector('[data-arrange="group"]')?.addEventListener("click", groupSelection);
+    bar.querySelectorAll("[data-align]").forEach((button) => button.addEventListener("click", () => alignBy(button.dataset.align)));
     bar.querySelector('[data-arrange="ungroup"]')?.addEventListener("click", () => {
       const next = cloneHouse(house);
       ungroup(next, group.id);

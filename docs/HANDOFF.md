@@ -1,6 +1,6 @@
 # House Builder: handoff brief (for Claude, and back to Grok Bot)
 
-Last updated by Claude: 2026-11-16. Main includes PR #41 (resize any selection; groups for traced drawings and templates). Plan schema is 8.
+Last updated by Claude: 2026-11-16. Main includes PR #42 (line up selections from the Arrange bar). Plan schema is 8.
 
 ## The project
 James Corwin and his wife Sophie are planning a small house built from natural materials, with hempcrete preferred. It sits on about 5 acres in Jefferson County, WA. They'll start small and add on later. Sophie does the design. James does the finish work himself: paint, flooring and tile.
@@ -47,6 +47,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - **Furnish (Sims-style):** a toilet, bathroom sink, shower, kitchen sink, stove, dishwasher, fridge, washing machine, dryer, and wardrobe at real published sizes. The piece follows the pointer, sits back against the nearest wall, and shows in plan and 3D. Pieces that need water or a 240 V circuit are also that plumbing or power point (James chose one object), so pipes, circuits, code checks, and cost follow them.
 - **Pictures and tracing (for Sophie):** paste from Affinity Designer (⌘V), drop a file, or File → Add a picture…; it lies see-through over the plan, saved in the plan file. Its card sets the scale from a line of known length and turns a line drawing into walls, or walls and doors. With Affinity's "Copy items as SVG" setting on, the exact lines come across at any angle; a plain picture is traced for straight walls across and down only. A blue preview comes first; Keep adds walls, doors, and rooms.
 - **Resize and groups (for Sophie):** any selection, including a picture, gets corner squares to drag bigger or smaller (proportions kept), and the Arrange bar has a Size box (150% or 40 ft). Walls stretch but keep their thickness; doors, windows, and furniture keep their real size. A traced drawing and a placed template are groups: one click selects the whole thing, a second click on a part picks just that part. Group and Ungroup are on the Arrange bar.
+- **Lining up (for Sophie):** click one thing, Shift-click the others (a group, a section of rooms, a picture), and the Arrange bar's second row lines them up with the first one picked: left, centre, right, top, middle, or bottom edges. A picture is picked by clicking its dashed outline.
 - **Plan schema 7:** furniture icons, labels, site features, and outdoor and study areas.
 
 ## Known leftovers and open questions
