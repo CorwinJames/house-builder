@@ -5747,6 +5747,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     setDesignName,
     setCost,
     selection: () => selection,
+    /** Set the reference place the sun is worked out from (no real lot yet). */
+    setSolarPlace: (item) => pickPlace(item),
   };
 }
 

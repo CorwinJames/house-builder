@@ -13,7 +13,7 @@ import { attachCosts } from "./ui/costs.js";
 import { attachWarnings } from "./ui/warnings.js";
 import { siteCardHtml } from "./ui/sitePanel.js";
 import { blankPlan, fourRoomSample } from "./build/newPlan.js";
-import { DEFAULT_SUN, SITE_TIME_ZONE, clockText, compassWord, currentSun, dateText, lotLocation } from "./sun/solar.js";
+import { DEFAULT_SUN, SEASONS, SITE_TIME_ZONE, clockText, compassWord, currentSun, dateText, sunPlace } from "./sun/solar.js";
 
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
@@ -473,6 +473,9 @@ function monthDay(doy) {
   return { month, day: doy - DAYS_BEFORE[month - 1] };
 }
 
+// The place search in the Sun panel, for a plan with no lot and no reference place.
+const sunSearch = { query: "", results: [], note: "", busy: false };
+
 function sunSettings() {
   return { ...DEFAULT_SUN, ...(state.sun || {}) };
 }
@@ -516,10 +519,10 @@ function paintSunPanel(now) {
   }
   const settings = sunSettings();
   const house = editor?.house();
-  const lot = lotLocation(house);
-  const byLot = !!lot && settings.mode !== "manual";
+  const place = sunPlace(house);
+  const byLot = !!place && settings.mode !== "manual";
   const hiddenForBuild = layerOn && !sunShowing();
-  const key = `${!!lot}|${byLot}|${hiddenForBuild}`;
+  const key = `${place ? `${place.source}:${place.name}` : ""}|${byLot}|${hiddenForBuild}|${sunSearch.note}|${sunSearch.busy}|${sunSearch.results.length}`;
   if (key !== sunPanelKey) {
     sunPanelKey = key;
     const R = 52;
@@ -529,14 +532,25 @@ function paintSunPanel(now) {
         <button type="button" class="sun-close" data-sun-off aria-label="Turn off Sun and shade">×</button>
       </header>
       ${hiddenForBuild ? `<p class="sun-readout">Hidden while building.</p>` : `<p class="sun-readout" id="sun-readout"></p>`}
-      ${lot ? `<div class="seg sun-mode"><button type="button" data-sun-mode="auto" aria-pressed="${byLot}">From the lot</button><button type="button" data-sun-mode="manual" aria-pressed="${!byLot}">By hand</button></div>` : ""}
+      <div class="sun-seasons" role="group" aria-label="Time of year">
+        ${SEASONS.map((season) => `<button type="button" class="chip" data-sun-season="${season.id}" title="${season.note}">${season.label}</button>`).join("")}
+      </div>
+      ${place ? "" : `
+        <div class="sun-where">
+          <p class="fine">To set the sun by season, say where the house is.</p>
+          <form class="solar-search" id="sun-place-form">
+            <input id="sun-place-query" placeholder="Town, or lat, lon" autocomplete="off" value="${escapeSunText(sunSearch.query)}" />
+            <button type="submit" class="chip">${sunSearch.busy ? "…" : "Find"}</button>
+          </form>
+          ${sunSearch.note ? `<p class="fine">${escapeSunText(sunSearch.note)}</p>` : ""}
+          ${sunSearch.results.length ? `<div class="swatch-row">${sunSearch.results.map((item, index) => `<button type="button" class="chip" data-sun-place="${index}">${escapeSunText(item.label)}</button>`).join("")}</div>` : ""}
+        </div>`}
+      ${place ? `<div class="seg sun-mode"><button type="button" data-sun-mode="auto" aria-pressed="${byLot}">${place.source === "lot" ? "From the lot" : "By date"}</button><button type="button" data-sun-mode="manual" aria-pressed="${!byLot}">By hand</button></div>
+        ${place.source === "place" ? `<p class="fine sun-place-note">Sun for ${escapeSunText(place.name)} (change it in the Solar tool).</p>` : ""}` : ""}
       ${byLot ? `
         <label class="sun-slider"><span>Date <b id="sun-date"></b></span><input type="range" id="sun-doy" min="1" max="365" step="1" /></label>
         <label class="sun-slider"><span>Time <b id="sun-time"></b></span><input type="range" id="sun-minutes" min="240" max="1320" step="5" /></label>
         <div class="sun-presets">
-          <button type="button" class="chip" data-sun-day="12,21">Dec 21</button>
-          <button type="button" class="chip" data-sun-day="3,20">Mar 20</button>
-          <button type="button" class="chip" data-sun-day="6,21">Jun 21</button>
           <button type="button" class="chip" data-sun-now>Now</button>
         </div>` : `
         <div class="sun-hand">
@@ -553,10 +567,15 @@ function paintSunPanel(now) {
             <label class="sun-slider"><span>Height <b id="sun-el-text"></b></span><input type="range" id="sun-el" min="0" max="90" step="1" /></label>
           </div>
         </div>
-        ${lot ? "" : `<p class="fine">No lot location yet, so set the sun by hand. Drag it here or on the plan.</p>`}`}
+        ${place ? "" : `<p class="fine">Or set it by hand: drag the sun here or on the plan.</p>`}`}
       <label class="sun-keep"><input type="checkbox" id="sun-keep" ${settings.keepWhileBuilding ? "checked" : ""} /> Keep on while building</label>`;
     bindSunPanel(panel, R);
   }
+  panel.querySelectorAll("[data-sun-season]").forEach((button) => {
+    const season = SEASONS.find((item) => item.id === button.dataset.sunSeason);
+    button.setAttribute("aria-pressed", String(byLot && season.month === settings.month && season.day === settings.day));
+    button.disabled = !place;
+  });
   const readout = panel.querySelector("#sun-readout");
   if (readout) readout.textContent = now?.label || "";
   const doy = panel.querySelector("#sun-doy");
@@ -584,6 +603,52 @@ function paintSunPanel(now) {
   }
 }
 
+function escapeSunText(value) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function setSunPlace(item) {
+  state.sun = { ...sunSettings(), mode: "auto" };
+  saveViewState(state);
+  editor?.setSolarPlace?.(item);
+  syncSun();
+}
+
+/** Same place search as the Solar tool: "lat, lon" typed, or a town from the Open-Meteo geocoder. */
+function findSunPlace(raw) {
+  const query = raw.trim();
+  sunSearch.query = query;
+  const typed = query.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (typed) {
+    const lat = Number(typed[1]);
+    const lon = Number(typed[2]);
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      sunSearch.query = "";
+      sunSearch.note = "";
+      setSunPlace({ name: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lat, lon });
+      return;
+    }
+  }
+  if (query.length < 2) return;
+  sunSearch.busy = true;
+  sunSearch.note = "Searching…";
+  sunSearch.results = [];
+  syncSun();
+  fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=en&format=json`)
+    .then((response) => response.json())
+    .then((data) => {
+      sunSearch.results = (data.results || []).map((item) => ({
+        name: [item.name, item.admin1, item.country_code].filter(Boolean).join(", "),
+        label: [item.name, item.admin1, item.country].filter(Boolean).join(", "),
+        lat: item.latitude,
+        lon: item.longitude,
+      }));
+      sunSearch.note = sunSearch.results.length ? "" : "Nothing found. Try a nearby town, or type lat, lon.";
+    })
+    .catch(() => { sunSearch.note = "Couldn't reach the place search. Type lat, lon instead."; })
+    .finally(() => { sunSearch.busy = false; syncSun(); });
+}
+
 function bindSunPanel(panel, R) {
   panel.querySelector("[data-sun-off]")?.addEventListener("click", () => {
     state.layers.sun = false;
@@ -594,10 +659,24 @@ function bindSunPanel(panel, R) {
   });
   panel.querySelector("#sun-doy")?.addEventListener("input", (event) => setSun(monthDay(Number(event.target.value))));
   panel.querySelector("#sun-minutes")?.addEventListener("input", (event) => setSun({ minutes: Number(event.target.value) }));
-  panel.querySelectorAll("[data-sun-day]").forEach((button) => {
+  panel.querySelectorAll("[data-sun-season]").forEach((button) => {
     button.addEventListener("click", () => {
-      const [month, day] = button.dataset.sunDay.split(",").map(Number);
-      setSun({ month, day });
+      const season = SEASONS.find((item) => item.id === button.dataset.sunSeason);
+      if (season) setSun({ mode: "auto", month: season.month, day: season.day });
+    });
+  });
+  panel.querySelector("#sun-place-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    findSunPlace(panel.querySelector("#sun-place-query")?.value || "");
+  });
+  panel.querySelectorAll("[data-sun-place]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = sunSearch.results[Number(button.dataset.sunPlace)];
+      if (!item) return;
+      sunSearch.results = [];
+      sunSearch.note = "";
+      sunSearch.query = "";
+      setSunPlace(item);
     });
   });
   panel.querySelector("[data-sun-now]")?.addEventListener("click", () => {

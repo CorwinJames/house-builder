@@ -1815,3 +1815,10 @@ button:focus-visible {
 .arrange-bar { flex-wrap: wrap; justify-content: center; width: max-content; }
 .arrange-break { flex-basis: 100%; height: 0; }
 .arrange-bar .align-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 6px; }
+.sun-seasons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.sun-seasons .chip { min-height: 30px; padding: 2px 6px; font-size: 0.78rem; justify-content: center; }
+.sun-seasons .chip[aria-pressed="true"] { background: #F4B23A; border-color: #E2A33A; color: #2a241b; font-weight: 700; }
+.sun-seasons .chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.sun-where { display: grid; gap: 4px; }
+.sun-where .fine, .sun-place-note { margin: 0; }
+.sun-where .solar-search input { flex: 1; min-width: 0; }

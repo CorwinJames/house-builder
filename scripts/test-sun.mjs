@@ -3,7 +3,7 @@ import { roofAt, roofFootprints } from "../src/build/roofShape.js";
 import { costLines } from "../src/cost/list.js";
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
-import { currentSun, siteMoment, solarPosition, sunVector } from "../src/sun/solar.js";
+import { SEASONS, currentSun, siteMoment, solarPosition, sunPlace, sunVector } from "../src/sun/solar.js";
 import { roomSun, sunPatches, wallShadows } from "../src/sun/light.js";
 import { decorateHouse } from "../src/build/walls.js";
 
@@ -139,6 +139,29 @@ check("skylights are costed: unit, flashing, shaft, and framing", () => {
 function quadNorth(quad) {
   return quad[3].y > quad[0].y;
 }
+
+check("seasons: a reference place sets the sun by season", () => {
+  const house = { ...structuredClone(sample), solar: { place: { name: "Port Townsend, WA", lat: 48.117, lon: -122.76 } } };
+  assert.equal(sunPlace(house).source, "place");
+  const noon = (id) => {
+    const season = SEASONS.find((item) => item.id === id);
+    return currentSun(house, { mode: "auto", month: season.month, day: season.day, minutes: 13 * 60 + 10 });
+  };
+  const winter = noon("winter");
+  const spring = noon("spring");
+  const summer = noon("summer");
+  const fall = noon("fall");
+  assert.equal(winter.source, "place");
+  // Noon altitude at 48.1 N: 90 - lat + declination, about 18, 42, 65, 42 degrees.
+  assert.ok(Math.abs(winter.elevation - 18.4) < 1.5, `winter ${winter.elevation}`);
+  assert.ok(Math.abs(summer.elevation - 65.3) < 1.5, `summer ${summer.elevation}`);
+  assert.ok(Math.abs(spring.elevation - fall.elevation) < 1.5);
+  assert.ok(winter.elevation < spring.elevation && spring.elevation < summer.elevation);
+  assert.match(winter.label, /^Winter · Dec 21/);
+  // No lot and no place: still by hand.
+  assert.equal(sunPlace(structuredClone(sample)), null);
+  assert.equal(currentSun(structuredClone(sample), { mode: "auto" }).source, "manual");
+});
 
 if (failed) {
   console.error(`\n${failed} failed`);

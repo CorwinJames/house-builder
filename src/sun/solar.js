@@ -2,8 +2,9 @@
  * Where the sun is. No DOM.
  *
  * With a real lot (site.parcel.origin has lat and lon from Jefferson County GIS),
- * the sun comes from the date and time at that spot. Without one, the person
- * sets the sun's direction and height by hand.
+ * or else a reference place (house.solar.place, chosen in the Sun panel or the
+ * Solar tool), the sun comes from the date and time at that spot. Without
+ * either, the person sets the sun's direction and height by hand.
  *
  * Plan directions: +x is east, +y is north (true north for an imported lot).
  * Azimuth is degrees clockwise from north (90 = east, 180 = south).
@@ -100,6 +101,32 @@ export function lotLocation(house) {
   return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
 }
 
+/** Where the sun is worked out from: the lot, else the reference place, else null. */
+export function sunPlace(house) {
+  const lot = lotLocation(house);
+  if (lot) return { ...lot, name: "the lot", source: "lot" };
+  const place = house?.solar?.place;
+  const lat = Number(place?.lat);
+  const lon = Number(place?.lon);
+  if (place && Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon, name: place.name || `${lat}, ${lon}`, source: "place" };
+  return null;
+}
+
+/**
+ * The four seasons as their solstice and equinox days, in Pacific time. The
+ * exact day moves by one between years; a day's difference moves the sun by
+ * well under half a degree. Dates: Griffith Observatory, "Seasons" table for
+ * 2026–2027 (https://griffithobservatory.lacity.gov/?p=270), checked 2026-11-17.
+ */
+export const SEASONS = Object.freeze([
+  { id: "winter", label: "Winter", month: 12, day: 21, note: "Dec 21, shortest day, sun lowest" },
+  { id: "spring", label: "Spring", month: 3, day: 20, note: "Mar 20, equinox, sun halfway" },
+  { id: "summer", label: "Summer", month: 6, day: 21, note: "Jun 21, longest day, sun highest" },
+  { id: "fall", label: "Fall", month: 9, day: 22, note: "Sep 22, equinox, sun halfway" },
+]);
+
+export const SEASON_SOURCE = { name: "Griffith Observatory: Seasons", url: "https://griffithobservatory.lacity.gov/?p=270", checked: "2026-11-17" };
+
 export const DEFAULT_SUN = Object.freeze({
   mode: "auto",
   month: 6,
@@ -136,15 +163,17 @@ export function dateText(month, day) {
 export function currentSun(house, settings = DEFAULT_SUN) {
   const s = { ...DEFAULT_SUN, ...(settings || {}) };
   const lot = lotLocation(house);
+  const place = sunPlace(house);
   let azimuth = s.azimuth;
   let elevation = s.elevation;
   let source = "manual";
-  if (lot && s.mode !== "manual") {
-    const sun = solarPosition(siteMoment(s.month, s.day, s.minutes), lot.lat, lot.lon);
+  if (place && s.mode !== "manual") {
+    const sun = solarPosition(siteMoment(s.month, s.day, s.minutes), place.lat, place.lon);
     azimuth = sun.azimuth;
     elevation = sun.elevation;
-    source = "lot";
+    source = place.source;
   }
+  const season = SEASONS.find((item) => item.month === s.month && item.day === s.day);
   const up = elevation > 0.3;
   const words = up
     ? `Sun ${Math.round(elevation)}° high, from the ${compassWord(azimuth)}`
@@ -155,8 +184,9 @@ export function currentSun(house, settings = DEFAULT_SUN) {
     up,
     source,
     lot,
+    place,
     vector: sunVector(azimuth, Math.max(elevation, 0.3)),
-    label: source === "lot" ? `${dateText(s.month, s.day)} · ${clockText(s.minutes)} · ${words}` : words,
+    label: source !== "manual" ? `${season ? `${season.label} · ` : ""}${dateText(s.month, s.day)} · ${clockText(s.minutes)} · ${words}` : words,
   };
 }
 
