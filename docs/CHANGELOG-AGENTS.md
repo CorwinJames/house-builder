@@ -3,7 +3,7 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
-2026-11-17 | Claude | PR_LINK | Speed: the 3D view draws only when something changes and not while hidden; during a drag it rebuilds at most every 180 ms; floor area, cost, and warnings are cached per edit; overlapping-room area only samples where rooms overlap. On a busy test plan, Build ↔ View went from about 6–9 s to under 1 s and a 10-step drag from 12 s to 1.7 s. | Timings are from a software-rendered test browser, not Sophie's machine. Curved template roofs are still heavy to rebuild.
+2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/43 | Speed: the 3D view draws only when something changes and not while hidden; during a drag it rebuilds at most every 180 ms; floor area, cost, and warnings are cached per edit; overlapping-room area only samples where rooms overlap. On a busy test plan, Build ↔ View went from about 6–9 s to under 1 s and a 10-step drag from 12 s to 1.7 s. | Timings are from a software-rendered test browser, not Sophie's machine. Curved template roofs are still heavy to rebuild.
 
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/42 | Line up: Arrange bar buttons align left, centre, right, top, middle, or bottom edges of selected groups, sections of house, and pictures to the first thing picked; Shift-click takes whole groups; pictures pick from their outline or a box; the Arrange bar sits above the dock's tip. | No "spread evenly" (distribute) and no snapping guides while dragging.
 
