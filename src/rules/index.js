@@ -14,8 +14,14 @@ export function registerRule(rule) {
   rules.push(rule);
 }
 
+const ruleCache = new WeakMap();
+
+/** Every warning for a house. Cached per house object: an edit makes a new house. */
 export function evaluateRules(house) {
-  return rules.flatMap((rule) => rule(house).map((item) => normalize(house, item)));
+  if (house && ruleCache.has(house)) return ruleCache.get(house);
+  const found = rules.flatMap((rule) => rule(house).map((item) => normalize(house, item)));
+  if (house && typeof house === "object") ruleCache.set(house, found);
+  return found;
 }
 
 export function warningTargets(warnings) {

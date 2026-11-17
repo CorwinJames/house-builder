@@ -62,28 +62,75 @@ export function wallServesHeated(house, wall) {
   return (house.rooms || []).some((room) => countsAsHeated(room) && nearRoom(room, mid, 1.25));
 }
 
-/** Square feet of the union, so overlapping rooms are counted once. */
+/**
+ * Square feet of the union, so overlapping rooms are counted once. Rooms
+ * whose boxes don't overlap any other room add their exact area; only
+ * clusters of overlapping rooms are sampled on a `step` grid, and only over
+ * that cluster's box (sampling the whole plan's box was slow once rooms were
+ * spread across the site).
+ */
 export function unionArea(polygons, step = 0.5) {
   const list = (polygons || []).filter((polygon) => polygon && polygon.length >= 3);
   if (!list.length) return 0;
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const polygon of list) {
+  const boxes = list.map((polygon) => {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
     for (const point of polygon) {
-      x0 = Math.min(x0, point.x);
-      y0 = Math.min(y0, point.y);
-      x1 = Math.max(x1, point.x);
-      y1 = Math.max(y1, point.y);
+      if (point.x < x0) x0 = point.x;
+      if (point.y < y0) y0 = point.y;
+      if (point.x > x1) x1 = point.x;
+      if (point.y > y1) y1 = point.y;
+    }
+    return { x0, y0, x1, y1 };
+  });
+  const parent = list.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const eps = 1e-6;
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      const a = boxes[i];
+      const b = boxes[j];
+      if (a.x0 < b.x1 - eps && b.x0 < a.x1 - eps && a.y0 < b.y1 - eps && b.y0 < a.y1 - eps) parent[find(i)] = find(j);
     }
   }
-  if (x1 - x0 < 0.05 || y1 - y0 < 0.05) return 0;
+  const clusters = new Map();
+  list.forEach((_, i) => {
+    const root = find(i);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root).push(i);
+  });
   let area = 0;
-  for (let y = y0; y < y1 - 1e-6; y += step) {
-    for (let x = x0; x < x1 - 1e-6; x += step) {
-      const point = { x: x + step / 2, y: y + step / 2 };
-      if (list.some((polygon) => pointInPoly(point, polygon))) area += step * step;
+  for (const members of clusters.values()) {
+    if (members.length === 1) {
+      area += Math.abs(polygonArea(list[members[0]]));
+      continue;
+    }
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const i of members) {
+      x0 = Math.min(x0, boxes[i].x0);
+      y0 = Math.min(y0, boxes[i].y0);
+      x1 = Math.max(x1, boxes[i].x1);
+      y1 = Math.max(y1, boxes[i].y1);
+    }
+    if (x1 - x0 < 0.05 || y1 - y0 < 0.05) continue;
+    for (let y = y0; y < y1 - 1e-6; y += step) {
+      const py = y + step / 2;
+      for (let x = x0; x < x1 - 1e-6; x += step) {
+        const px = x + step / 2;
+        for (const i of members) {
+          const box = boxes[i];
+          if (px < box.x0 || px > box.x1 || py < box.y0 || py > box.y1) continue;
+          if (pointInPoly({ x: px, y: py }, list[i])) {
+            area += step * step;
+            break;
+          }
+        }
+      }
     }
   }
   return area;
@@ -97,7 +144,17 @@ function polygonsOf(rooms) {
  * Heated is the main house only. The studio building is separate.
  * Covered outdoor is walkways, terraces, and courts. Site and studies are omitted.
  */
+const areaCache = new WeakMap();
+
 export function areaReport(house, step = 0.5) {
+  // Read many times per redraw; the house object is replaced on every edit.
+  if (house && step === 0.5 && areaCache.has(house)) return areaCache.get(house);
+  const report = computeAreaReport(house, step);
+  if (house && step === 0.5) areaCache.set(house, report);
+  return report;
+}
+
+function computeAreaReport(house, step) {
   const rooms = house?.rooms || [];
   const heatedRooms = rooms.filter((room) => countsAsHeated(room) && (room.building || "main") !== "studio");
   const studioRooms = rooms.filter((room) => countsAsHeated(room) && room.building === "studio");

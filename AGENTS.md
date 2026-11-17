@@ -149,6 +149,7 @@ The workflow token cannot turn Pages on. A person with admin on the repo has to 
 - Prefer a small module over a new framework. Other assistants will edit this repo.
 - Do not add accounts, a database, or a server for a feature that can stay static.
 - Wall and room geometry belong in `data/`, not in the renderers.
+- **Speed:** every edit makes a new house object, so `areaReport`, `costReport`, and `evaluateRules` cache their answers per house object in a WeakMap. Never change a house in place after it has been published, or these return stale answers. The 3D view draws only when something changed (`needsRender`), draws nothing while hidden, and rebuilds the model at most every 180 ms during drags (`staleHouse`, `flushStale`). Call `requestRender`-style API methods, not `renderer.render`, from new code.
 
 ## How to add a new layer
 

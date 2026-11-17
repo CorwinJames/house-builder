@@ -354,6 +354,30 @@ export function createView3d(canvas, initialHouse) {
   }, { capture: true });
   window.addEventListener("blur", () => walk.keys.clear());
 
+  // Draw only when something changed: the camera moved (or is still easing),
+  // the house, the sun, the selection, or the layers changed, or the canvas
+  // was resized. A hidden 3D view (Plan only) draws nothing. Drawing every
+  // frame kept the computer busy and made every click in the plan wait.
+  let needsRender = true;
+  // Rebuilding the model is the slow part of an edit. While something is being
+  // dragged it is rebuilt at most every REBUILD_GAP ms, and not at all while the
+  // 3D view is hidden; the newest house waits in staleHouse.
+  const REBUILD_GAP = 180;
+  let staleHouse = null;
+  let lastRebuild = 0;
+  function flushStale(now = performance.now()) {
+    if (!staleHouse) return;
+    const next = staleHouse;
+    staleHouse = null;
+    lastRebuild = now;
+    rebuild(next);
+    needsRender = true;
+  }
+  const requestRender = () => {
+    needsRender = true;
+  };
+  controls.addEventListener("change", requestRender);
+
   function tick(now = performance.now()) {
     frameId = requestAnimationFrame(tick);
     if (walk.on) {
@@ -366,6 +390,7 @@ export function createView3d(canvas, initialHouse) {
       return;
     }
     if (wheelNudge.x || wheelNudge.y) {
+      needsRender = true;
       camera.updateMatrixWorld();
       const offset = camera.position.clone().sub(controls.target);
       const dist = Math.max(1, offset.length());
@@ -382,7 +407,13 @@ export function createView3d(canvas, initialHouse) {
         wheelNudge.y = 0;
       }
     }
-    controls.update();
+    const eased = controls.update();
+    const shown = canvas.clientWidth >= 2 && canvas.clientHeight >= 2;
+    // A house that changed while hidden, or while edits came fast, is built now.
+    if (staleHouse && shown && now - lastRebuild >= REBUILD_GAP) flushStale(now);
+    if (!needsRender && !eased) return;
+    if (!shown) return;
+    needsRender = false;
     layoutSprites();
     renderer.render(scene, camera);
   }
@@ -422,6 +453,7 @@ export function createView3d(canvas, initialHouse) {
   function resize() {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    needsRender = true;
     if (w < 2 || h < 2) return;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -773,7 +805,7 @@ export function createView3d(canvas, initialHouse) {
     onChange(readCamera());
   }
 
-  return {
+  const api = {
     /** The sun for the Sun and shade layer (from currentSun), or null for everyday light. */
     setSun(next) {
       sunNow = next || null;
@@ -790,6 +822,7 @@ export function createView3d(canvas, initialHouse) {
     },
     /** Eye-height walk-through. `planPoint` is where to stand; omit it for the biggest room. */
     setWalking(on, planPoint) {
+      flushStale();
       setWalking(!!on, planPoint || null);
     },
     isWalking() {
@@ -820,6 +853,7 @@ export function createView3d(canvas, initialHouse) {
       if (!editing) editingGesture = false;
     },
     setCutaway(on) {
+      flushStale();
       const next = !!on;
       if (next === cutaway) return;
       cutaway = next;
@@ -836,10 +870,12 @@ export function createView3d(canvas, initialHouse) {
       paintSelection();
     },
     frameHouse() {
+      flushStale();
       if (walk.on) return;
       framePlan(false);
     },
     frameWhole() {
+      flushStale();
       if (walk.on) return;
       framePlan(true);
     },
@@ -852,6 +888,7 @@ export function createView3d(canvas, initialHouse) {
       onChange(readCamera());
     },
     frameParcel() {
+      flushStale();
       if (walk.on) return;
       const ring = house.site?.parcel?.ring;
       if (!ring?.length) return;
@@ -882,7 +919,11 @@ export function createView3d(canvas, initialHouse) {
       onPick = fn;
     },
     setHouse(next) {
-      rebuild(next);
+      if (next === house && !staleHouse) return;
+      staleHouse = next;
+      const now = performance.now();
+      const shown = canvas.clientWidth >= 2 && canvas.clientHeight >= 2;
+      if (shown && now - lastRebuild >= REBUILD_GAP) flushStale(now);
     },
     setSelected(id) {
       selectedId = id;
@@ -894,6 +935,16 @@ export function createView3d(canvas, initialHouse) {
       renderer.dispose();
     },
   };
+  // Anything asked of the view may change the picture, so it draws again on the next frame.
+  for (const [name, fn] of Object.entries(api)) {
+    if (typeof fn !== "function" || name === "isWalking") continue;
+    api[name] = (...args) => {
+      const result = fn(...args);
+      needsRender = true;
+      return result;
+    };
+  }
+  return api;
 }
 
 function failedView(message) {

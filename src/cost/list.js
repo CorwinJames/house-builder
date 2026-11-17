@@ -101,7 +101,22 @@ export function summarize(lines) {
   return { pricedTotal, unpricedCount };
 }
 
+const reportCache = new WeakMap();
+
+/** Cached per house object and options; an edit makes a new house. */
 export function costReport(house, options = {}) {
+  if (!house || typeof house !== "object") return buildCostReport(house, options);
+  const key = JSON.stringify(options);
+  let byOptions = reportCache.get(house);
+  if (!byOptions) {
+    byOptions = new Map();
+    reportCache.set(house, byOptions);
+  }
+  if (!byOptions.has(key)) byOptions.set(key, buildCostReport(house, options));
+  return byOptions.get(key);
+}
+
+function buildCostReport(house, options = {}) {
   const diyFinish = options.diyFinish !== false;
   const shared = {
     diyFinish,
