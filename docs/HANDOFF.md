@@ -1,6 +1,6 @@
 # House Builder: handoff brief (for Claude, and back to Grok Bot)
 
-Last updated by Claude: 2026-11-16. Main includes PR #41 (resize any selection; groups for traced drawings and templates). Plan schema is 8.
+Last updated by Claude: 2026-11-16. Main includes PR #42 (line up selections from the Arrange bar). Plan schema is 8.
 
 ## The project
 James Corwin and his wife Sophie are planning a small house built from natural materials, with hempcrete preferred. It sits on about 5 acres in Jefferson County, WA. They'll start small and add on later. Sophie does the design. James does the finish work himself: paint, flooring and tile.
