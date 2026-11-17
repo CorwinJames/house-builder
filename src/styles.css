@@ -1742,3 +1742,57 @@ button:focus-visible {
 .awning-box .measure-tiles { margin-top: 6px; }
 .measure-tiles.op-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .measure-tiles.op-tiles .op-center { grid-column: 1 / -1; justify-self: start; }
+
+/* Arrange bar: design-software tools for the selection, floating over the plan. */
+.arrange-bar {
+  position: absolute;
+  z-index: 4;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 14px;
+  max-width: calc(100% - 20px);
+  font-size: 0.8rem;
+}
+.arrange-bar[hidden] { display: none; }
+.arrange-bar button {
+  border: 0;
+  background: transparent;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.arrange-bar button:hover { background: rgba(47, 93, 69, 0.12); }
+.arrange-what {
+  padding: 0 10px 0 8px;
+  font-weight: 700;
+  color: #2F5D45;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-right: 1px solid rgba(42, 36, 27, 0.12);
+  margin-right: 2px;
+}
+.arrange-angle input {
+  width: 64px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(42, 36, 27, 0.16);
+  background: rgba(255, 255, 255, 0.7);
+  font: inherit;
+}
+@media (max-width: 860px) {
+  .arrange-bar { bottom: 84px; overflow-x: auto; }
+  .arrange-what { display: none; }
+}

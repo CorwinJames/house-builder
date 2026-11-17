@@ -772,6 +772,64 @@ export function createPlanView(canvas, initialHouse) {
     ctx.restore();
   }
 
+  /**
+   * The selection frame, like design software: a dashed box around what is
+   * selected, a round handle above it to turn it, and the angle while turning.
+   */
+  function drawFrame(frame) {
+    if (!frame?.box) return;
+    const { box } = frame;
+    const a = worldToScreen(box.x0, box.y1);
+    const b = worldToScreen(box.x1, box.y0);
+    const pad = 6;
+    const left = Math.min(a.x, b.x) - pad;
+    const top = Math.min(a.y, b.y) - pad;
+    const right = Math.max(a.x, b.x) + pad;
+    const bottom = Math.max(a.y, b.y) + pad;
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.25;
+    ctx.strokeStyle = "rgba(47, 93, 69, 0.85)";
+    ctx.strokeRect(left, top, right - left, bottom - top);
+    ctx.setLineDash([]);
+    if (frame.handle) {
+      const h = worldToScreen(frame.handle.x, frame.handle.y);
+      const mid = (left + right) / 2;
+      ctx.beginPath();
+      ctx.moveTo(mid, top);
+      ctx.lineTo(h.x, h.y);
+      ctx.strokeStyle = "rgba(47, 93, 69, 0.6)";
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = frame.active ? "#2F5D45" : "#FFF8F4";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#2F5D45";
+      ctx.stroke();
+      // A small turning arrow inside the handle.
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 3.6, -Math.PI * 0.15, Math.PI * 1.3);
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = frame.active ? "#FFF8F4" : "#2F5D45";
+      ctx.stroke();
+    }
+    if (frame.label) {
+      ctx.font = "700 12px system-ui, sans-serif";
+      const w = ctx.measureText(frame.label).width + 14;
+      const x = (left + right) / 2 - w / 2;
+      const y = bottom + 10;
+      ctx.fillStyle = "rgba(47, 93, 69, 0.92)";
+      ctx.beginPath();
+      ctx.roundRect?.(x, y, w, 22, 11);
+      if (!ctx.roundRect) ctx.rect(x, y, w, 22);
+      ctx.fill();
+      ctx.fillStyle = "#FFF8F4";
+      ctx.fillText(frame.label, x + 7, y + 15);
+    }
+    ctx.restore();
+  }
+
   /** Window awnings: a board on the outside face, drawn as a hatched strip. */
   function drawAwnings() {
     ctx.save();
@@ -2055,6 +2113,7 @@ export function createPlanView(canvas, initialHouse) {
       ctx.restore();
     }
     drawBox(overlay.marquee, "rgba(47, 93, 69, 0.2)");
+    drawFrame(overlay.frame);
     const marks = overlay.picks?.length ? overlay.picks : (overlay.selection ? [overlay.selection] : []);
     const strokePick = () => {
       ctx.save();

@@ -103,6 +103,7 @@ app.innerHTML = `
             <button type="button" id="undo" disabled>Undo</button>
             <button type="button" id="redo" disabled>Redo</button>
           </div>
+          <div class="arrange-bar glass" id="arrange-bar" hidden></div>
         </section>
         <section class="viewport viewport-model" aria-label="3D view">
           <canvas id="model-canvas"></canvas>
