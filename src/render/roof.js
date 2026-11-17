@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { curveLift, roofFrame } from "../build/roofShape.js";
 
 /**
  * Placeholder Chinese hip-and-gable massing.
@@ -65,6 +66,90 @@ export function createHipAndGableGeometry({ x0, y0, x1, y1, plate, pitch }) {
 }
 
 export { roofFootprints, roofFootprint } from "../build/roofShape.js";
+
+/**
+ * Any roof box from roofFootprints (hip-and-gable, hip, gable, flush gable,
+ * ridge either way, straight or curved) as { roof, gables } geometries. The
+ * gables are the wall triangles that close a gable roof's ends, standing on
+ * the end walls' outer faces (box.inner). Heights match roofAt exactly: each
+ * face is cut into small triangles that follow curveLift when curve > 0.
+ */
+export function createRoofGeometry(box, plate, pitch) {
+  const frame = roofFrame(box, plate, pitch);
+  const { u0, u1, v0, v1, run, rise, endRun } = frame;
+  pitch = frame.pitch;
+  const vc = (v0 + v1) / 2;
+  const ridge = plate + rise;
+  const roofPos = [];
+  const gablePos = [];
+  const levels = frame.curve > 0 ? 3 : 0;
+  const lifted = (u, v, z, pin) => (pin && z <= plate + 1e-6 ? z : z + curveLift(frame, u, v, z - plate));
+  const emit = (out, a, b, c, pin) => {
+    for (const p of [a, b, c]) {
+      const plan = frame.toPlan(p[0], p[1]);
+      out.push(plan.x, lifted(p[0], p[1], p[2], pin), -plan.y);
+    }
+  };
+  const split = (out, a, b, c, n, pin) => {
+    if (n <= 0) {
+      emit(out, a, b, c, pin);
+      return;
+    }
+    const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2];
+    const ab = mid(a, b);
+    const bc = mid(b, c);
+    const ca = mid(c, a);
+    split(out, a, ab, ca, n - 1, pin);
+    split(out, ab, b, bc, n - 1, pin);
+    split(out, ca, bc, c, n - 1, pin);
+    split(out, ab, bc, ca, n - 1, pin);
+  };
+  const face = (points, out = roofPos, pin = false) => {
+    for (let i = 1; i + 1 < points.length; i += 1) split(out, points[0], points[i], points[i + 1], levels, pin);
+  };
+
+  if (!Number.isFinite(endRun)) {
+    // Gable: two slopes the full length, and a wall triangle on each end wall.
+    face([[u0, v0, plate], [u1, v0, plate], [u1, vc, ridge], [u0, vc, ridge]]);
+    face([[u1, v1, plate], [u0, v1, plate], [u0, vc, ridge], [u1, vc, ridge]]);
+    const inner = box.inner ? frame.toLocal({ x: box.inner.x0, y: box.inner.y0 }) : null;
+    const innerHi = box.inner ? frame.toLocal({ x: box.inner.x1, y: box.inner.y1 }) : null;
+    if (inner && innerHi) {
+      const wv0 = Math.max(v0, inner.v);
+      const wv1 = Math.min(v1, innerHi.v);
+      const at = (v) => plate + Math.min(Math.min(v - v0, v1 - v) * pitch, rise);
+      for (const u of [Math.max(u0, inner.u), Math.min(u1, innerHi.u)]) {
+        face([[u, wv0, plate - 0.02], [u, wv1, plate - 0.02], [u, wv1, at(wv1) - 0.05], [u, vc, ridge - 0.05], [u, wv0, at(wv0) - 0.05]], gablePos, true);
+      }
+    }
+  } else {
+    const r0 = u0 + endRun;
+    const r1 = u1 - endRun;
+    face([[u0, v0, plate], [u1, v0, plate], [r1, vc, ridge], [r0, vc, ridge]]);
+    face([[u1, v1, plate], [u0, v1, plate], [r0, vc, ridge], [r1, vc, ridge]]);
+    face([[u0, v0, plate], [r0, vc, ridge], [u0, v1, plate]]);
+    face([[u1, v0, plate], [u1, v1, plate], [r1, vc, ridge]]);
+    if (frame.style === "hip-and-gable") {
+      // The small gable standing on each end of the ridge.
+      const top = ridge + rise * 0.42;
+      const half = run * 2 * 0.18;
+      for (const [r, sign] of [[r0, 1], [r1, -1]]) {
+        face([[r, vc - half, ridge], [r, vc + half, ridge], [r, vc, top]]);
+        void sign;
+      }
+      face([[r0, vc - half, ridge], [r1, vc - half, ridge], [r1, vc, top], [r0, vc, top]]);
+      face([[r0, vc + half, ridge], [r0, vc, top], [r1, vc, top], [r1, vc + half, ridge]]);
+    }
+  }
+  const make = (positions) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+    return geometry;
+  };
+  return { roof: make(roofPos), gables: gablePos.length ? make(gablePos) : null };
+}
+
 
 /**
  * The clerestory roof as meshes (see src/build/clerestory.js): two sloped

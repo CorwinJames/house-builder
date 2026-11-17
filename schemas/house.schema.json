@@ -144,6 +144,16 @@
       "description": "Optional free-text notes placed on the plan.",
       "items": { "$ref": "#/$defs/planLabel" }
     },
+    "columns": {
+      "type": "array",
+      "description": "Optional free-standing posts: timber columns of a veranda, a gallery, or an open hall. Height runs from the floor to the roof plate.",
+      "items": { "$ref": "#/$defs/column" }
+    },
+    "buildings": {
+      "type": "object",
+      "description": "Optional settings per building, keyed by the building name used on rooms. A building with no entry uses the house roof.",
+      "additionalProperties": { "$ref": "#/$defs/building" }
+    },
     "siteFeatures": {
       "type": "array",
       "description": "Optional trees, ponds, pavilions, wind notes, and similar marks. Not a parcel survey.",
@@ -282,7 +292,7 @@
         "levelId": { "type": "string" },
         "start": { "$ref": "#/$defs/point2" },
         "end": { "$ref": "#/$defs/point2" },
-        "assembly": { "enum": ["hempcrete", "rammed-earth", "framed"] },
+        "assembly": { "enum": ["hempcrete", "rammed-earth", "framed", "timber-infill", "brick", "screen"] },
         "assemblyId": {
           "type": "string",
           "description": "Key into data/assemblies.json. Thickness and framing come from that record."
@@ -327,7 +337,13 @@
         },
         "building": {
           "type": "string",
-          "description": "Which building this room belongs to, such as main or studio. The main-house dimension uses main."
+          "description": "Which building this room belongs to, such as main or studio. The main-house dimension uses main. Each building gets its own roof."
+        },
+        "floorLevel": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 12,
+          "description": "Top of the finished floor above grade, feet. 0 or missing is on grade. A raised wooden floor (Korean maru, Japanese engawa or tatami rooms) or a room on a building platform."
         }
       }
     },
@@ -456,6 +472,34 @@
         "note": { "type": "string" }
       }
     },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "size"],
+      "properties": {
+        "id": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "size": { "type": "number", "exclusiveMinimum": 0, "description": "Diameter, or side for a square post, feet." },
+        "shape": { "enum": ["round", "square"] },
+        "phase": { "enum": ["phase1", "future"] },
+        "building": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "building": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "style": { "enum": ["hip-and-gable", "hip", "gable", "flush-gable"] },
+        "ridge": { "enum": ["auto", "east-west", "north-south"] },
+        "curve": { "type": "number", "minimum": 0, "maximum": 1 },
+        "pitch": { "type": "number", "exclusiveMinimum": 0, "description": "Rise per foot of run for this building's roof (1 is 12:12, a steep thatch). Missing uses the house pitch." },
+        "platform": { "type": "number", "minimum": 0, "maximum": 12, "description": "Height of a raised stone and earth platform under the building, feet. 0 or missing is none." },
+        "template": { "type": "string", "description": "Which template placed this building, if any." }
+      }
+    },
     "roof": {
       "type": "object",
       "additionalProperties": false,
@@ -478,6 +522,9 @@
             "west": { "type": "number", "minimum": 0 }
           }
         },
+        "style": { "enum": ["hip-and-gable", "hip", "gable", "flush-gable"], "description": "Roof form. Hip and gable (Chinese xieshan, Japanese irimoya, Korean paljak). Hip (wudian, yosemune, ujingak). Gable with the roof running past the end walls (xuanshan, kirizuma, matbae). Flush gable, ends cut at the end walls (yingshan). Missing is hip and gable." },
+        "ridge": { "enum": ["auto", "east-west", "north-south"], "description": "Which way the ridge runs. auto runs it along the longer side." },
+        "curve": { "type": "number", "minimum": 0, "maximum": 1, "description": "0 is a straight roof. Above 0 the slopes sag and the eave corners turn up, as on Chinese and Korean roofs. 1 is the strongest." },
         "plateHeight": { "type": "number", "exclusiveMinimum": 0 },
         "clerestory": {
           "type": "object",

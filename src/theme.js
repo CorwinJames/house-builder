@@ -7,12 +7,18 @@ export const ASSEMBLY_2D = {
   hempcrete: { fill: "#C6B489", stroke: "#7C6A3E" },
   "rammed-earth": { fill: "#A85B3C", stroke: "#6E3A28" },
   framed: { fill: "#E4C09A", stroke: "#8A6240" },
+  "timber-infill": { fill: "#D9CBB0", stroke: "#5B3A24" },
+  brick: { fill: "#8E8A84", stroke: "#4E4A45" },
+  screen: { fill: "#F1EADB", stroke: "#6E5A40" },
 };
 
 export const ASSEMBLY_3D = {
   hempcrete: 0xc6b489,
   "rammed-earth": 0xa85b3c,
   framed: 0xd7a56a,
+  "timber-infill": 0xe2d6bf,
+  brick: 0x8a8781,
+  screen: 0xf3ecdc,
 };
 
 export const FINISH_2D = {

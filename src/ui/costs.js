@@ -6,6 +6,8 @@ const GROUPS = [
   ["hempcrete", "Hempcrete"],
   ["rammed-earth", "Rammed earth"],
   ["framing", "Framing"],
+  ["timber", "Timber frame"],
+  ["masonry", "Brick and stone"],
   ["openings", "Doors and windows"],
   ["finishes", "Finishes"],
   ["electrical", "Electrical"],
@@ -95,7 +97,7 @@ export function attachCosts({ getHouse, getPhase, getSelection, setDiy, setPhase
       <div class="cost-progress"><span style="width:${Math.round((pricedCount / itemCount) * 100)}%"></span></div>
       <p class="fine">Priced ${pricedCount} of ${itemCount} items. Lines with no published price, and the foundation, slab, and roof allowances, stay out of the total.</p>`;
     const tiles = [
-      ["structure", "Structure", ["hempcrete", "rammed-earth", "framing", "openings"]],
+      ["structure", "Structure", ["hempcrete", "rammed-earth", "framing", "timber", "masonry", "openings"]],
       ["electrical", "Electrical", ["electrical"]],
       ["plumbing", "Plumbing", ["plumbing"]],
       ["site", "Site", ["site"]],

@@ -105,6 +105,64 @@
       },
       "source": null,
       "note": "placeholder: needs engineer/code verification. About 6 inches overall, 2x4 studs at 16 inches on center. No code citation."
+    },
+    {
+      "id": "timber-infill-exterior",
+      "name": "Timber frame, earth infill",
+      "short": "Timber + earth",
+      "renderAssembly": "timber-infill",
+      "role": "exterior",
+      "thickness": 0.67,
+      "swatch": "#D9CBB0",
+      "layers": [
+        { "name": "lime plaster", "thickness": 0.083 },
+        { "name": "earth infill", "thickness": 0.5 },
+        { "name": "lime plaster", "thickness": 0.083 }
+      ],
+      "framing": null,
+      "source": {
+        "name": "University of Washington, A Visual Sourcebook of Chinese Civilization: The Chinese House",
+        "url": "https://depts.washington.edu/chinaciv/home/3intrhme.htm"
+      },
+      "note": "placeholder: needs engineer/code verification. The East Asian wall between timber posts: the posts and beams carry the roof, and the wall only fills in between them (pounded earth or brick in China, earth in Korea). About 8 inches here. Place the posts with the Column tool. No code citation."
+    },
+    {
+      "id": "brick-exterior",
+      "name": "Fired brick exterior",
+      "short": "Brick",
+      "renderAssembly": "brick",
+      "role": "exterior",
+      "thickness": 1.0,
+      "noPaint": true,
+      "swatch": "#8E8A84",
+      "layers": [
+        { "name": "brick", "thickness": 1.0 }
+      ],
+      "framing": null,
+      "source": {
+        "name": "University of Washington, A Visual Sourcebook of Chinese Civilization: The Chinese House",
+        "url": "https://depts.washington.edu/chinaciv/home/3intrhme.htm"
+      },
+      "note": "placeholder: needs engineer/code verification. Solid fired-brick wall, the grey brick of north Chinese courtyard houses and their outer walls. 12 inches here. Unreinforced masonry needs an engineer in seismic areas. No code citation."
+    },
+    {
+      "id": "paper-screen",
+      "name": "Sliding paper screens",
+      "short": "Screens",
+      "renderAssembly": "screen",
+      "role": "interior",
+      "thickness": 0.17,
+      "noPaint": true,
+      "swatch": "#F1EADB",
+      "layers": [
+        { "name": "paper screen", "thickness": 0.17 }
+      ],
+      "framing": null,
+      "source": {
+        "name": "Wikipedia: Minka",
+        "url": "https://en.wikipedia.org/wiki/Minka"
+      },
+      "note": "placeholder: needs engineer/code verification. Wood-framed sliding panels with paper (shoji, fusuma) that open rooms into each other. Not a fire separation and not structural. About 2 inches. No code citation."
     }
   ]
 }

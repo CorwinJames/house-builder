@@ -24,7 +24,7 @@ import { roofed, sunPatches, wallShadows } from "../sun/light.js";
 import { skylightFootprint } from "../build/skylights.js";
 import { foldingPanels } from "../build/catalog.js";
 import { awningPieces } from "../build/awnings.js";
-import { roofFootprints } from "../build/roofShape.js";
+import { platformRect, roofFootprints, roofLines } from "../build/roofShape.js";
 import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { plainFeet } from "../build/angle.js";
 import { furnitureFootprint, roomGroundLine } from "../build/annotations.js";
@@ -35,6 +35,7 @@ import { buildPlumbing } from "../plumbing/design.js";
 import { buildSite, SETBACKS } from "../site/design.js";
 
 function pickSpot(house, pick) {
+  if (pick.type === "column") return (house.columns || []).find((item) => item.id === pick.id);
   if (pick.type === "siteFeature") return (house.siteFeatures || []).find((item) => item.id === pick.id);
   if (pick.type === "planLabel") return (house.planLabels || []).find((item) => item.id === pick.id);
   if (pick.type === "device") {
@@ -61,6 +62,8 @@ export function createPlanView(canvas, initialHouse) {
   const ctx = canvas.getContext("2d");
   let state = null;
   let overlay = null;
+  // A bay module (jian, kan, ken) drawn as its own grid while it is the snap step.
+  let bayGrid = 0;
   let markers = [];
   let badgeHits = [];
   let badgeNote = null;
@@ -287,8 +290,12 @@ export function createPlanView(canvas, initialHouse) {
       ctx.stroke();
     };
     ctx.save();
-    if (camera.pxPerFt >= 9) strokeLines(1, "rgba(90, 70, 40, 0.07)", 5);
-    strokeLines(5, "rgba(90, 70, 40, 0.18)", 0);
+    if (bayGrid >= 4) {
+      strokeLines(bayGrid, "rgba(31, 111, 139, 0.22)", 0);
+    } else {
+      if (camera.pxPerFt >= 9) strokeLines(1, "rgba(90, 70, 40, 0.07)", 5);
+      strokeLines(5, "rgba(90, 70, 40, 0.18)", 0);
+    }
     ctx.restore();
   }
 
@@ -855,9 +862,24 @@ export function createPlanView(canvas, initialHouse) {
     ctx.setLineDash([10, 5]);
     ctx.lineWidth = 1.3;
     ctx.strokeStyle = "rgba(140, 70, 52, 0.7)";
+    const stepped = house.roof?.clerestory ? clerestoryBox(roofFootprints(house, full)) : null;
     for (const box of roofFootprints(house, full)) {
       trace([{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }]);
       ctx.stroke();
+      if (box === stepped) continue;
+      // Ridge and hips, thin, so the roof form reads from above.
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const line of roofLines(box)) {
+        const a = worldToScreen(line.a.x, line.a.y);
+        const b = worldToScreen(line.b.x, line.b.y);
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
+      ctx.restore();
     }
     // A clerestory: the glass line, and the high roof's edge over it.
     const g = house.roof?.clerestory ? clerestoryGeometry(house, clerestoryBox(roofFootprints(house, full)), full) : null;
@@ -889,6 +911,87 @@ export function createPlanView(canvas, initialHouse) {
   }
 
   /** Skylights: overhead glass, drawn dashed with the usual cross. */
+  /** Building platforms: a stone band out past the walls, under the eaves. */
+  function drawPlatforms() {
+    const boxes = roofFootprints(house, true).filter((box) => box.platform > 0);
+    if (!boxes.length) return;
+    ctx.save();
+    for (const box of boxes) {
+      const r = platformRect(box);
+      trace([{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }]);
+      ctx.fillStyle = "rgba(167, 159, 146, 0.45)";
+      ctx.fill();
+      ctx.strokeStyle = "#7D766B";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Timber columns: dark posts, round or square, drawn at true size (at least a dot). */
+  function drawColumns() {
+    ctx.save();
+    for (const column of house.columns || []) {
+      if (state && !isPhaseVisible(column.phase, state)) continue;
+      const spot = worldToScreen(column.x, column.y);
+      const r = Math.max(3, ((Number(column.size) || 0.75) / 2) * camera.pxPerFt);
+      ctx.beginPath();
+      if (column.shape === "square") ctx.rect(spot.x - r, spot.y - r, r * 2, r * 2);
+      else ctx.arc(spot.x, spot.y, r, 0, Math.PI * 2);
+      ctx.globalAlpha = column.phase === "future" ? 0.45 : 1;
+      ctx.fillStyle = "#6B3A26";
+      ctx.fill();
+      ctx.strokeStyle = "#2A1A10";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** A template following the pointer before it is placed: rooms, walls, and posts, see-through. */
+  function drawTemplateGhost(ghost) {
+    if (!ghost) return;
+    ctx.save();
+    const tint = ghost.ok === false ? "196, 69, 54" : "31, 111, 139";
+    for (const room of ghost.rooms || []) {
+      trace(room.polygon);
+      ctx.fillStyle = room.kind === "site" ? `rgba(${tint}, 0.06)` : `rgba(${tint}, 0.16)`;
+      ctx.fill();
+    }
+    for (const wall of ghost.walls || []) {
+      trace(segmentQuad(wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.thickness || 0.5));
+      ctx.fillStyle = `rgba(${tint}, 0.55)`;
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(${tint}, 0.8)`;
+    for (const column of ghost.columns || []) {
+      const spot = worldToScreen(column.x, column.y);
+      ctx.beginPath();
+      ctx.arc(spot.x, spot.y, Math.max(2.5, ((column.size || 0.75) / 2) * camera.pxPerFt), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = `rgba(${tint}, 0.9)`;
+    ctx.lineWidth = 1.5;
+    if (ghost.box) {
+      trace([{ x: ghost.box.x0, y: ghost.box.y0 }, { x: ghost.box.x1, y: ghost.box.y0 }, { x: ghost.box.x1, y: ghost.box.y1 }, { x: ghost.box.x0, y: ghost.box.y1 }]);
+      ctx.stroke();
+      if (ghost.label) {
+        const at = worldToScreen((ghost.box.x0 + ghost.box.x1) / 2, ghost.box.y1);
+        ctx.setLineDash([]);
+        ctx.font = "600 13px Outfit, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        const w = ctx.measureText(ghost.label).width + 16;
+        ctx.fillStyle = "rgba(247, 243, 235, 0.95)";
+        ctx.fillRect(at.x - w / 2, at.y - 30, w, 22);
+        ctx.fillStyle = `rgb(${tint})`;
+        ctx.fillText(ghost.label, at.x, at.y - 12);
+      }
+    }
+    ctx.restore();
+  }
+
   function drawSkylights() {
     ctx.save();
     for (const item of house.skylights || []) {
@@ -1248,6 +1351,7 @@ export function createPlanView(canvas, initialHouse) {
     ctx.fillRect(0, 0, w, h);
     drawGrid();
     drawSiteGround();
+    drawPlatforms();
     drawRooms();
     drawSunLight();
     drawWalls((house.walls || []).filter((wall) => wall?.start && wall?.end && wallVisible(wall)));
@@ -1260,6 +1364,7 @@ export function createPlanView(canvas, initialHouse) {
         if (isPhaseVisible(wall.phase, state)) drawStuds(wall);
       }
     }
+    drawColumns();
     drawElectrical();
     drawPlumbing();
     drawAnnotations();
@@ -2195,6 +2300,7 @@ export function createPlanView(canvas, initialHouse) {
         if (spot) ringAt(spot.x, spot.y);
       }
     }
+    drawTemplateGhost(overlay.templateGhost);
     if (overlay.placeGhost) drawPlaceGhost(overlay.placeGhost, false);
     for (const ghost of overlay.siteGhosts || []) drawPlaceGhost(ghost, true);
     for (const ghost of overlay.suggestMarks || []) drawPlaceGhost(ghost, true);
@@ -2746,6 +2852,10 @@ export function createPlanView(canvas, initialHouse) {
     setHouse(next, options) {
       house = next;
       if (!options?.silent) render();
+    },
+    setBayGrid(feet) {
+      bayGrid = Number(feet) || 0;
+      render();
     },
     setOverlay(next, options) {
       overlay = next;

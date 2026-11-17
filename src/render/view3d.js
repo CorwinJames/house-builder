@@ -10,7 +10,8 @@ import { SETBACKS } from "../site/design.js";
 import { plainPlaceLabel } from "../electrical/design.js";
 import { isFutureShown } from "./visibility.js";
 import { offsetSegment, planDimensions } from "./dimensions.js";
-import { createClerestoryRoof, createHipAndGableGeometry, roofFootprints } from "./roof.js";
+import { createClerestoryRoof, createRoofGeometry, roofFootprints } from "./roof.js";
+import { platformRect, roofAt } from "../build/roofShape.js";
 import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { roomGroundLine } from "../build/annotations.js";
 import { furnitureHeight } from "../build/scaleFigures.js";
@@ -621,7 +622,7 @@ export function createView3d(canvas, initialHouse) {
     pointerDown = null;
     if (moved > 6 || !onPick) return;
     const hit = planFromEvent(event);
-    if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel" || hit.pick.type === "skylight")) {
+    if (hit?.pick?.id && (hit.pick.type === "wall" || hit.pick.type === "furniture" || hit.pick.type === "siteFeature" || hit.pick.type === "planLabel" || hit.pick.type === "skylight" || hit.pick.type === "column")) {
       onPick(hit.pick, event);
       return;
     }
@@ -981,7 +982,7 @@ function roomsToFrame(nextHouse) {
 
 function piecePick(object) {
   const pick = object?.userData?.pick;
-  return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall" || pick.type === "skylight"));
+  return !!(pick && (pick.type === "furniture" || pick.type === "siteFeature" || pick.type === "planLabel" || pick.type === "wall" || pick.type === "skylight" || pick.type === "column"));
 }
 
 /** True only if this object and every parent are visible. A hidden layer can't be clicked. */
@@ -1423,10 +1424,54 @@ function buildHouse(house, buckets, futureBuckets, materials, wood, options = {}
     const frameParent = wall.phase === "future" ? futureBuckets.framing : buckets.framing;
     addOpeningFrames(wall, openingsFor(house, wall), frameParent, wood, wall.phase === "future", cap);
   }
+  addPlatforms(house, buckets.finishes);
+  addColumns(house, buckets.framing, futureBuckets.framing);
   addDimensions(house, false, buckets.dimensions);
   addDimensions(house, true, futureBuckets.dimensions);
   addPlacedItems(house, buckets);
   addAnnotations(house, buckets.labels);
+}
+
+const PLATFORM_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xa79f92, roughness: 0.95 });
+const COLUMN_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x6b3a26, roughness: 0.7 });
+const COLUMN_BASE_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x9d968b, roughness: 0.95 });
+
+/** Raised stone and earth platforms under buildings that have one: out past the walls, short of the eave line. */
+function addPlatforms(house, parent) {
+  for (const box of roofFootprints(house, true)) {
+    if (!(box.platform > 0)) continue;
+    const { x0, y0, x1, y1 } = platformRect(box);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, box.platform, y1 - y0), PLATFORM_MATERIAL);
+    mesh.position.set((x0 + x1) / 2, box.platform / 2, -((y0 + y1) / 2));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.pickSurface = true;
+    parent.add(mesh);
+  }
+}
+
+/** Free-standing posts: a stone base, and a timber post up to the underside of the roof. */
+function addColumns(house, parent, futureParent) {
+  const plate = Number(house.roof?.plateHeight) || 10;
+  for (const column of house.columns || []) {
+    const size = Math.max(0.2, Number(column.size) || 0.75);
+    const roof = roofAt(house, column, true);
+    const top = roof ? Math.max(plate - 1, roof.height - 0.35) : plate;
+    const group = new THREE.Group();
+    const post = column.shape === "square"
+      ? new THREE.BoxGeometry(size, top, size)
+      : new THREE.CylinderGeometry(size / 2, size / 2, top, 16);
+    const mesh = tag(new THREE.Mesh(post, COLUMN_MATERIAL), "column", column.id, column.x, column.y);
+    mesh.position.set(column.x, top / 2, -column.y);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.8, size * 0.9, 0.35, 16), COLUMN_BASE_MATERIAL);
+    base.position.set(column.x, 0.175, -column.y);
+    base.receiveShadow = true;
+    group.add(base);
+    (column.phase === "future" ? futureParent : parent).add(group);
+  }
 }
 
 function roomFloor(room, materials) {
@@ -1436,11 +1481,14 @@ function roomFloor(room, materials) {
   const [first, ...rest] = room.polygon;
   shape.moveTo(first.x, first.y);
   for (const point of rest) shape.lineTo(point.x, point.y);
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+  // A raised floor (maru, engawa, a room on a platform) is a solid block up to its level.
+  const level = Math.max(0, Number(room.floorLevel) || 0);
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.06, level), bevelEnabled: false });
   geometry.rotateX(-Math.PI / 2);
   const material = room.phase === "future" ? materials.finishGhost[room.finish] : materials.finishes[room.finish];
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = 0.03;
+  mesh.position.y = level > 0.06 ? 0.005 : 0.03;
+  mesh.castShadow = level > 0.06;
   mesh.receiveShadow = true;
   mesh.userData.pickSurface = true;
   return mesh;
@@ -1769,6 +1817,9 @@ function buildSlab(house, futureShown) {
   return mesh;
 }
 
+const ROOF_MATERIAL = new THREE.MeshStandardMaterial({ color: 0x8c4634, roughness: 0.86, side: THREE.DoubleSide });
+const GABLE_MATERIAL = new THREE.MeshStandardMaterial({ color: 0xd9cbb0, roughness: 0.92, side: THREE.DoubleSide });
+
 function buildRoof(house, futureShown) {
   const group = new THREE.Group();
   const footprints = roofFootprints(house, futureShown);
@@ -1785,22 +1836,17 @@ function buildRoof(house, futureShown) {
       if (!largest || span > largest.span) largest = { footprint, span };
       continue;
     }
-    const geometry = createHipAndGableGeometry({
-      ...footprint,
-      plate: house.roof.plateHeight,
-      pitch: house.roof.pitchRiseOverRun,
-    });
-    const mesh = new THREE.Mesh(
-      geometry,
-      new THREE.MeshStandardMaterial({
-        color: 0x8c4634,
-        roughness: 0.86,
-        side: THREE.DoubleSide,
-      }),
-    );
+    const shape = createRoofGeometry(footprint, house.roof.plateHeight, house.roof.pitchRiseOverRun);
+    const mesh = new THREE.Mesh(shape.roof, ROOF_MATERIAL);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.roofSurface = true;
+    if (shape.gables) {
+      const gables = new THREE.Mesh(shape.gables, GABLE_MATERIAL);
+      gables.castShadow = true;
+      gables.receiveShadow = true;
+      group.add(gables);
+    }
     group.add(mesh);
     const span = (footprint.x1 - footprint.x0) * (footprint.y1 - footprint.y0);
     if (!largest || span > largest.span) largest = { footprint, span };

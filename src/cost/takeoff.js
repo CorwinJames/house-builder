@@ -5,7 +5,8 @@ import { plumbingBom } from "../plumbing/design.js";
 import { siteBom } from "../site/design.js";
 import { skylightBom } from "./skylights.js";
 import { openingsFor, polygonArea, wallLength } from "../lib/geom.js";
-import { areaReport, countsAsHeated, separatesSite, unionArea, wallServesHeated } from "../build/areas.js";
+import { areaKind, areaReport, countsAsHeated, separatesSite, unionArea, wallServesHeated } from "../build/areas.js";
+import { platformRect, roofFootprints } from "../build/roofShape.js";
 
 const wasteById = Object.fromEntries(assumptions.waste.map((item) => [item.id, item.factor]));
 
@@ -32,6 +33,14 @@ export function hempcreteVolume(wall, openings = []) {
 
 export function rammedVolume(wall, openings = []) {
   const thickness = layerThickness(wall, "rammed earth");
+  if (!thickness) return 0;
+  const gross = wallLength(wall) * thickness * (wall.height || 0);
+  return Math.max(0, gross - openingVoid(openings, thickness));
+}
+
+/** Cubic feet of one named layer (earth infill, brick) in one wall, after openings. */
+export function layerVolume(wall, openings, name) {
+  const thickness = layerThickness(wall, name);
   if (!thickness) return 0;
   const gross = wallLength(wall) * thickness * (wall.height || 0);
   return Math.max(0, gross - openingVoid(openings, thickness));
@@ -137,6 +146,9 @@ export function takeoff(house, options = {}) {
   let windows = 0;
   let headerOther = 0;
   let headerTwoBySix = 0;
+  let earth = 0;
+  let brick = 0;
+  let screens = 0;
 
   for (const wall of walls) {
     if (!wallServesHeated(house, wall)) continue;
@@ -147,6 +159,9 @@ export function takeoff(house, options = {}) {
     hemp += hempVol;
     rammed += rammedVol;
     plasterVolume += plaster.volume;
+    earth += layerVolume(wall, wallOpenings, "earth infill");
+    brick += layerVolume(wall, wallOpenings, "brick");
+    if (layerThickness(wall, "paper screen")) screens += wallLength(wall) * (wall.height || 0);
     const frame = framingFeet(wall, wallOpenings);
     if (frame.feet > 0 && frame.member) {
       framing[frame.member] = (framing[frame.member] || 0) + frame.feet;
@@ -160,6 +175,7 @@ export function takeoff(house, options = {}) {
       else if (opening.style === "folding") foldingFeet += opening.width;
       else doors += 1;
     }
+    if (assemblyById[wall.assemblyId]?.noPaint) continue;
     const exterior = assemblyById[wall.assemblyId]?.role === "exterior";
     const faces = exterior ? 1 : 2;
     const openingArea = wallOpenings.reduce((sum, opening) => sum + opening.width * (opening.height || 0), 0);
@@ -219,6 +235,10 @@ export function takeoff(house, options = {}) {
     wageId: "wage-laborer",
     basis: productionNote("rammed-place"),
   });
+
+  add({ id: "earth-infill", category: "timber", quantity: round(earth), unit: "cubic foot", kind: "material", basis: "Earth infill between timber posts: wall volume of the infill layer after openings. No waste factor." });
+  add({ id: "brick-wall", category: "masonry", quantity: round(brick), unit: "cubic foot", kind: "material", basis: "Brick wall volume after openings. No waste factor." });
+  add({ id: "paper-screen", category: "finishes", quantity: round(screens), unit: "square foot", kind: "material", basis: "Sliding paper screen walls, length times height." });
 
   const plasterWaste = 1 + wasteFactor("plaster");
   const plasterLb = plasterVolume * plasterWaste * assumptions.limeDensityLbPerCuFt.value;
@@ -302,11 +322,44 @@ export function takeoff(house, options = {}) {
           : "Full footprint only. Not in the total.",
       });
     }
+    rows.push(...structureRows(house, options.phase || "full"));
     rows.push(...electricalBom(house, options.phase || "full"));
     rows.push(...plumbingBom(house, options.phase || "full"));
     rows.push(...siteBom(house));
   }
 
+  return rows;
+}
+
+/** Timber posts and their bases, raised wooden floors, and building platforms. */
+function structureRows(house, phase) {
+  const rows = [];
+  const columns = (house.columns || []).filter((item) => phase !== "phase1" || item.phase !== "future");
+  if (columns.length) {
+    rows.push({ id: "timber-column", category: "timber", quantity: columns.length, unit: "each", kind: "material", basis: "Free-standing posts on the plan. Size by the engineer." });
+    rows.push({ id: "column-base", category: "timber", quantity: columns.length, unit: "each", kind: "material", basis: "One base stone or pier per post." });
+  }
+  const full = phase !== "phase1";
+  const raisedAny = (house.rooms || []).some((room) => Number(room.floorLevel) > 0);
+  const platformAny = Object.values(house.buildings || {}).some((entry) => Number(entry?.platform) > 0);
+  const boxes = raisedAny || platformAny ? roofFootprints(house, full) : [];
+  const platformOf = new Map(boxes.map((box) => [box.building, box.platform || 0]));
+  let raised = 0;
+  for (const room of roomsForPhase(house, phase)) {
+    const level = Number(room.floorLevel) || 0;
+    const kind = areaKind(room);
+    if (!(level > 0) || (kind !== "heated" && kind !== "covered")) continue;
+    if (level <= (platformOf.get(room.building || "main") || 0) + 0.1) continue;
+    raised += Math.abs(polygonArea(room.polygon || []));
+  }
+  if (raised > 0) rows.push({ id: "raised-floor", category: "timber", quantity: round(raised), unit: "square foot", kind: "material", basis: "Rooms whose floor sits above grade (or above their building's platform)." });
+  let platform = 0;
+  for (const box of boxes) {
+    if (!(box.platform > 0)) continue;
+    const rect = platformRect(box);
+    platform += (rect.x1 - rect.x0) * (rect.y1 - rect.y0) * box.platform;
+  }
+  if (platform > 0) rows.push({ id: "platform", category: "masonry", quantity: round(platform), unit: "cubic foot", kind: "material", basis: "Building platforms: the drawn outline times the height." });
   return rows;
 }
 

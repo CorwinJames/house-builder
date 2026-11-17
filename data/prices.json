@@ -1564,6 +1564,97 @@
       "url": "",
       "dateChecked": "2026-11-14",
       "note": "Folding glass walls are quoted per project; no published per-foot price was checked. The header over a wide opening is a beam sized by the engineer."
+    },
+    {
+      "id": "earth-infill",
+      "kind": "material",
+      "category": "timber",
+      "name": "Earth infill between timber posts",
+      "unit": "cubic foot",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "No published price for clay or earth infill was checked. On-site soil is not a price."
+    },
+    {
+      "id": "brick-wall",
+      "kind": "material",
+      "category": "masonry",
+      "name": "Fired brick wall",
+      "unit": "cubic foot",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "No published price per cubic foot of laid brick wall was checked."
+    },
+    {
+      "id": "paper-screen",
+      "kind": "material",
+      "category": "finishes",
+      "name": "Sliding paper screens (shoji, fusuma)",
+      "unit": "square foot",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "Screens are made to order; no published price per square foot was checked."
+    },
+    {
+      "id": "timber-column",
+      "kind": "material",
+      "category": "timber",
+      "name": "Timber post (column)",
+      "unit": "each",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "Posts are sized by the engineer; no published price was checked for a size."
+    },
+    {
+      "id": "column-base",
+      "kind": "material",
+      "category": "timber",
+      "name": "Stone or concrete post base",
+      "unit": "each",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "No published price for a post base stone was checked."
+    },
+    {
+      "id": "raised-floor",
+      "kind": "material",
+      "category": "timber",
+      "name": "Raised wooden floor on posts (maru, engawa)",
+      "unit": "square foot",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "No published price per square foot of a raised timber floor was checked."
+    },
+    {
+      "id": "platform",
+      "kind": "material",
+      "category": "masonry",
+      "name": "Raised stone and earth platform under a building",
+      "unit": "cubic foot",
+      "amount": null,
+      "sourceName": "Price needed",
+      "sourceType": "published-price",
+      "url": "",
+      "dateChecked": "2026-11-16",
+      "note": "No published price for a stone-faced earth platform was checked."
     }
   ]
 }
