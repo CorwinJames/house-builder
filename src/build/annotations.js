@@ -18,7 +18,12 @@ export function furnitureFootprint(item) {
   }));
 }
 
+/** The room's ground note, and its raised floor height when it has one. */
 export function roomGroundLine(room) {
   const text = String(room?.groundLevel || "").trim();
-  return text;
+  const level = Number(room?.floorLevel) || 0;
+  if (!(level > 0)) return text;
+  const inches = Math.round(level * 12);
+  const raised = `Floor up ${inches >= 12 ? `${Math.floor(inches / 12)}′ ${inches % 12}″` : `${inches}″`}`;
+  return text ? `${text} · ${raised}` : raised;
 }

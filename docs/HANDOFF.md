@@ -1,6 +1,6 @@
 # House Builder: handoff brief (for Claude, and back to Grok Bot)
 
-Last updated by Claude: 2026-11-13. Main includes PR #32 (a dropped end clips only itself; the floating length label no longer eats clicks). Plan schema is 8.
+Last updated by Claude: 2026-11-16. Main includes PR #39 (Templates: Chinese, Japanese, and Korean buildings, with roof forms, posts, raised floors, platforms, and new wall types). Plan schema is 8.
 
 ## The project
 James Corwin and his wife Sophie are planning a small house built from natural materials, with hempcrete preferred. It sits on about 5 acres in Jefferson County, WA. They'll start small and add on later. Sophie does the design. James does the finish work himself: paint, flooring and tile.
@@ -43,6 +43,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - **Passive solar (Solar tool):** pick the lot or a reference place; it looks up the climate, shows the noon sun through the year and a section through any window, suggests the sun-side eave, awnings per window, and roof pitch for solar collectors, and checks glass amounts and orientation. Windows have a card to set width, height, sill, top, and position along the wall exactly.
 - **Clerestory and folding glass walls (from Sophie's photo):** the Roof tool's Clerestory shape makes a low front roof, a band of high glass, and a raised roof behind; set the glass height, how far back it sits, and the high roof's eave (with a suggestion). The Door card's Style row makes any door a folding glass wall.
 - **Design-software arranging (for Sophie):** select one or more rooms, walls, or pieces (Shift-click, drag a box, or ⌘A) and drag the round handle to turn them, or use the Arrange bar: turn 90°, turn by any angle, flip, duplicate. R, Shift+H/V, arrow keys, and ⌘D work too. A room takes its contents and only its own stretch of shared walls; ⌘C/⌘V copy rooms and walls.
+- **Templates (for Sophie):** the Templates tool lists twelve traditional buildings with small plans: from China a three-bay and a five-bay hall, a siheyuan, a sanheyuan, and a southern skywell house; from Japan a minka farmhouse, a Kyoto machiya, and a shoin house with engawa; from Korea hanok in ㅡ, ㄱ, ㄷ, and ㅁ shapes. Pick one, a see-through copy follows the pointer (R turns it, red means it would land on walls), click to place it, and it is selected as ordinary walls, rooms, doors, windows, and posts to edit. To build what these styles need, the app gained: a roof per building with four forms (hip and gable, hip, gable, flush gable), ridge direction, an eave curve, its own pitch, and a stone platform (all in the Roof tool, click a roof to pick it); a Column tool (one post or a row); a Floor height on the room card for raised floors; three wall types (timber frame with earth infill, fired brick, sliding paper screens); and jian / kan / ken bay grids in More options. New cost lines are all price needed.
 - **Plan schema 7:** furniture icons, labels, site features, and outdoor and study areas.
 
 ## Known leftovers and open questions
@@ -57,6 +58,7 @@ Read the code before you change anything. Don't trust this brief on implementati
 - Skylight framing assumes rafters and ceiling joists at 24 in. on center, because the roof isn't framed yet; rafter-size lumber is "price needed" until it is. M04, S06, and the S06 flashing kit have no published price yet. Shafts are straight, not splayed. Flashing assumes shingle or slate roofing.
 - The clerestory applies to the main building's roof only, uses placeholder 1 ft curb and header heights, and the sun through it ignores interior walls. Folding glass walls need a bid for price.
 - Sun and shade ignores roof overhangs, trees, terrain and the second bounce of light. Lot times assume Pacific time.
+- Templates don't build single-slope (shed) roofs (the skywell house's inward roofs), stepped horse-head gable walls, second storeys, or roof ornaments. Platform and raised-floor heights in the templates are placeholders, except the minka's 50 cm. Front walls of Chinese halls are drawn as solid infill with windows, not lattice. Posts are not sized.
 - Many "price needed" items are still open.
 
 ## What's next (only when James says go)

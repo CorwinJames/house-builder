@@ -31,7 +31,9 @@ import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, u
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noonSun, wallFacing, windowSolar } from "../sun/passive.js";
 import { clerestoryBox, clerestoryEaveRange, clerestoryGeometry } from "../build/clerestory.js";
-import { roofFootprints } from "../build/roofShape.js";
+import { ASSEMBLY_2D } from "../theme.js";
+import { ROOF_STYLES, roofFootprints, roofSpec } from "../build/roofShape.js";
+import { BAYS, TEMPLATES, TEMPLATE_SOURCES, placeTemplate, templateById, templateClashes, templateGeometry, templateGhost } from "../build/templates.js";
 import { currentEaves, solarPanelHtml, sunSideKey } from "./solarPanel.js";
 import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, skylightBuild, skylightFootprint, skylightNotes } from "../build/skylights.js";
 import { previewPlacement, suggestionNote } from "../build/placement.js";
@@ -102,9 +104,11 @@ const TOOLS = [
   { id: "select", label: "Select", icon: "↖", tip: "Click a wall, room, or part" },
   { id: "wall", label: "Wall", icon: "▬", tip: "Drag a wall. It follows the cursor." },
   { id: "room", label: "Room", icon: "▢", tip: "Drag a rectangle of walls" },
+  { id: "templates", label: "Templates", icon: "⛩", tip: "Whole traditional buildings from China, Japan, and Korea: pick one, then click to place it" },
   { id: "door", label: "Door", icon: "⌂", tip: "Drag a door along a wall" },
   { id: "window", label: "Window", icon: "▦", tip: "Drag a window along a wall" },
   { id: "skylight", label: "Skylight", icon: "◫", tip: "Click inside a room to put a skylight in its roof" },
+  { id: "column", label: "Column", icon: "◉", tip: "Timber posts for verandas, galleries, and open halls" },
   { id: "roof", label: "Roof", icon: "△", tip: "Roof shape, pitch, eaves, and a clerestory band of high glass" },
   { id: "solar", label: "Solar", icon: "☀", tip: "Passive solar: sun angles, eaves, awnings, and roof pitch" },
   { id: "electrical", label: "Power", icon: "⚡", tip: "Place outlets, lights, and the panel" },
@@ -114,10 +118,15 @@ const TOOLS = [
   { id: "erase", label: "Delete", icon: "✕", tip: "Click something to remove it" },
 ];
 
+/** Raised floor heights: on grade, a step, a maru or tatami floor, a high hanok floor. */
+const FLOOR_LEVELS = [[0, "On grade"], [0.5, "6 in"], [1.5, "1 ft 6 in"], [2.5, "2 ft 6 in"]];
+
+const COLUMN_SIZES = [[0.5, "6 in"], [0.75, "9 in"], [1, "12 in"], [1.25, "15 in"]];
+
 const DOOR_STYLES = [["swing", "Swing"], ["sliding", "Sliding glass"], ["folding", "Folding glass"], ["cased", "Open"], ["overhead", "Garage"]];
 
 /** Plan pieces that sit at a point: their house key, for move, copy, and paste. */
-const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights" };
+const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns" };
 
 const TOOL_HINTS = {
   select: "Click anything to open its card.",
@@ -125,7 +134,9 @@ const TOOL_HINTS = {
   room: "Drag a rectangle. The south side suggests rammed earth.",
   door: "Pick a size, then drag along a wall.",
   window: "Pick a size, then drag along a wall.",
-  roof: "Pick the roof shape. Clerestory adds a band of high glass between a low roof and a raised one.",
+  templates: "Pick a template, move it over the plan, and click to place it. R turns it. Then edit it like anything you drew.",
+  column: "Click to place a post. Row: drag along a line and posts go in at the spacing you picked.",
+  roof: "Click a roof to pick it. Each building has its own form, ridge, curve, and platform. Clerestory adds a band of high glass between a low roof and a raised one.",
   solar: "Pick a place, then click a window to see its noon sun through the year. The panel suggests eaves, awnings, and roof pitch.",
   skylight: "Pick a size, then click inside a room. Turn on Sun and shade to see the light it lets in.",
   electrical: "Click a wall to place a device. Other systems fade.",
@@ -190,6 +201,16 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let siteKind = "well";
   let figureKind = "person";
   let skylightModelId = "C06";
+  // Templates tool: which one is picked, how many quarter turns, and where the ghost sits.
+  let templateId = null;
+  let templateTurns = 0;
+  let templateAt = null;
+  // Column tool and the Roof tool's chosen building.
+  let columnSize = 0.75;
+  let columnShape = "round";
+  let columnRow = false;
+  let columnSpacing = 8;
+  let roofBuilding = null;
   // The Solar tool's panel state (not saved in the house file).
   const solarUi = { focusId: null, results: [], query: "", searchNote: "", searching: false, climateBusy: false, climateNote: "", climateTriedFor: "" };
   const houseStamps = new WeakMap();
@@ -253,7 +274,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (!button) return;
     tool = button.dataset.tool;
     if (tool !== "select") document.dispatchEvent(new CustomEvent("prefer-place"));
-    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar" || tool === "roof") optionsOpen = true;
+    if (tool === "site" || tool === "electrical" || tool === "plumbing" || tool === "scale" || tool === "skylight" || tool === "solar" || tool === "roof" || tool === "templates" || tool === "column") optionsOpen = true;
     publish();
     onChange();
     if (tool === "site") {
@@ -356,6 +377,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (meta && event.key.toLowerCase() === "a" && mode === "build" && tool === "select") {
       event.preventDefault();
       selectAllVisible();
+    } else if (!meta && !event.altKey && event.key.toLowerCase() === "r" && mode === "build" && tool === "templates" && templateId) {
+      event.preventDefault();
+      turnTemplate(event.shiftKey ? 1 : -1);
     } else if (!meta && !event.altKey && event.key.toLowerCase() === "r" && mode === "build" && tool === "select" && picks.length) {
       event.preventDefault();
       rotateBy(event.shiftKey ? 90 : -90);
@@ -652,6 +676,13 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       // Skylights sit over furniture on the plan, so they win ties.
       consider("skylight", skylight.id, (Math.abs(polygonArea(footprint)) || 1) * 0.5);
     }
+    for (const column of house.columns || []) {
+      if (!phaseOk(column)) continue;
+      const radius = Math.max(0.9, (Number(column.size) || 0.75) / 2 + 0.3);
+      if (Math.hypot(world.x - column.x, world.y - column.y) > radius) continue;
+      // Posts are small and sit on room edges, so they win over what is around them.
+      consider("column", column.id, 0.01);
+    }
     for (const feature of house.siteFeatures || []) {
       const radius = Math.max(1.5, (feature.size || 6) / 2);
       if (Math.hypot(world.x - feature.x, world.y - feature.y) > radius) continue;
@@ -684,7 +715,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function pointFor(activeTool, world, extra) {
-    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale" || activeTool === "skylight") return world || extra?.surface || null;
+    if (activeTool === "site" || activeTool === "room" || activeTool === "wall" || activeTool === "scale" || activeTool === "skylight" || activeTool === "templates" || activeTool === "column") return world || extra?.surface || null;
     return extra?.surface || world || null;
   }
 
@@ -1024,6 +1055,42 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       publish();
       return true;
     }
+    if (tool === "templates") {
+      if (!world) return true;
+      placeChosenTemplate(world);
+      return true;
+    }
+    if (tool === "roof") {
+      if (!world) return true;
+      const boxes = roofFootprints(house, isFutureShown(getViewState()))
+        .filter((box) => world.x >= box.x0 && world.x <= box.x1 && world.y >= box.y0 && world.y <= box.y1)
+        .sort((a, b) => (a.x1 - a.x0) * (a.y1 - a.y0) - (b.x1 - b.x0) * (b.y1 - b.y0));
+      if (boxes.length) {
+        roofBuilding = boxes[0].building;
+        optionsKey = "";
+        optionsOpen = true;
+        setOptionsOpen(true);
+        publish();
+      }
+      return true;
+    }
+    if (tool === "column") {
+      if (!world) return true;
+      const piece = hitPiece(world);
+      if (piece?.type === "column") {
+        choose(piece);
+        publish();
+        return true;
+      }
+      const start = snapping(event) ? { x: snapToGrid(world.x, grid), y: snapToGrid(world.y, grid) } : { x: world.x, y: world.y };
+      if (!columnRow) {
+        addColumns([start]);
+        return true;
+      }
+      gesture = { kind: "columnRow", start, end: start, origin: world, snapshot: cloneHouse(house), clientX: event.clientX, clientY: event.clientY };
+      publish();
+      return true;
+    }
     if (tool === "erase") {
       const hit = pieceSelection(extra?.pick) || hitTest(world) || extra?.pick || null;
       const item = pickItem(hit);
@@ -1119,6 +1186,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     gesture.clientX = event.clientX;
     gesture.clientY = event.clientY;
+    if (gesture.kind === "columnRow") {
+      let end = snapping(event) ? { x: snapToGrid(world.x, grid), y: snapToGrid(world.y, grid) } : { x: world.x, y: world.y };
+      // Rows run straight along x or y unless held off with Alt.
+      if (!event.altKey) {
+        if (Math.abs(end.x - gesture.start.x) >= Math.abs(end.y - gesture.start.y)) end = { x: end.x, y: gesture.start.y };
+        else end = { x: gesture.start.x, y: end.y };
+      }
+      gesture.end = end;
+      gesture.moved = true;
+      const overlay = makeOverlay();
+      plan.setOverlay(overlay);
+      model.setOverlay?.(overlay);
+      return;
+    }
     if (gesture.kind === "rotate") {
       window.clearTimeout(longTimer);
       let angle = ((Math.atan2(world.y - gesture.pivot.y, world.x - gesture.pivot.x) - gesture.start) * 180) / Math.PI;
@@ -1260,6 +1341,11 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     gesture = null;
     if (!current) return;
     current.clip = clipping(event);
+    if (current.kind === "columnRow") {
+      const points = rowPoints(current.start, current.end || current.start);
+      addColumns(points);
+      return;
+    }
     if (current.kind === "rotate") {
       if (current.moved && current.angle) {
         const result = rotateSelection(current.snapshot, current.set, current.angle, current.pivot);
@@ -1359,7 +1445,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function pieceSelection(pick) {
     if (!pick?.type || !pick.id) return null;
-    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel" && pick.type !== "skylight") return null;
+    if (pick.type !== "furniture" && pick.type !== "siteFeature" && pick.type !== "planLabel" && pick.type !== "skylight" && pick.type !== "column") return null;
     return { type: pick.type, id: pick.id };
   }
 
@@ -1551,7 +1637,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   function movablePiece(hit, doc = house) {
     if (!hit?.type) return false;
-    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel" || hit.type === "skylight") return true;
+    if (hit.type === "furniture" || hit.type === "siteFeature" || hit.type === "planLabel" || hit.type === "skylight" || hit.type === "column") return true;
     if (hit.type !== "room") return false;
     const room = (doc?.rooms || house.rooms || []).find((item) => item.id === hit.id);
     const kind = areaKind(room || {});
@@ -1688,6 +1774,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     hoverPlace = tool === "door" || tool === "window" ? openingSpot(point) : null;
+    templateAt = tool === "templates" && templateId ? { x: Math.round(point.x), y: Math.round(point.y) } : null;
     hoverWorld = tool === "site" || tool === "electrical" || tool === "plumbing" ? point : null;
     lastPreview = hoverWorld && (tool === "electrical" || tool === "plumbing") ? placeGhostAt(hoverWorld) : null;
     paintCoach();
@@ -1851,6 +1938,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (sel.type === "siteFeature") return (doc.siteFeatures || []).some((item) => item.id === sel.id);
     if (sel.type === "planLabel") return (doc.planLabels || []).some((item) => item.id === sel.id);
     if (sel.type === "skylight") return (doc.skylights || []).some((item) => item.id === sel.id);
+    if (sel.type === "column") return (doc.columns || []).some((item) => item.id === sel.id);
     if (sel.type === "entry") return !!doc.plumbing?.entry;
     return false;
   }
@@ -1992,6 +2080,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       if (!phaseOk(item)) continue;
       if (pointInRect(item, rect, Math.max(1.5, (item.size || 3) / 2))) add("siteFeature", item.id);
     }
+    for (const item of house.columns || []) {
+      if (!phaseOk(item)) continue;
+      if (pointInRect(item, rect, (Number(item.size) || 0.75) / 2)) add("column", item.id);
+    }
     for (const item of house.planLabels || []) {
       if (pointInRect(item, rect, 2)) add("planLabel", item.id);
     }
@@ -2041,6 +2133,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (item.type === "furniture") return "furniture";
     if (item.type === "skylight") return "skylight";
+    if (item.type === "column") return "column";
     if (item.type === "siteFeature") return "site mark";
     if (item.type === "planLabel") return "note";
     if (item.type === "device") return "device";
@@ -2116,6 +2209,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (type === "furniture") return String(item.name || "figure").toLowerCase();
     if (type === "planLabel") return "label";
     if (type === "skylight") return "skylight";
+    if (type === "column") return "column";
     return String(item.kind || "mark").toLowerCase();
   }
 
@@ -2257,6 +2351,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const features = idsOf(items, "siteFeature");
     const labels = idsOf(items, "planLabel");
     const skylights = idsOf(items, "skylight");
+    const columns = idsOf(items, "column");
     const devices = idsOf(items, "device");
     const fixtures = idsOf(items, "fixture");
     let next = cloneHouse(house);
@@ -2269,6 +2364,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     if (features.size) next.siteFeatures = dropIds(next.siteFeatures, features);
     if (labels.size) next.planLabels = dropIds(next.planLabels, labels);
     if (skylights.size) next.skylights = dropIds(next.skylights, skylights);
+    if (columns.size) next.columns = dropIds(next.columns, columns);
+    if (rooms.size) pruneBuildings(next);
     if (devices.size && next.electrical) next.electrical.devices = dropIds(next.electrical.devices, devices);
     if (idsOf(items, "panel").size && next.electrical) next.electrical.panel = null;
     if (fixtures.size && next.plumbing) next.plumbing.fixtures = dropIds(next.plumbing.fixtures, fixtures);
@@ -2285,6 +2382,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     choose(null);
     announce(count === 1 ? `Deleted ${itemLabel(items[0])}.` : `Deleted ${count} items.`);
     publish();
+  }
+
+  /** A building whose rooms are all gone takes its settings and its posts with it. */
+  function pruneBuildings(doc) {
+    if (!doc.buildings) return;
+    const used = new Set((doc.rooms || []).map((room) => room.building).filter(Boolean));
+    for (const id of Object.keys(doc.buildings)) {
+      if (used.has(id)) continue;
+      delete doc.buildings[id];
+      doc.columns = (doc.columns || []).filter((column) => column.building !== id);
+    }
   }
 
   function refreshWarnings() {
@@ -2345,7 +2453,83 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       measure,
       moveLabel: moveLabel(measure),
       frame: frameOverlay(),
+      templateGhost: templateOverlay(),
     };
+  }
+
+  /** The ghost under the pointer: the chosen template, or a row of posts being dragged. */
+  function templateOverlay() {
+    if (mode !== "build") return null;
+    if (gesture?.kind === "columnRow") {
+      return { columns: rowPoints(gesture.start, gesture.end || gesture.start).map((point) => ({ ...point, size: columnSize })) };
+    }
+    const template = tool === "templates" && templateId && templateAt ? templateById(templateId) : null;
+    if (!template) return null;
+    const ghost = templateGhost(template, templateAt, templateTurns);
+    const clashes = templateClashes(house, ghost);
+    return { ...ghost, ok: !clashes.length, label: clashes.length ? `${template.name}: lands on walls` : `${template.name} · click to place` };
+  }
+
+  function rowPoints(start, end) {
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    if (length < 0.5) return [start];
+    const gaps = Math.max(1, Math.round(length / columnSpacing));
+    const points = [];
+    for (let i = 0; i <= gaps; i += 1) {
+      points.push({ x: start.x + ((end.x - start.x) * i) / gaps, y: start.y + ((end.y - start.y) * i) / gaps });
+    }
+    return points;
+  }
+
+  function addColumns(points) {
+    const next = cloneHouse(house);
+    next.columns = [...(next.columns || [])];
+    const made = [];
+    for (const point of points) {
+      const column = { id: nextId("column"), x: Math.round(point.x * 1000) / 1000, y: Math.round(point.y * 1000) / 1000, size: columnSize, shape: columnShape, phase: "phase1" };
+      const room = roomUnder(next, point);
+      if (room?.building) column.building = room.building;
+      next.columns.push(column);
+      made.push({ type: "column", id: column.id });
+    }
+    commit(next, house, made.length === 1 ? "adding a column" : "adding a row of columns");
+    applyPicks(made);
+    announce(made.length === 1 ? "Added a column. Drag it to move it." : `Added ${made.length} columns, ${plainFeet(columnSpacing)} apart.`);
+    publish();
+  }
+
+  function turnTemplate(step) {
+    templateTurns = (((templateTurns + step) % 4) + 4) % 4;
+    const overlay = makeOverlay();
+    plan.setOverlay(overlay);
+    model.setOverlay?.(overlay);
+  }
+
+  function placeChosenTemplate(world) {
+    const template = templateId ? templateById(templateId) : null;
+    if (!template) {
+      announce("Pick a template in the options first.", false);
+      optionsOpen = true;
+      setOptionsOpen(true);
+      return;
+    }
+    const at = { x: Math.round(world.x), y: Math.round(world.y) };
+    const ghost = templateGhost(template, at, templateTurns);
+    if (templateClashes(house, ghost).length) {
+      announce(`The ${template.name} would land on walls you already have. Move it to open ground.`, false);
+      return;
+    }
+    const placed = placeTemplate(house, template, at, templateTurns);
+    holdCamera();
+    commit(placed.house, house, `placing ${template.name}`);
+    tool = "select";
+    templateAt = null;
+    optionsOpen = false;
+    setOptionsOpen(false);
+    applyPicks(placed.picks);
+    announce(`Placed the ${template.name}. It is selected: drag it, turn it (R), or click any part to change it.`);
+    publish();
+    onChange();
   }
 
   /* ---------- Design-software arranging: frame, rotate, flip, nudge, duplicate ---------- */
@@ -2690,7 +2874,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const pipeRates = plumbingLabor(house);
     const ghostCount = (house.electrical?.devices || []).filter((item) => item.ghost).length;
     const fixtureGhosts = (house.plumbing?.fixtures || []).filter((item) => item.ghost).length;
-    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${tool === "solar" || tool === "roof" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
+    const key = `${mode}|${tool}|${selection?.type || ""}|${selection?.id || ""}|${catalogId}|${roomShape}|${wallRatio}|${figureKind}|${guidesOn}|${deviceKind}|${pumpSupply}|${rates.perDevice}|${rates.panel}|${rates.perFoot}|${ghostCount}|${fixtureKind}|${fixtureGhosts}|${pipeRates.perFixture}|${house.plumbing?.supplyMethod || "manifold"}|${siteKind}|${siteGhosts.map((item) => item.kind).join(",")}|${house.site?.well?.kind || ""}|${house.site?.septic?.kind || ""}|${suggestNote}|${panelGhost ? "panel" : ""}|${suggestKind || ""}|${templateId}|${templateTurns}|${columnSize}|${columnShape}|${columnRow}|${columnSpacing}|${roofBuilding}|${tool === "solar" || tool === "roof" ? `${houseStamp(house)}|${JSON.stringify(solarUi)}|${getViewState().phase}|${getViewState().layers?.future}` : ""}`;
     if (key === optionsKey && box.childElementCount) {
       box.querySelector("[data-warn]")?.replaceChildren(document.createTextNode(warnings[0]?.message || ""));
       return;
@@ -2702,6 +2886,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     if (tool === "roof") {
       paintRoofOptions(box);
+      return;
+    }
+    if (tool === "templates") {
+      paintTemplateOptions(box);
+      return;
+    }
+    if (tool === "column") {
+      paintColumnOptions(box);
       return;
     }
     if (tool === "electrical") {
@@ -2789,10 +2981,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         <div class="adv-shell${advancedOn ? " is-open" : ""}" id="adv-shell">
           <div class="adv-inner">
             <div class="option-line">
-              <label>Snap step <select id="grid-size"><option value="0.08333333333333333">1 in</option><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option></select></label>
+              <label>Snap step <select id="grid-size"><option value="0.08333333333333333">1 in</option><option value="0.25">3 in</option><option value="0.5">6 in</option><option value="1">12 in</option>${BAYS.filter((bay) => bay.feet).map((bay) => `<option value="${bay.feet}">${bay.label} bay</option>`).join("")}</select></label>
               <button type="button" id="guides-toggle" class="chip" aria-pressed="${guidesOn}">Proportion guides</button>
             </div>
-            <p class="fine opt-hint">Snap step is how far wall ends move when Snap to grid is on. Proportion guides outline the selected room's nearest ratio.</p>
+            <p class="fine opt-hint">Snap step is how far wall ends move when Snap to grid is on. A bay step (jian, kan, ken) draws that bay grid on the plan. Proportion guides outline the selected room's nearest ratio.</p>
           </div>
         </div>
         ${warnings[0]?.message ? `<p class="warn-line" data-warn>${warnings[0].message}</p>` : `<p class="warn-line" data-warn hidden></p>`}`;
@@ -2967,7 +3159,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function onHudChange(event) {
-    if (event.target.id === "grid-size") grid = Number(event.target.value);
+    if (event.target.id === "grid-size") {
+      grid = Number(event.target.value);
+      plan.setBayGrid?.(grid >= 4 ? grid : 0);
+    }
     if (event.target.id === "open-width" || event.target.id === "open-height" || event.target.id === "open-sill") {
       applyOpeningFields();
     }
@@ -3710,6 +3905,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       paintSkylightInspector();
       syncSelectionLayout();
       return;
+    } else if (selection.type === "column") {
+      paintColumnInspector();
+      syncSelectionLayout();
+      return;
     } else if (selection.type === "furniture" || selection.type === "siteFeature" || selection.type === "planLabel") {
       paintPieceInspector();
       syncSelectionLayout();
@@ -3752,6 +3951,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           <div class="swatch-row">${shapeChips}</div>
         </section>
         <section class="card-section">
+          <p class="opt-label">Floor height</p>
+          <div class="swatch-row">${FLOOR_LEVELS.map(([level, label]) => `<button type="button" class="chip" data-floor-level="${level}" aria-pressed="${Math.abs((Number(room.floorLevel) || 0) - level) < 0.01}">${label}</button>`).join("")}</div>
+          <div class="measure-tiles op-tiles"><label class="measure-tile"><input id="edit-floor" value="${escapeAttr(plainFeet(Number(room.floorLevel) || 0))}" autocomplete="off" inputmode="decimal" /><span>Above the ground</span></label></div>
+          ${room.building && house.buildings?.[room.building]?.name ? `<p class="fine">Part of ${escapeHtml(house.buildings[room.building].name)}. Its roof and platform are in the Roof tool.</p>` : ""}
+        </section>
+        <section class="card-section">
           <p class="opt-label">Fill this room</p>
           <div class="swatch-row">
             <button type="button" class="chip" id="suggest-room-power">⚡ Suggest outlets</button>
@@ -3791,6 +3996,30 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       inspector.querySelector("#suggest-room-water").addEventListener("click", () => startSuggest("plumbing"));
       bindSuggest(inspector);
       bindFindingFixes(inspector);
+      const setFloor = (value) => {
+        if (!Number.isFinite(value) || value < 0 || value > 12) {
+          announce("A floor height goes from 0 to 12 ft.", false);
+          publish();
+          return;
+        }
+        const next = cloneHouse(house);
+        const target = next.rooms.find((item) => item.id === room.id);
+        if (!target) return;
+        if (value > 0) target.floorLevel = Math.round(value * 1000) / 1000;
+        else delete target.floorLevel;
+        commit(next, house, "changing a floor height");
+        publish();
+      };
+      inspector.querySelectorAll("[data-floor-level]").forEach((button) => {
+        button.addEventListener("click", () => setFloor(Number(button.dataset.floorLevel)));
+      });
+      const floorInput = inspector.querySelector("#edit-floor");
+      floorInput?.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        floorInput.blur();
+      });
+      floorInput?.addEventListener("change", () => setFloor(parseLength(floorInput.value)));
       inspector.querySelector("#edit-name").addEventListener("keydown", (event) => {
         if (event.key === "Enter") event.currentTarget.blur();
       });
@@ -3984,6 +4213,146 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
    * eaves, and for a clerestory where the glass sits, how tall it is, and
    * the high roof's eave over it, with the sun numbers when there is a place.
    */
+  /** A small plan of a template for its button: rooms filled, walls drawn, north up. */
+  function templateThumb(template) {
+    const g = templateGeometry(template);
+    const pad = 2;
+    const w = g.box.x1 - g.box.x0 + pad * 2;
+    const h = g.box.y1 - g.box.y0 + pad * 2;
+    const X = (x) => (x - g.box.x0 + pad).toFixed(2);
+    const Y = (y) => (g.box.y1 - y + pad).toFixed(2);
+    const fill = (kind) => (kind === "site" ? "#E7E0CF" : kind === "covered" ? "#EADBC0" : "#F4E7CF");
+    const rooms = g.rooms.map((room) => `<polygon points="${room.polygon.map((p) => `${X(p.x)},${Y(p.y)}`).join(" ")}" fill="${fill(room.kind)}" />`).join("");
+    const walls = g.walls.map((wall) => `<line x1="${X(wall.start.x)}" y1="${Y(wall.start.y)}" x2="${X(wall.end.x)}" y2="${Y(wall.end.y)}" stroke="${(ASSEMBLY_2D[assemblyById[wall.assemblyId]?.renderAssembly] || ASSEMBLY_2D.framed).stroke}" stroke-width="${Math.max(0.6, wall.thickness)}" />`).join("");
+    const posts = g.columns.map((c) => `<circle cx="${X(c.x)}" cy="${Y(c.y)}" r="${Math.max(0.5, c.size / 2)}" fill="#6B3A26" />`).join("");
+    return `<svg viewBox="0 0 ${w.toFixed(1)} ${h.toFixed(1)}" class="tpl-thumb" aria-hidden="true">${rooms}${walls}${posts}</svg>`;
+  }
+
+  function paintTemplateOptions(box) {
+    const chosen = templateId ? templateById(templateId) : null;
+    const groups = ["China", "Japan", "Korea"].map((group) => `
+      <p class="opt-label">${group}</p>
+      <div class="tpl-grid">${TEMPLATES.filter((item) => item.group === group).map((item) => `
+        <button type="button" class="tpl-card" data-template="${item.id}" aria-pressed="${item.id === templateId}" title="${escapeAttr(item.about)}">
+          ${templateThumb(item)}<span>${escapeHtml(item.name)}</span>
+        </button>`).join("")}</div>`).join("");
+    const g = chosen ? templateGeometry(chosen) : null;
+    const size = g ? `${plainFeet(g.box.x1 - g.box.x0)} × ${plainFeet(g.box.y1 - g.box.y0)}` : "";
+    box.innerHTML = `<div class="solar-panel tpl-panel">
+      ${chosen ? `<section class="solar-sec tpl-chosen">
+        <p class="opt-label">${escapeHtml(chosen.name)} · ${escapeHtml(size)}</p>
+        <p class="fine">${escapeHtml(chosen.about)}</p>
+        <div class="seg"><button type="button" data-tpl-turn="1">⟲ Turn</button><button type="button" data-tpl-turn="-1">⟳ Turn</button></div>
+        <p class="fine">Move over the plan and click to place it. R turns it. It lands as ordinary walls, rooms, doors, windows, and posts, with its own roofs.</p>
+        <details class="tech"><summary>Sources</summary>${chosen.sources.map((id) => TEMPLATE_SOURCES[id]).filter(Boolean).map((src) => `<p class="fine"><a href="${escapeAttr(src.url)}" target="_blank" rel="noopener">${escapeHtml(src.name)}</a></p>`).join("")}<p class="fine">Bay sizes follow each tradition's module. Platform and floor heights are placeholders to adjust.</p></details>
+      </section>` : `<p class="fine">Pick a building. A see-through copy follows the pointer until you click.</p>`}
+      ${groups}
+    </div>`;
+    box.querySelectorAll("[data-template]").forEach((button) => {
+      button.addEventListener("click", () => {
+        templateId = button.dataset.template === templateId ? null : button.dataset.template;
+        templateTurns = 0;
+        optionsKey = "";
+        publish();
+      });
+    });
+    box.querySelectorAll("[data-tpl-turn]").forEach((button) => {
+      button.addEventListener("click", () => {
+        turnTemplate(Number(button.dataset.tplTurn));
+      });
+    });
+  }
+
+  function paintColumnOptions(box) {
+    const spacings = [...BAYS.filter((bay) => bay.feet).map((bay) => [bay.feet, bay.label]), [4, "4 ft"]];
+    box.innerHTML = `<div class="solar-panel">
+      <section class="solar-sec">
+        <p class="opt-label">Post size</p>
+        <div class="swatch-row">${COLUMN_SIZES.map(([size, label]) => `<button type="button" class="chip" data-col-size="${size}" aria-pressed="${Math.abs(columnSize - size) < 0.01}">${label}</button>`).join("")}</div>
+        <div class="seg">${["round", "square"].map((shape) => `<button type="button" data-col-shape="${shape}" aria-pressed="${columnShape === shape}">${shape === "round" ? "Round" : "Square"}</button>`).join("")}</div>
+      </section>
+      <section class="solar-sec">
+        <p class="opt-label">Place</p>
+        <div class="seg"><button type="button" data-col-row="0" aria-pressed="${!columnRow}">One at a time</button><button type="button" data-col-row="1" aria-pressed="${columnRow}">A row</button></div>
+        ${columnRow ? `<p class="opt-label">Spacing</p><div class="swatch-row">${spacings.map(([feet, label]) => `<button type="button" class="chip" data-col-spacing="${feet}" aria-pressed="${Math.abs(columnSpacing - feet) < 0.01}">${escapeHtml(label)}</button>`).join("")}</div><p class="fine">Drag along a veranda edge. Posts go at both ends and evenly between, as close to the spacing as fits.</p>` : ""}
+        <p class="fine">Posts carry the roof over verandas (engawa, toenmaru) and front galleries. Each runs from a stone base up to the roof. placeholder: needs engineer/code verification.</p>
+      </section>
+    </div>`;
+    const set = (fn) => {
+      fn();
+      optionsKey = "";
+      publish();
+    };
+    box.querySelectorAll("[data-col-size]").forEach((b) => b.addEventListener("click", () => set(() => { columnSize = Number(b.dataset.colSize); })));
+    box.querySelectorAll("[data-col-shape]").forEach((b) => b.addEventListener("click", () => set(() => { columnShape = b.dataset.colShape; })));
+    box.querySelectorAll("[data-col-row]").forEach((b) => b.addEventListener("click", () => set(() => { columnRow = b.dataset.colRow === "1"; })));
+    box.querySelectorAll("[data-col-spacing]").forEach((b) => b.addEventListener("click", () => set(() => { columnSpacing = Number(b.dataset.colSpacing); })));
+  }
+
+  /** The Roof tool's per-building block: which roof, its form, ridge, curve, platform, and pitch. */
+  function buildingRoofHtml(boxes) {
+    const ids = boxes.map((box) => box.building);
+    if (!ids.includes(roofBuilding)) roofBuilding = ids[0] || "main";
+    const nameOf = (id) => house.buildings?.[id]?.name || (id === "main" ? "Main house" : id);
+    const spec = roofSpec(house, roofBuilding);
+    const own = house.buildings?.[roofBuilding] || {};
+    const pitchOwn = Number(own.pitch) > 0 ? Number(own.pitch) : null;
+    const picker = ids.length > 1
+      ? `<p class="opt-label">Roof of</p><div class="swatch-row">${ids.map((id) => `<button type="button" class="chip" data-roof-of="${escapeAttr(id)}" aria-pressed="${id === roofBuilding}">${escapeHtml(nameOf(id))}</button>`).join("")}</div><p class="fine">Or click a roof on the plan.</p>`
+      : "";
+    return `<section class="solar-sec">
+      ${picker}
+      <p class="opt-label">Form${ids.length > 1 ? ` · ${escapeHtml(nameOf(roofBuilding))}` : ""}</p>
+      <div class="swatch-row">${ROOF_STYLES.map(([id, label]) => `<button type="button" class="chip" data-b-style="${id}" aria-pressed="${spec.style === id}">${label}</button>`).join("")}</div>
+      <p class="opt-label">Ridge runs</p>
+      <div class="seg">${[["east-west", "East–west"], ["north-south", "North–south"], ["auto", "Long way"]].map(([id, label]) => `<button type="button" data-b-ridge="${id}" aria-pressed="${spec.ridge === id}">${label}</button>`).join("")}</div>
+      <p class="opt-label">Eave curve</p>
+      <div class="swatch-row">${[[0, "Straight"], [0.2, "Gentle"], [0.4, "Chinese"], [0.6, "Korean"], [1, "Strong"]].map(([value, label]) => `<button type="button" class="chip" data-b-curve="${value}" aria-pressed="${Math.abs(spec.curve - value) < 0.01}">${label}</button>`).join("")}</div>
+      <p class="opt-label">Platform under it</p>
+      <div class="swatch-row">${[[0, "None"], [1, "1 ft"], [1.5, "1 ft 6 in"], [2, "2 ft"], [3, "3 ft"]].map(([value, label]) => `<button type="button" class="chip" data-b-platform="${value}" aria-pressed="${Math.abs(spec.platform - value) < 0.01}">${label}</button>`).join("")}</div>
+      <p class="opt-label">Pitch of this roof</p>
+      <div class="swatch-row"><button type="button" class="chip" data-b-pitch="0" aria-pressed="${!pitchOwn}">Same as house</button>${[4, 6, 8, 10, 12].map((n) => `<button type="button" class="chip" data-b-pitch="${n}" aria-pressed="${!!pitchOwn && Math.abs(pitchOwn * 12 - n) < 0.05}">${n}:12</button>`).join("")}</div>
+      <p class="fine">Hip and gable: Chinese xieshan, Japanese irimoya, Korean paljak. Hip: wudian, yosemune. Gable runs past the end walls (xuanshan, kirizuma). Flush gable stops at them (yingshan). A platform raises the floors on it to its top.</p>
+    </section>`;
+  }
+
+  function bindBuildingRoof(box, save) {
+    const edit = (fn, note) => save((next) => {
+      next.buildings = { ...(next.buildings || {}) };
+      const entry = { ...(next.buildings[roofBuilding] || {}) };
+      if (!entry.name) entry.name = roofBuilding === "main" ? "Main house" : roofBuilding;
+      fn(entry, next);
+      next.buildings[roofBuilding] = entry;
+    }, note);
+    box.querySelectorAll("[data-roof-of]").forEach((b) => b.addEventListener("click", () => {
+      roofBuilding = b.dataset.roofOf;
+      optionsKey = "";
+      publish();
+    }));
+    box.querySelectorAll("[data-b-style]").forEach((b) => b.addEventListener("click", () => edit((entry) => { entry.style = b.dataset.bStyle; }, "changing a roof form")));
+    box.querySelectorAll("[data-b-ridge]").forEach((b) => b.addEventListener("click", () => edit((entry) => { entry.ridge = b.dataset.bRidge; }, "turning a ridge")));
+    box.querySelectorAll("[data-b-curve]").forEach((b) => b.addEventListener("click", () => edit((entry) => { entry.curve = Number(b.dataset.bCurve); }, "changing the eave curve")));
+    box.querySelectorAll("[data-b-pitch]").forEach((b) => b.addEventListener("click", () => edit((entry) => {
+      const n = Number(b.dataset.bPitch);
+      if (n > 0) entry.pitch = Math.round((n / 12) * 10000) / 10000;
+      else delete entry.pitch;
+    }, "changing a roof pitch")));
+    box.querySelectorAll("[data-b-platform]").forEach((b) => b.addEventListener("click", () => edit((entry, next) => {
+      const value = Number(b.dataset.bPlatform);
+      const old = Number(entry.platform) || 0;
+      if (value > 0) entry.platform = value;
+      else delete entry.platform;
+      // Floors that sat on the old platform top (or on the ground) move to the new top.
+      for (const room of next.rooms || []) {
+        if ((room.building || "main") !== roofBuilding) continue;
+        const level = Number(room.floorLevel) || 0;
+        if (Math.abs(level - old) > 0.01) continue;
+        if (value > 0) room.floorLevel = value;
+        else delete room.floorLevel;
+      }
+    }, "changing a platform")));
+  }
+
   function paintRoofOptions(box) {
     const view = getViewState();
     const full = isFutureShown(view);
@@ -4049,7 +4418,9 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ${notes.map((note) => `<p class="fine">${escapeHtml(note)}</p>`).join("")}
         ${eaveHtml}`;
     }
+    const roofBoxes = roofFootprints(house, full);
     box.innerHTML = `<div class="solar-panel roof-panel">
+      ${c ? "" : buildingRoofHtml(roofBoxes)}
       <section class="solar-sec">
         <p class="opt-label">Roof shape</p>
         <div class="seg">
@@ -4079,6 +4450,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       optionsKey = "";
       publish();
     };
+    bindBuildingRoof(box, save);
     const bind = (id, apply) => {
       const input = box.querySelector(`#${id}`);
       if (!input) return;
@@ -4378,6 +4750,41 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       extend: awning?.extend ?? Math.ceil(suggestion.depth * 12) / 12,
     }, "sizing the awning for the sun"));
     inspector.querySelector("#aw-remove")?.addEventListener("click", () => change((t) => { delete t.awning; }, "removing the awning"));
+    inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
+  }
+
+  function paintColumnInspector() {
+    const item = (house.columns || []).find((entry) => entry.id === selection.id);
+    if (!item) {
+      inspector.hidden = true;
+      inspector.innerHTML = "";
+      return;
+    }
+    const owner = item.building ? house.buildings?.[item.building]?.name : "";
+    inspector.innerHTML = `
+      ${gameHead("Column", [])}
+      <p>${owner ? `A post of the ${escapeHtml(owner.toLowerCase())}. ` : ""}It runs from a stone base up to the underside of the roof. Drag it to move it.</p>
+      <p class="opt-label">Size</p>
+      <div class="swatch-row">${COLUMN_SIZES.map(([size, label]) => `<button type="button" class="chip" data-col-size="${size}" aria-pressed="${Math.abs((Number(item.size) || 0.75) - size) < 0.01}">${label}</button>`).join("")}</div>
+      <div class="seg">${["round", "square"].map((shape) => `<button type="button" data-col-shape="${shape}" aria-pressed="${(item.shape || "round") === shape}">${shape === "round" ? "Round" : "Square"}</button>`).join("")}</div>
+      <p class="fine">placeholder: needs engineer/code verification. Post size and base are not engineered.</p>
+      ${selectionCostHtml(house, selection)}
+      ${quietDelete("Delete column")}
+    `;
+    const save = (fn, note) => {
+      const next = cloneHouse(house);
+      const target = (next.columns || []).find((entry) => entry.id === item.id);
+      if (!target) return;
+      fn(target);
+      commit(next, house, note);
+      publish();
+    };
+    inspector.querySelectorAll("[data-col-size]").forEach((button) => {
+      button.addEventListener("click", () => save((target) => { target.size = Number(button.dataset.colSize); }, "changing a column size"));
+    });
+    inspector.querySelectorAll("[data-col-shape]").forEach((button) => {
+      button.addEventListener("click", () => save((target) => { target.shape = button.dataset.colShape; }, "changing a column shape"));
+    });
     inspector.querySelector("#edit-delete").addEventListener("click", eraseSelection);
   }
 

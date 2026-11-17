@@ -9,8 +9,9 @@
  *   and fixtures on its walls or inside it;
  * - a wall brings its doors and windows (they are stored by offset along the
  *   wall, so they follow without changes) and anything mounted on it;
- * - loose pieces (furniture, skylights, labels, site marks, fixtures,
- *   devices) come on their own.
+ * - loose pieces (furniture, skylights, labels, site marks, columns,
+ *   fixtures, devices) come on their own. Columns on a chosen room's edge
+ *   (a veranda's posts) come with the room.
  *
  * Angles are degrees, counter-clockwise, with plan +y north, so a positive
  * angle turns things counter-clockwise on the north-up plan.
@@ -23,7 +24,7 @@ import { detachWalls, withJoins } from "./clips.js";
 import { refreshSkylight } from "./skylights.js";
 import { areaKind } from "./areas.js";
 
-const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights" };
+const PIECE_KEYS = { furniture: "furniture", siteFeature: "siteFeatures", planLabel: "planLabels", skylight: "skylights", column: "columns" };
 
 /**
  * The walls around a room: the old rule (the wall's middle sits by the room
@@ -81,9 +82,18 @@ export function selectionSet(house, picks) {
     else if (pick.type === "fixture") fixtures.add(pick.id);
   }
   const inside = (point) => point && polygons.some((polygon) => pointInPolygon(point, polygon));
+  const onEdge = (point, tol) => point && polygons.some((polygon) => polygon.some((a, i) => {
+    const b = polygon[(i + 1) % polygon.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t)) <= tol;
+  }));
   // What sits inside the chosen rooms.
   for (const [type, key] of Object.entries(PIECE_KEYS)) {
-    for (const item of house[key] || []) if (inside(item)) addPiece(type, item.id);
+    for (const item of house[key] || []) {
+      if (inside(item) || (type === "column" && onEdge(item, (Number(item.size) || 0.75) / 2 + 0.75))) addPiece(type, item.id);
+    }
   }
   // Rooms drawn inside a chosen room (a closet outline, a rug) come along too.
   for (const room of house.rooms || []) {
@@ -182,6 +192,16 @@ export function mapSelection(house, set, map, { turn = (deg) => deg, mirror = fa
   for (const fixture of next.plumbing?.fixtures || []) {
     if (set.fixtures.has(fixture.id) && Number.isFinite(fixture.x)) Object.assign(fixture, move(fixture));
   }
+  // A quarter turn swings each moved building's ridge the other way.
+  const quarter = Math.abs(Math.sin((turn(0) * Math.PI) / 180)) > 0.99 && !mirror;
+  if (quarter && next.buildings) {
+    const moved = new Set((next.rooms || []).filter((room) => set.rooms.has(room.id) && room.building).map((room) => room.building));
+    for (const id of moved) {
+      const entry = next.buildings[id];
+      if (!entry?.ridge || entry.ridge === "auto") continue;
+      entry.ridge = entry.ridge === "north-south" ? "east-west" : "north-south";
+    }
+  }
   // Skylights take their size and turn from the roof face they end up under.
   for (const item of next.skylights || []) refreshSkylight(next, item);
   return { house: next, detached };
@@ -243,10 +263,22 @@ export function duplicateSelection(house, set, dx, dy, makeId) {
     if (ends.length < 2) continue;
     next.joins.push({ id: makeId("join"), ends: ends.map((ref) => ({ wall: wallIds.get(ref.wall), end: ref.end })) });
   }
+  // Copied rooms of a named building make a new building with the same roof settings.
+  const buildingIds = new Map();
+  const copyBuilding = (id) => {
+    if (!id || id === "main") return id;
+    if (!buildingIds.has(id)) {
+      const fresh = makeId("building");
+      buildingIds.set(id, fresh);
+      if (house.buildings?.[id]) next.buildings = { ...(next.buildings || {}), [fresh]: structuredClone(house.buildings[id]) };
+    }
+    return buildingIds.get(id);
+  };
   for (const room of house.rooms || []) {
     if (!set.rooms.has(room.id)) continue;
     const id = makeId("room");
     const copy = { ...structuredClone(room), id, name: `${room.name || "Room"} copy`, polygon: (room.polygon || []).map(shift) };
+    if (room.building) copy.building = copyBuilding(room.building);
     if (room.labelAt) copy.labelAt = shift(room.labelAt);
     next.rooms.push(copy);
     picks.push({ type: "room", id });
@@ -256,6 +288,7 @@ export function duplicateSelection(house, set, dx, dy, makeId) {
     const item = (house[key] || []).find((entry) => entry.id === piece.id);
     if (!item) continue;
     const copy = { ...structuredClone(item), id: makeId(piece.type === "planLabel" ? "label" : piece.type), ...shift(item) };
+    if (piece.type === "column" && item.building && buildingIds.has(item.building)) copy.building = buildingIds.get(item.building);
     next[key] = [...(next[key] || []), copy];
     if (piece.type === "skylight") refreshSkylight(next, copy);
     picks.push({ type: piece.type, id: copy.id });
