@@ -26,7 +26,7 @@ import {
 } from "../build/walls.js";
 import { syncRooms } from "../build/rooms.js";
 import { nextId } from "../build/ids.js";
-import { duplicateSelection, flipSelection, isEmptySet, nudgeSelection, rotateSelection, selectionBounds, selectionSet, separateSelection, shiftContents } from "../build/transform.js";
+import { duplicateSelection, flipSelection, isEmptySet, nudgeSelection, rotateSelection, selectionBounds, selectionSet, separateSelection, shiftContents, scaleSelection } from "../build/transform.js";
 import { clipToOne, clipTogether, detachWalls, endsAt, partnersOf, pruneJoins, unclipEnd } from "../build/clips.js";
 import { SCALE_FIGURES, makeFigure, scaleFigure } from "../build/scaleFigures.js";
 import { CLIMATE_RULES, climateClass, compassName, degreeDays, designPlace, noonSun, wallFacing, windowSolar } from "../sun/passive.js";
@@ -35,6 +35,7 @@ import { ASSEMBLY_2D } from "../theme.js";
 import { ROOF_STYLES, roofFootprints, roofSpec } from "../build/roofShape.js";
 import { addTracedPlan, imagePxPerFt, makeImage, pointOnImage, rescaleImage, segmentsToFeet } from "../build/images.js";
 import { planFromSegments, rasterSegments, sizedSvg, svgSegments } from "../build/trace.js";
+import { groupMembers, groupOf, isWholeGroup, makeGroup, pruneGroups, ungroup } from "../build/groups.js";
 import { FURNISHINGS, FURNISH_SOURCES, furnishPose, furnishing, isFurnishing, makeFurnishing, syncFurnishings } from "../build/furnish.js";
 import { BAYS, TEMPLATES, TEMPLATE_SOURCES, placeTemplate, templateById, templateClashes, templateGeometry, templateGhost } from "../build/templates.js";
 import { currentEaves, solarPanelHtml, sunSideKey } from "./solarPanel.js";
@@ -229,6 +230,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let traceDoors = true;
   let pasteTimer = 0;
   let copiedAt = 0;
+  // A group you clicked into: its members then select one at a time until you click outside it.
+  let enteredGroup = null;
   // The Solar tool's panel state (not saved in the house file).
   const solarUi = { focusId: null, results: [], query: "", searchNote: "", searching: false, climateBusy: false, climateNote: "", climateTriedFor: "" };
   const houseStamps = new WeakMap();
@@ -647,6 +650,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   function keepTrace() {
     if (!tracePreview) return;
     const result = addTracedPlan(house, tracePreview.plan);
+    const picture = (house.images || []).find((entry) => entry.id === tracePreview.imageId);
+    makeGroup(result.house, result.picks, `Traced ${picture?.name || "drawing"}`, nextId("group"));
     tracePreview = null;
     holdCamera();
     commit(result.house, house, "turning a picture into walls");
@@ -1304,6 +1309,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         plan.beginPan(event);
       }, 480);
     };
+    const corner = tool === "select" && world ? scaleHandleAt(world) : null;
+    if (corner) {
+      gesture = {
+        kind: "scale",
+        snapshot: cloneHouse(corner.frame.house),
+        set: corner.frame.set,
+        box: corner.frame.box,
+        anchor: corner.anchor,
+        start: Math.max(0.5, Math.hypot(corner.at.x - corner.anchor.x, corner.at.y - corner.anchor.y)),
+        before: house,
+        k: 1,
+        moved: false,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      publish();
+      return true;
+    }
     if (tool === "select" && world && onRotateHandle(world)) {
       const frame = selectionFrame();
       gesture = {
@@ -1325,6 +1348,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       const pickedPiece = pieceSelection(extra?.pick);
       const hit = pickedPiece || hitTest(world) || extra?.pick || null;
       const item = pickItem(hit);
+      if (!item) enteredGroup = null;
       if (event.shiftKey || !item) {
         gesture = {
           kind: "marquee",
@@ -1341,6 +1365,20 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
           clientY: event.clientY,
         };
         return true;
+      }
+      // A grouped thing selects its whole group first. Clicking again on a member
+      // of the selected group goes into the group and picks just that member.
+      const group = hit?.type !== "endpoint" ? groupOf(house, item) : null;
+      if (!group || enteredGroup !== group.id) enteredGroup = null;
+      let freshGroup = false;
+      if (group && !enteredGroup) {
+        if (isWholeGroup(house, group, picks)) {
+          // Second press on the selected group: a plain click (no drag) goes in.
+          enteredGroup = null;
+        } else {
+          applyPicks(groupMembers(house, group));
+          freshGroup = true;
+        }
       }
       // Pressing on something that is already part of a multi-selection keeps the
       // whole selection, so dragging moves it all as one piece.
@@ -1360,7 +1398,8 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         snapshot: cloneHouse(separated),
         wasLength: selectedWall ? wallLength(selectedWall) : null,
         group: groupPicks ? groupFrom(groupPicks, separated) : null,
-        clickItem: inGroup ? item : null,
+        clickItem: inGroup && !freshGroup ? item : null,
+        enterGroup: group && !freshGroup && !enteredGroup ? group.id : null,
         clientX: event.clientX,
         clientY: event.clientY,
       };
@@ -1575,6 +1614,17 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       model.setOverlay?.(overlay);
       return;
     }
+    if (gesture.kind === "scale") {
+      // Bigger or smaller, keeping proportions; whole percent steps (Shift: 5%).
+      const now = Math.hypot(world.x - gesture.anchor.x, world.y - gesture.anchor.y);
+      const step = event.shiftKey ? 0.05 : 0.01;
+      const k = Math.max(0.05, Math.min(20, Math.round((now / gesture.start) / step) * step));
+      if (!gesture.moved && Math.abs(k - 1) < 0.005) return;
+      gesture.moved = true;
+      gesture.k = k;
+      scheduleLive(scaleSelection(gesture.snapshot, gesture.set, k, gesture.anchor).house);
+      return;
+    }
     if (gesture.kind === "rotate") {
       window.clearTimeout(longTimer);
       let angle = ((Math.atan2(world.y - gesture.pivot.y, world.x - gesture.pivot.x) - gesture.start) * 180) / Math.PI;
@@ -1721,6 +1771,21 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       addColumns(points);
       return;
     }
+    if (current.kind === "scale") {
+      if (current.moved && Math.abs(current.k - 1) > 1e-6) {
+        const result = scaleSelection(current.snapshot, current.set, current.k, current.anchor);
+        holdCamera();
+        commit(syncRooms(result.house), current.before, "resizing");
+        prunePicks();
+        announce(`Resized to ${Math.round(current.k * 100)}%. Walls keep their thickness; doors, windows, and furniture keep their real size.${detachNote(result.detached)}`);
+      } else {
+        house = current.before;
+        plan.setHouse(house);
+        model.setHouse?.(house);
+      }
+      publish();
+      return;
+    }
     if (current.kind === "rotate") {
       if (current.moved && current.angle) {
         const result = rotateSelection(current.snapshot, current.set, current.angle, current.pivot);
@@ -1778,6 +1843,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     } else if (current.kind === "select" && !current.moved && current.clickItem) {
       // A plain click inside a multi-selection picks just that item.
       choose(current.clickItem);
+      if (current.enterGroup) {
+        enteredGroup = current.enterGroup;
+        announce("Inside the group: click its parts one at a time. Click outside it to leave.", false);
+      }
     } else if ((current.kind === "endpoint" || current.kind === "select") && current.moved) {
       const pieceMove = movablePiece(current.hit, current.snapshot) && !current.group?.walls.length;
       const wallDrop = current.movedWalls?.length || current.movedEnd;
@@ -2266,6 +2335,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     }
     const solved = solveConstraints(next);
     next = solved.house;
+    if (next.groups?.length) pruneGroups(next);
     // Furnishings keep their plumbing and power points with them.
     if ((next.furniture || []).some(isFurnishing) || (next.plumbing?.fixtures || []).some((item) => item.furnitureId) || (next.electrical?.devices || []).some((item) => item.furnitureId)) {
       next = syncFurnishings(cloneHouse(next));
@@ -2996,6 +3066,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     const placed = placeTemplate(house, template, at, templateTurns);
+    makeGroup(placed.house, placed.picks, template.name, nextId("group"));
     holdCamera();
     commit(placed.house, house, `placing ${template.name}`);
     tool = "select";
@@ -3042,16 +3113,65 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   }
 
   function frameOverlay() {
-    if (gesture && gesture.kind !== "rotate") return null;
+    if (gesture && gesture.kind !== "rotate" && gesture.kind !== "scale") return null;
+    if (gesture?.kind === "scale") {
+      const box = scaledBox(gesture.box, gesture.k, gesture.anchor);
+      return { box, corners: true, label: `${Math.round(gesture.k * 100)}% · ${plainFeet(box.x1 - box.x0)} × ${plainFeet(box.y1 - box.y0)}` };
+    }
     const frame = selectionFrame();
     if (!frame) return null;
     const active = gesture?.kind === "rotate";
     return {
       box: frame.box,
       handle: rotateHandleAt(frame.box),
+      corners: true,
       active,
       label: active && gesture.moved ? formatTurn(gesture.angle) : "",
     };
+  }
+
+  function scaledBox(box, k, anchor) {
+    const x0 = anchor.x + (box.x0 - anchor.x) * k;
+    const x1 = anchor.x + (box.x1 - anchor.x) * k;
+    const y0 = anchor.y + (box.y0 - anchor.y) * k;
+    const y1 = anchor.y + (box.y1 - anchor.y) * k;
+    return { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) };
+  }
+
+  /** The frame's corner squares: grab one to resize, the opposite corner stays put. */
+  function scaleHandleAt(world) {
+    if (gesture) return null;
+    const frame = selectionFrame();
+    if (!frame) return null;
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    const pad = 6 / scale;
+    const { x0, y0, x1, y1 } = frame.box;
+    const corners = [
+      { at: { x: x0 - pad, y: y0 - pad }, anchor: { x: x1, y: y1 } },
+      { at: { x: x1 + pad, y: y0 - pad }, anchor: { x: x0, y: y1 } },
+      { at: { x: x1 + pad, y: y1 + pad }, anchor: { x: x0, y: y0 } },
+      { at: { x: x0 - pad, y: y1 + pad }, anchor: { x: x1, y: y0 } },
+    ];
+    const hit = corners.find((corner) => Math.hypot(world.x - corner.at.x, world.y - corner.at.y) * scale <= 10);
+    return hit ? { frame, ...hit } : null;
+  }
+
+  /** How big the selection is now compared with its size before: "40 ft" sets the width, "150%" or "150" a percentage. */
+  function sizeFactor(text, box) {
+    const raw = String(text || "").trim();
+    if (!raw) return null;
+    if (/%\s*$/.test(raw) || /^\d+(\.\d+)?$/.test(raw)) {
+      const pct = Number(raw.replace("%", "").trim());
+      return pct > 0 ? pct / 100 : null;
+    }
+    const feet = parseLength(raw);
+    const width = box.x1 - box.x0;
+    return feet > 0 && width > 0 ? feet / width : null;
+  }
+
+  function scaleBy(k, anchor = null) {
+    if (!(k > 0) || Math.abs(k - 1) < 1e-6) return;
+    arrange((frame) => scaleSelection(frame.house, frame.set, k, anchor), "resizing", `Resized to ${Math.round(k * 1000) / 10}%. Walls keep their thickness; doors, windows, and furniture keep their real size.`);
   }
 
   /** "90° clockwise", "12.5° counter-clockwise". */
@@ -3095,7 +3215,26 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
 
   /** Copy the selection beside itself (to the east), and select the copy. */
   function duplicateBeside() {
-    arrange((frame) => duplicateSelection(frame.house, frame.set, Math.ceil(frame.box.width) + 2, 0, nextId), "duplicating", "Duplicated it to the right. Drag it where you want it.");
+    const group = picks.length ? groupOf(house, picks[0]) : null;
+    const whole = group && isWholeGroup(house, group, picks);
+    arrange((frame) => {
+      const result = duplicateSelection(frame.house, frame.set, Math.ceil(frame.box.width) + 2, 0, nextId);
+      // A copy of a group is a group of its own.
+      if (whole) makeGroup(result.house, result.picks, `${group.name || "Group"} copy`, nextId("group"));
+      return result;
+    }, "duplicating", "Duplicated it to the right. Drag it where you want it.");
+  }
+
+  function groupSelection(name = "Group") {
+    const next = cloneHouse(house);
+    const made = makeGroup(next, picks, typeof name === "string" ? name : "Group", nextId("group"));
+    if (!made) {
+      announce("Pick two or more things to group.", false);
+      return;
+    }
+    commit(next, house, "grouping");
+    announce("Grouped. One click now selects them all; click again to pick one part.");
+    publish();
   }
 
   function selectAllVisible() {
@@ -3135,7 +3274,10 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       return;
     }
     const summary = selectionSummary(frame.set);
-    const key = `${summary}|${picks.length}`;
+    const group = picks.length ? groupOf(house, picks[0]) : null;
+    const whole = group && isWholeGroup(house, group, picks);
+    const canGroup = !whole && picks.filter((pick) => pick.type !== "opening").length > 1;
+    const key = `${summary}|${picks.length}|${whole ? group.id : ""}|${canGroup}|${Math.round(frame.box.x1 - frame.box.x0)}`;
     bar.hidden = false;
     if (bar.dataset.key === key) return;
     bar.dataset.key = key;
@@ -3148,12 +3290,33 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       <label class="arrange-angle" title="Turn by any angle (counter-clockwise; use a minus for clockwise)"><input id="arrange-angle" placeholder="Turn °" inputmode="decimal" autocomplete="off" /></label>
       <button type="button" data-arrange="flip-h" title="Flip left to right (Shift+H)">⇆ Flip</button>
       <button type="button" data-arrange="flip-v" title="Flip top to bottom (Shift+V)">⇅ Flip</button>
-      <button type="button" data-arrange="dup" title="Duplicate (${cmd}D)">Duplicate</button>`;
+      <button type="button" data-arrange="dup" title="Duplicate (${cmd}D)">Duplicate</button>
+      <label class="arrange-angle arrange-size" title="Make it bigger or smaller, keeping its shape: 150% or a width like 40 ft. Or drag a corner square."><input id="arrange-size" placeholder="Size ${escapeAttr(plainFeet(frame.box.x1 - frame.box.x0))}" inputmode="decimal" autocomplete="off" /></label>
+      ${whole ? `<button type="button" data-arrange="ungroup" title="Let the parts select on their own">Ungroup</button>` : canGroup ? `<button type="button" data-arrange="group" title="Keep these together: one click selects them all">Group</button>` : ""}`;
     bar.querySelector('[data-arrange="ccw"]').addEventListener("click", () => rotateBy(90));
     bar.querySelector('[data-arrange="cw"]').addEventListener("click", () => rotateBy(-90));
     bar.querySelector('[data-arrange="flip-h"]').addEventListener("click", () => flipBy("horizontal"));
     bar.querySelector('[data-arrange="flip-v"]').addEventListener("click", () => flipBy("vertical"));
     bar.querySelector('[data-arrange="dup"]').addEventListener("click", duplicateBeside);
+    bar.querySelector('[data-arrange="group"]')?.addEventListener("click", groupSelection);
+    bar.querySelector('[data-arrange="ungroup"]')?.addEventListener("click", () => {
+      const next = cloneHouse(house);
+      ungroup(next, group.id);
+      commit(next, house, "ungrouping");
+      enteredGroup = null;
+      announce("Ungrouped. Each part now selects on its own.");
+      publish();
+    });
+    const sizeInput = bar.querySelector("#arrange-size");
+    sizeInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const k = sizeFactor(sizeInput.value, frame.box);
+      sizeInput.value = "";
+      sizeInput.blur();
+      if (k) scaleBy(k);
+      else announce("Type a size like 150% or a width like 40 ft.", false);
+    });
     const input = bar.querySelector("#arrange-angle");
     input.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;

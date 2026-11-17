@@ -173,6 +173,31 @@
         }
       }
     },
+    "groups": {
+      "type": "array",
+      "description": "Optional groups: things that select, move, turn, and resize as one (a traced drawing, a placed template, or any selection grouped by hand).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "members"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "id"],
+              "properties": {
+                "type": { "enum": ["wall", "room", "column", "furniture", "image", "skylight", "siteFeature", "planLabel"] },
+                "id": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
     "buildings": {
       "type": "object",
       "description": "Optional settings per building, keyed by the building name used on rooms. A building with no entry uses the house roof.",

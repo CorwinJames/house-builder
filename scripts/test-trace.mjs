@@ -141,3 +141,44 @@ const cross = planFromSegments([
 const crossed = addTracedPlan(blank(), cross, { makeId: id });
 assert.equal(crossed.counts.rooms, 4, `four rooms from a cross, got ${crossed.counts.rooms}`);
 console.log("crossing walls ok");
+
+// ---- resizing a traced plan as one group.
+const { scaleSelection, selectionSet: setOf, selectionBounds: boundsOf } = await import("../src/build/transform.js");
+const { makeGroup, groupOf, groupMembers, isWholeGroup, pruneGroups } = await import("../src/build/groups.js");
+const { syncRooms } = await import("../src/build/rooms.js");
+const traced = addTracedPlan(blank(), plan, { makeId: id });
+const g = makeGroup(traced.house, traced.picks, "Traced", "group-1");
+assert.ok(validate(traced.house), JSON.stringify(validate.errors?.slice(0, 3)));
+const member = traced.picks[0];
+assert.equal(groupOf(traced.house, member).id, "group-1");
+assert.ok(isWholeGroup(traced.house, g, groupMembers(traced.house, g)));
+const set = setOf(traced.house, traced.picks);
+const before = boundsOf(traced.house, set);
+const door = traced.house.openings[0];
+const doorWall = traced.house.walls.find((w) => w.id === door.wallId);
+const doorCenterBefore = door.offset + door.width / 2;
+const lenBefore = Math.hypot(doorWall.end.x - doorWall.start.x, doorWall.end.y - doorWall.start.y);
+const grown = syncRooms(scaleSelection(traced.house, set, 1.5).house);
+const after = boundsOf(grown, setOf(grown, traced.picks));
+const wallSpan = (b) => b.x1 - b.x0;
+assert.ok(Math.abs(wallSpan(after) - wallSpan(before)) > 10, "the plan got bigger");
+const grownDoor = grown.openings.find((o) => o.id === door.id);
+assert.equal(grownDoor.width, door.width, "doors keep their real size");
+const grownWall = grown.walls.find((w) => w.id === doorWall.id);
+assert.equal(grownWall.thickness, doorWall.thickness, "walls keep their thickness");
+const lenAfter = Math.hypot(grownWall.end.x - grownWall.start.x, grownWall.end.y - grownWall.start.y);
+assert.ok(Math.abs(lenAfter - lenBefore * 1.5) < 1e-6, "walls get longer");
+assert.ok(Math.abs((grownDoor.offset + grownDoor.width / 2) - doorCenterBefore * 1.5) < 0.6, "the door keeps its place along the wall");
+const roomArea = (h) => h.rooms.reduce((sum, r) => sum + Math.abs(r.polygon.reduce((a, p, i, arr) => a + p.x * arr[(i + 1) % arr.length].y - arr[(i + 1) % arr.length].x * p.y, 0)) / 2, 0);
+assert.ok(roomArea(grown) > roomArea(traced.house) * 2, "rooms grow with it");
+// A picture scales with its size.
+const pic = makeImage({ src: "data:,", pxWidth: 100, pxHeight: 50 }, { x: 0, y: 0 }, 20, "pic-1");
+const withPic = { ...blank(), images: [pic] };
+const bigger = scaleSelection(withPic, setOf(withPic, [{ type: "image", id: "pic-1" }]), 2).house;
+assert.equal(bigger.images[0].width, 40);
+assert.equal(bigger.images[0].height, 20);
+// Deleted members leave the group.
+traced.house.walls = traced.house.walls.slice(1);
+pruneGroups(traced.house);
+assert.equal(traced.house.groups[0].members.length, traced.picks.length - 1);
+console.log("resize and groups ok");
