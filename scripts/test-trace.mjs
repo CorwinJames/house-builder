@@ -182,3 +182,35 @@ traced.house.walls = traced.house.walls.slice(1);
 pruneGroups(traced.house);
 assert.equal(traced.house.groups[0].members.length, traced.picks.length - 1);
 console.log("resize and groups ok");
+
+// ---- lining things up: the first thing picked stays still.
+const { alignSelection, selectionUnits } = await import("../src/build/align.js");
+{
+  const a = addTracedPlan(blank(), plan, { makeId: id });
+  makeGroup(a.house, a.picks, "A", "group-a");
+  const b = addTracedPlan(a.house, { walls: plan.walls.map((w) => ({ ...w, start: { x: w.start.x + 60, y: w.start.y - 7 }, end: { x: w.end.x + 60, y: w.end.y - 7 } })), openings: [] }, { makeId: id });
+  makeGroup(b.house, b.picks, "B", "group-b");
+  const pic = makeImage({ src: "data:,", pxWidth: 100, pxHeight: 100 }, { x: 40, y: 200 }, 10, "pic-a");
+  const doc = { ...b.house, images: [pic] };
+  const picks = [...a.picks, ...b.picks, { type: "image", id: "pic-a" }];
+  const units = selectionUnits(doc, picks);
+  assert.equal(units.length, 3, `two groups and a picture, got ${units.length}`);
+  const boxOfPicks = (h, list) => boundsOf(h, setOf(h, list));
+  const keyBox = boxOfPicks(doc, a.picks);
+  const top = alignSelection(doc, picks, "top");
+  assert.equal(top.moved, 2);
+  assert.ok(Math.abs(boxOfPicks(top.house, b.picks).y1 - keyBox.y1) < 1e-6, "B's top meets A's top");
+  assert.ok(Math.abs(top.house.images[0].y + top.house.images[0].height / 2 - keyBox.y1) < 1e-6, "the picture's top meets A's top");
+  const bBefore = boxOfPicks(doc, b.picks);
+  assert.ok(Math.abs(boxOfPicks(top.house, b.picks).x0 - bBefore.x0) < 1e-6, "lining up tops moves only up or down");
+  assert.ok(Math.abs(boxOfPicks(top.house, a.picks).y1 - keyBox.y1) < 1e-6 && Math.abs(boxOfPicks(top.house, a.picks).x0 - keyBox.x0) < 1e-6, "the first stays still");
+  const centre = alignSelection(doc, picks, "center");
+  const cx = (box) => (box.x0 + box.x1) / 2;
+  assert.ok(Math.abs(cx(boxOfPicks(centre.house, b.picks)) - cx(keyBox)) < 1e-6, "centres line up left to right");
+  for (const how of ["left", "right", "middle", "bottom"]) assert.equal(alignSelection(doc, picks, how).moved, 2, how);
+  // Touching rooms with no group are one section.
+  const loose = addTracedPlan(blank(), plan, { makeId: id });
+  assert.equal(selectionUnits(loose.house, loose.picks).length, 1, "a section of touching rooms is one unit");
+  assert.equal(alignSelection(loose.house, loose.picks, "left").moved, 0);
+}
+console.log("align ok");
