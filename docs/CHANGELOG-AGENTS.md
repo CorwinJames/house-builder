@@ -3,7 +3,7 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
-2026-11-17 | Claude | PR_LINK | Align snap: resize corners and wall ends click onto other things' edges (same vertical or horizontal line) or to the same width/depth, with pink guide lines and a dot; toggle in the build dock, Ctrl/⌘ to skip. | Moving a whole room or picture (not resizing) doesn't align-snap yet; resizing keeps proportions, so it snaps whichever of width, depth, or an edge is nearest.
+2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/46 | Align snap: resize corners and wall ends click onto other things' edges (same vertical or horizontal line) or to the same width/depth, with pink guide lines and a dot; toggle in the build dock, Ctrl/⌘ to skip. | Moving a whole room or picture (not resizing) doesn't align-snap yet; resizing keeps proportions, so it snaps whichever of width, depth, or an edge is nearest.
 
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/45 | Accurate shadows: window patches are traced ray by ray (wall thickness at both faces, real roof surface above each part of the window, awning width, other buildings); the roof casts its real shadow on the ground in plan (new) and 3D (a shadow-only copy of the drawn roof with skylight holes replaces the flat eave ring); 3D shadow camera fitted to the house with a 4096 map. Fixed the Sun panel crashing when the page loads with the sun on (from #44). | Not modelled: window frames and mullions, trees, ground slope, raised floor levels for patches, light through a second window. The clerestory band still uses the old single eave line.
 
