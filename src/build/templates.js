@@ -50,6 +50,21 @@ export const TEMPLATE_SOURCES = {
   kan: { name: "Park and Jeon, Kan composition of traditional Korean architecture (WCTE)", url: "https://proceedings.com/content/069/069179-0569open.pdf" },
   hanok: { name: "Wikipedia: Hanok", url: "https://en.wikipedia.org/wiki/Hanok" },
   hanokShapes: { name: "Secret Retreats: Hanok shapes", url: "https://www.secret-retreats.com/experience-hanok-culture" },
+  hyangdan: { name: "Encyclopedia of Korean Culture (AKS): 경주 양동 향단", url: "https://encykorea.aks.ac.kr/Article/E0062889" },
+  hyangdanKan: { name: "Tectonic Characteristics of 'Kan' in Hyangdan at Yang-Dong Village (KIRA, 2002)", url: "https://koreascience.kr/article/JAKO200229264789965.page" },
+  katsuraKikuyo: { name: "Kikuyō Bunka Kyōkai (Imperial Household Agency materials): Katsura Imperial Villa", url: "https://kikuyou.or.jp/gosyo_rikyu/katsura-rikyu.html" },
+  katsuraWiki: { name: "Wikipedia: Katsura Imperial Villa", url: "https://en.wikipedia.org/wiki/Katsura_Imperial_Villa" },
+  katsuraBrit: { name: "Britannica: Katsura Imperial Villa", url: "https://www.britannica.com/print/article/313339" },
+  kunaicho: { name: "Imperial Household Agency: Katsura Imperial Villa", url: "https://kyoto-gosho.kunaicho.go.jp/en/katsura-rikyu" },
+  shugakuin: { name: "Kikuyō Bunka Kyōkai (Imperial Household Agency materials): Shugakuin Imperial Villa", url: "https://kikuyou.or.jp/gosyo_rikyu/shugakuin-rikyu.html" },
+  shugakuinIha: { name: "Imperial Household Agency: Kyoto facilities", url: "https://www.kunaicho.go.jp/en/learn/institution/shisetsu/kyoto/kyoto.html" },
+  gasshoPlan: { name: "Gifu Women's University digital archive: Wada house floor plan (Shirakawa-go)", url: "https://adeac.jp/gijodai-univ-da-res/texthtml/d100010/mp000010-100010/ht000040" },
+  gasshoUnesco: { name: "Agency for Cultural Affairs: Shirakawa-go/Gokayama nomination, scale and form of plan", url: "https://bunka.nii.ac.jp/suisensyo/shirakawago/MAINTEXT/outline5.html" },
+  gasshoRoof: { name: "Agency for Cultural Affairs: Shirakawa-go/Gokayama nomination, roof", url: "https://bunka.nii.ac.jp/suisensyo/shirakawago/MAINTEXT/outline4.html" },
+  gasshoMlit: { name: "Japan Tourism Agency: Gasshō-zukuri, single-story houses with multiple levels", url: "https://www.mlit.go.jp/tagengo-db/common/001781892.pdf" },
+  doma: { name: "JAANUS: doma", url: "https://projects.mcah.columbia.edu/jaanus/node/4790" },
+  umaya: { name: "JAANUS: umaya", url: "https://projects.mcah.columbia.edu/jaanus/node/392" },
+  folkoDoma: { name: "Folko: Japanese minka, three-room dwellings (doma uses)", url: "https://www.folko.com.au/blog/2024/7/4/japanese-minka-xxxix-planning-17-three-room-dwellings-6" },
 };
 
 const JIAN = 11;
@@ -280,18 +295,21 @@ function minka() {
   const L = layout();
   const b = L.building("minka", { name: "Minka", style: "hip", ridge: "east-west", curve: 0, pitch: 1, ext: EXT.timber, int: EXT.screen });
   const up = 1.6;
+  // Raised floor: four rooms in a 田 plan.
   const zashiki = L.room("Zashiki (guest room)", 0, 0, 2 * KEN, 2 * KEN, { building: b, level: up });
   const dei = L.room("Hiroma (living room, irori)", 2 * KEN, 0, 4 * KEN, 2 * KEN, { building: b, level: up });
   L.room("Nando (bedroom)", 0, 2 * KEN, 2 * KEN, 4 * KEN, { building: b, level: up });
-  L.room("Daidokoro (kitchen room)", 2 * KEN, 2 * KEN, 4 * KEN, 4 * KEN, { building: b, level: up });
-  const doma = L.room("Doma (earth floor)", 4 * KEN, 0, 6.5 * KEN, 4 * KEN, { building: b, level: 0, finish: "concrete", sides: { w: EXT.part } });
+  L.room("Daidokoro (dining, by the doma)", 2 * KEN, 2 * KEN, 4 * KEN, 4 * KEN, { building: b, level: up });
+  // Earth floor: entry and work floor with the stove and sink, then food and tool storage, then the stable.
+  const doma = L.room("Doma (entry, work floor, kamado, sink)", 4 * KEN, 0, 7 * KEN, 2.5 * KEN, { building: b, level: 0, finish: "concrete", sides: { w: EXT.part } });
+  L.room("Storage (food, tools, fuel)", 4 * KEN, 2.5 * KEN, 5.5 * KEN, 4 * KEN, { building: b, level: 0, finish: "concrete", sides: { w: EXT.part } });
+  const umaya = L.room("Umaya (stable)", 5.5 * KEN, 2.5 * KEN, 7 * KEN, 4 * KEN, { building: b, level: 0, finish: "concrete" });
   L.room("Engawa", 0, -KEN / 2, 4 * KEN, 0, { kind: "covered", building: b, level: up - 0.2 });
   L.posts(0, -KEN / 2, 4 * KEN, -KEN / 2, KEN, 0.42, b);
   L.door(zashiki, "s", 6, "sliding");
   L.door(dei, "s", 6, "sliding");
-  L.door(doma, "s", 6, "sliding");
-  L.door(doma, "w", 6, "cased", 0.3);
-  L.door(doma, "w", 6, "cased", 0.75);
+  L.door(doma, "s", 6, "sliding", 0.6);
+  L.door(umaya, "e", 4, "cased");
   L.window(doma, "e", 4);
   return L.t;
 }
@@ -338,6 +356,147 @@ function shoin() {
   L.door(tsugi, "s", 9, "sliding");
   L.door(tsugi, "e", 9, "sliding");
   L.door(genkan, "e", 4, "sliding");
+  return L.t;
+}
+
+/**
+ * Katsura shoin group: Old Shoin, Middle Shoin, the Music Room, and the New
+ * Palace step back from east to west like flying geese, each its own
+ * irimoya roof, floors raised high on posts, verandas on the garden side,
+ * and a bamboo moon-viewing platform off the Old Shoin toward the pond.
+ * Mat counts from the sources where given (Old Shoin 15, 10, 9; New Palace
+ * 8, 6, and a 3-mat raised dais); other room sizes are assumed.
+ */
+function katsura() {
+  const L = layout();
+  const roof = { style: "hip-and-gable", ridge: "east-west", curve: 0.08, pitch: 0.9, ext: EXT.timber, int: EXT.screen };
+  const old = L.building("old", { ...roof, name: "Katsura Old Shoin (Koshoin)" });
+  const middle = L.building("middle", { ...roof, name: "Katsura Middle Shoin (Chushoin)" });
+  const music = L.building("music", { ...roof, name: "Katsura Music Room (Gakki-no-ma)" });
+  const palace = L.building("palace", { ...roof, name: "Katsura New Palace (Shingoten)" });
+  const K = KEN;
+  const up = 4; // Assumed: the sources say the floors stand high on posts, not how high.
+  // Old Shoin (east).
+  const fifteen = L.room("Koshoin 15 mats", 12.5 * K, 0, 15.5 * K, 2.5 * K, { building: old, level: up });
+  L.room("Koshoin 9 mats", 12.5 * K, 2.5 * K, 15.5 * K, 4 * K, { building: old, level: up });
+  const ten = L.room("Koshoin 10 mats", 10 * K, 0, 12.5 * K, 2 * K, { building: old, level: up });
+  L.room("Okoshiyose (entry)", 10 * K, 2 * K, 12.5 * K, 4 * K, { building: old, level: up });
+  L.room("Hiro-en (south)", 10 * K, -K, 15.5 * K, 0, { kind: "covered", building: old, level: up - 0.2 });
+  L.room("Hiro-en (east)", 15.5 * K, -K, 16.5 * K, 4 * K, { kind: "covered", building: old, level: up - 0.2 });
+  L.room("Tsukimidai (moon platform)", 16.5 * K, 0.5 * K, 18.5 * K, 2.5 * K, { kind: "site", finish: "wood", level: up - 0.4 });
+  // Middle Shoin, stepped back to the northwest.
+  const mid = rowX(L, 4 * K, 2 * K, 2 * K, [["Chushoin san-no-ma", 2 * K], ["Chushoin ni-no-ma", 2 * K], ["Chushoin ichi-no-ma", 2 * K]], { building: middle, level: up });
+  L.room("Chushoin bath and back rooms", 4 * K, 4 * K, 10 * K, 6 * K, { building: middle, level: up });
+  L.room("Chushoin veranda", 4 * K, K, 10 * K, 2 * K, { kind: "covered", building: middle, level: up - 0.2 });
+  // Music Room, the hinge to the New Palace.
+  const gakki = L.room("Gakki-no-ma", 1.5 * K, 4 * K, 4 * K, 6.5 * K, { building: music, level: up });
+  L.room("Gakki veranda", 1.5 * K, 3 * K, 4 * K, 4 * K, { kind: "covered", building: music, level: up - 0.2 });
+  // New Palace (west), stepped back again.
+  const ichi = L.room("Shingoten 8 mats", -0.5 * K, 5 * K, 1.5 * K, 7 * K, { building: palace, level: up });
+  L.room("Jodan 3 mats", -0.5 * K, 7 * K, 1.5 * K, 7.75 * K, { building: palace, level: up + 0.4 });
+  const ni = L.room("Shingoten 6 mats", -2.5 * K, 5 * K, -0.5 * K, 6.5 * K, { building: palace, level: up });
+  L.room("Wardrobe, pantry", -2.5 * K, 6.5 * K, -0.5 * K, 7.75 * K, { building: palace, level: up });
+  const bed = L.room("Bedchamber", -4.5 * K, 5 * K, -2.5 * K, 7.75 * K, { building: palace, level: up });
+  L.room("Bath, toilet, washroom", -4.5 * K, 7.75 * K, 1.5 * K, 9 * K, { building: palace, level: up });
+  L.room("Shingoten veranda", -4.5 * K, 4 * K, 1.5 * K, 5 * K, { kind: "covered", building: palace, level: up - 0.2 });
+  L.door(fifteen, "s", 3 * K - 2, "sliding");
+  L.door(fifteen, "e", 2 * K, "sliding", 0.4);
+  L.door(ten, "s", 2 * K, "sliding");
+  for (const room of mid) L.door(room, "s", 1.5 * K, "sliding");
+  L.door(gakki, "s", 1.5 * K, "sliding");
+  L.door(ichi, "s", 1.5 * K, "sliding");
+  L.door(ni, "s", 1.5 * K, "sliding");
+  L.door(bed, "s", 1.5 * K, "sliding");
+  return L.t;
+}
+
+/**
+ * Shugakuin, lower villa: Jugetsukan, a sukiya-style hall with shingled
+ * irimoya roof. Ichi-no-ma of 15 mats with a 3-mat raised dais, ni-no-ma with
+ * the mizuya behind its cedar doors, san-no-ma for attendants, and the 5-mat
+ * room behind it whose window frames the view.
+ */
+function shugakuinLower() {
+  const L = layout();
+  const b = L.building("jugetsukan", { name: "Shugakuin Jugetsukan", style: "hip-and-gable", ridge: "east-west", curve: 0.05, pitch: 0.9, ext: EXT.timber, int: EXT.screen });
+  const K = KEN;
+  const up = 2.2; // Assumed.
+  const ichi = L.room("Ichi-no-ma (12 mats)", 0, 0, 3 * K, 2 * K, { building: b, level: up });
+  L.room("Jodan (3-mat dais)", 0, 2 * K, 3 * K, 2.5 * K, { building: b, level: up + 0.4 });
+  const ni = L.room("Ni-no-ma", 3 * K, 0, 5.5 * K, 2 * K, { building: b, level: up });
+  L.room("Mizuya", 3 * K, 2 * K, 5.5 * K, 2.5 * K, { building: b, level: up });
+  const san = L.room("San-no-ma (attendants)", 5.5 * K, 0, 7.5 * K, 2 * K, { building: b, level: up });
+  const five = L.room("5-mat room (view window)", 5.5 * K, 2 * K, 7.5 * K, 3.25 * K, { building: b, level: up });
+  L.room("Veranda (south)", 0, -K, 7.5 * K, 0, { kind: "covered", building: b, level: up - 0.2 });
+  L.room("Garden", 0, -4 * K, 7.5 * K, -K, { kind: "site", finish: "stone" });
+  L.door(ichi, "s", 2.5 * K, "sliding");
+  L.door(ni, "s", 2 * K, "sliding");
+  L.door(san, "s", 1.5 * K, "sliding");
+  L.window(five, "e", 3, 0.5, 3, 2);
+  L.window(five, "n", 4, 0.5, 3, 2);
+  return L.t;
+}
+
+/**
+ * Shugakuin, upper villa: Rin'un-tei on the high ground (a 6-mat and a 2-mat
+ * room open on three sides, and the board-floored Senshidai on the north),
+ * and Kyusui-tei on the island (one 18-mat room under a pyramidal roof, with
+ * a one-ken mizuya). The pond (Yokuryu-chi) lies between; the real distance
+ * and the hill are much larger.
+ */
+function shugakuinUpper() {
+  const L = layout();
+  const K = KEN;
+  const rin = L.building("rinun", { name: "Shugakuin Rin'un-tei", style: "hip-and-gable", ridge: "east-west", curve: 0.05, platform: 3, ext: EXT.screen, int: EXT.screen });
+  const kyu = L.building("kyusui", { name: "Shugakuin Kyusui-tei", style: "hip", ridge: "east-west", curve: 0.05, ext: EXT.screen, int: EXT.screen });
+  const mizu = L.building("mizuya", { name: "Kyusui-tei mizuya", style: "flush-gable", ridge: "north-south", curve: 0, ext: EXT.timber, int: EXT.part });
+  const six = L.room("Rin'un-tei ichi-no-ma (6 mats)", 0, 6 * K, 2 * K, 7.5 * K, { building: rin, level: 4.5 });
+  const two = L.room("Rin'un-tei ni-no-ma (2 mats)", 2 * K, 6 * K, 3 * K, 7 * K, { building: rin, level: 4.5 });
+  const senshi = L.room("Senshidai (board floor, north)", 0, 7.5 * K, 3 * K, 8.5 * K, { building: rin, level: 4.5, finish: "wood" });
+  L.room("Rin'un-tei back", 2 * K, 7 * K, 3 * K, 7.5 * K, { building: rin, level: 4.5 });
+  L.room("Yokuryu-chi pond (shown flat)", -2 * K, 1.5 * K, 9 * K, 5 * K, { kind: "site", finish: "stone" });
+  const hall = L.room("Kyusui-tei (18 mats, raised corner dais)", 4 * K, -2 * K, 7 * K, K, { building: kyu, level: 1.5 });
+  L.room("Mizuya (1 ken)", 7 * K, -2 * K, 7.5 * K, 0, { building: mizu, level: 1.5 });
+  L.door(six, "s", 1.5 * K, "sliding");
+  L.door(six, "w", 1.25 * K, "sliding");
+  L.door(two, "s", 4, "sliding");
+  L.door(two, "e", 4, "sliding");
+  L.door(senshi, "n", 2.5 * K, "cased");
+  L.door(hall, "n", 2.5 * K, "sliding");
+  L.door(hall, "w", 2.5 * K, "sliding");
+  L.door(hall, "s", 2.5 * K, "sliding");
+  return L.t;
+}
+
+/**
+ * Shirakawa-go gassho house, after the room list of the Wada house (26.9 m by
+ * 15.7 m, the largest in the village): the earth floor holds the entry and
+ * the stable; the raised floor has the oe living room with its irori, the
+ * kitchen, guest rooms, Buddhist altar room, and the chouda bedroom. The
+ * roof is a gable of about 60 degrees; the attic above (up to three more
+ * levels for silkworms) can't be drawn here. Room positions are approximate.
+ */
+function gassho() {
+  const L = layout();
+  const K = KEN;
+  const b = L.building("gassho", { name: "Gassho-zukuri house", style: "gable", ridge: "east-west", curve: 0, pitch: Math.tan((60 * Math.PI) / 180), ext: EXT.timber, int: EXT.screen });
+  const up = 1.5; // Assumed.
+  const doji = L.room("Doji (earth-floor entry)", 0, 0, 3 * K, 3 * K, { building: b, level: 0, finish: "concrete", sides: { e: EXT.part } });
+  const umaya = L.room("Umaya (stable, earth floor)", 0, 3 * K, 3 * K, 8.5 * K, { building: b, level: 0, finish: "concrete", sides: { e: EXT.part } });
+  const oe = L.room("Oe (living room, irori)", 3 * K, 0, 7.5 * K, 4.5 * K, { building: b, level: up });
+  L.room("Kitchen (raised floor)", 3 * K, 4.5 * K, 7.5 * K, 8.5 * K, { building: b, level: up });
+  const genkan = L.room("Genkan (formal entrance)", 7.5 * K, 0, 9 * K, 4 * K, { building: b, level: up - 0.5 });
+  L.room("Ennoma (anteroom)", 9 * K, 0, 11.5 * K, 4 * K, { building: b, level: up });
+  const dei = L.room("Dei (guest room)", 11.5 * K, 0, 14.5 * K, 4 * K, { building: b, level: up });
+  L.room("Chouda (bedroom)", 7.5 * K, 4 * K, 10 * K, 8.5 * K, { building: b, level: up });
+  L.room("Butsuma (altar room)", 10 * K, 4 * K, 12.5 * K, 8.5 * K, { building: b, level: up });
+  const oku = L.room("Okunodei (inner guest room)", 12.5 * K, 4 * K, 14.5 * K, 8.5 * K, { building: b, level: up });
+  L.door(doji, "s", 5, "sliding");
+  L.door(umaya, "w", 5, "cased");
+  L.door(genkan, "s", 5, "sliding");
+  L.window(oe, "s", 6);
+  L.window(dei, "s", 6);
+  L.window(oku, "e", 6);
   return L.t;
 }
 
@@ -408,6 +567,69 @@ function hanokU() {
   return L.t;
 }
 
+/**
+ * Hyangdan, Yangdong village (Gyeongju), built about 1540. A 9-kan
+ * haengnangchae (servants' wing) and a 日-shaped main body around two small
+ * inner yards: the anbang and andaecheong sit between the yards; the kitchen,
+ * storerooms, and shed wrap the west yard, which worked like an open-air
+ * kitchen; the sarangchae (big sarang, sarang daecheong, small sarang, north
+ * to south) faces east past the east yard. Single-eave gable roofs. Wing
+ * depths and the rooms of the north side are approximated; the sources give
+ * the arrangement, not a measured plan.
+ */
+function hyangdan() {
+  const L = layout();
+  const roof = { style: "gable", curve: 0.35, ext: EXT.timber, int: EXT.screen };
+  const K = KAN;
+  const haeng = L.building("haengnang", { ...roof, name: "Hyangdan haengnangchae", ridge: "east-west", platform: 1 });
+  const north = L.building("north", { ...roof, name: "Hyangdan north wing", ridge: "east-west", platform: 2 });
+  const west = L.building("west", { ...roof, name: "Hyangdan west wing (kitchen side)", ridge: "north-south", platform: 2 });
+  const anchae = L.building("anchae", { ...roof, name: "Hyangdan anchae (between the yards)", ridge: "north-south", platform: 2 });
+  const sarang = L.building("sarang", { ...roof, name: "Hyangdan sarangchae", ridge: "north-south", platform: 2.5 });
+  // Haengnangchae, 9 kan, east to west: ondol room, middle gate, maru, ondol room, storeroom, stable.
+  const row = rowX(L, 0, 0, K, [
+    ["Magugan (stable)", 2 * K, { level: 1, finish: "concrete" }],
+    ["Gotgan (storeroom)", 2 * K, { level: 1, finish: "concrete" }],
+    ["Haengnang ondol room", K],
+    ["Haengnang maru", 2 * K],
+    ["Jungmun (middle gate)", K, { level: 1, finish: "stone" }],
+    ["Haengnang ondol room (east)", K],
+  ], { building: haeng, level: 1.5 });
+  // West wing around the west yard (haengnang madang).
+  const westRooms = rowY(L, 0, K, K, [
+    ["Bueok (kitchen)", K, { level: 2, finish: "concrete" }],
+    ["Gobang (storeroom)", K],
+    ["Gwang (storage)", K, { level: 2, finish: "concrete" }],
+  ], { building: west, level: 2.5 });
+  L.room("West yard (haengnang madang)", K, K, 3 * K, 4 * K, { kind: "site", finish: "stone" });
+  // Between the yards: anbang, andaecheong, geonneonbang.
+  const anbang = L.room("Anbang (ondol)", 3 * K, K, 5 * K, 2 * K, { building: anchae, level: 2.5 });
+  const daecheong = L.room("Andaecheong (wood floor)", 3 * K, 2 * K, 5 * K, 4 * K, { building: anchae, level: 2.5 });
+  L.room("East yard (an madang)", 5 * K, K, 7 * K, 4 * K, { kind: "site", finish: "stone" });
+  // North side, closing the 日.
+  rowX(L, 0, 4 * K, K, [
+    ["Heotgan (shed)", 3 * K, { level: 2, finish: "concrete" }],
+    ["Geonneonbang (ondol)", 2 * K],
+    ["North room", 2 * K],
+  ], { building: north, level: 2.5 });
+  // Sarangchae on the east, facing east: small sarang (south), sarang daecheong, big sarang (north).
+  const sarangRooms = rowY(L, 7 * K, K, 2 * K, [
+    ["Jageun sarang (small sarang)", K],
+    ["Sarang daecheong", 2 * K],
+    ["Keun sarang (big sarang)", 2 * K],
+  ], { building: sarang, level: 3 });
+  L.room("Sarang madang (east yard)", 9 * K, 0, 12 * K, 5 * K, { kind: "site", finish: "stone" });
+  L.door(row[4], "s", 5);
+  L.door(row[4], "n", 5, "cased");
+  L.door(row[0], "s", 5, "cased");
+  L.door(westRooms[0], "e", 3);
+  L.door(westRooms[1], "e", 3);
+  L.door(anbang, "w", 3);
+  L.door(daecheong, "e", 12, "cased");
+  for (const room of sarangRooms) L.door(room, "e", room === sarangRooms[1] ? 10 : 3, room === sarangRooms[1] ? "cased" : "swing");
+  return L.t;
+}
+
 function hanokSquare() {
   const L = layout();
   const roof = { style: "hip-and-gable", curve: 0.6, platform: 1.5, ext: EXT.timber, int: EXT.screen };
@@ -461,14 +683,34 @@ export const TEMPLATES = [
     sources: ["hui", "uw"],
   },
   {
-    id: "jp-minka", group: "Japan", name: "Minka farmhouse (four rooms)", make: minka,
-    about: "Farmhouse on the ken grid: an earth-floored doma, and four tatami rooms in a 田 plan raised about 50 cm, divided by paper screens, with an engawa under the eaves. Steep hipped roof for thatch.",
-    sources: ["minka", "jaanus", "ken"],
+    id: "jp-minka", group: "Japan", name: "Minka farmhouse (four rooms, stable, work doma)", make: minka,
+    about: "Farmhouse on the ken grid where living and farm work share one roof: an earth-floored doma for the entry, cooking at the kamado and sink, and indoor farm work; food, tool, and fuel storage; and an inside stable (umaya). Four raised rooms in a 田 plan, the dining room open to the doma, divided by paper screens, with an engawa under the eaves. Steep hipped roof for thatch. Room sizes are typical, not one measured house.",
+    sources: ["minka", "jaanus", "doma", "umaya", "folkoDoma", "ken"],
   },
   {
     id: "jp-machiya", group: "Japan", name: "Machiya townhouse", make: machiya,
     about: "Kyoto 'eel bed': 3 ken wide and about 11 deep, shop at the street, an earth-floored passage (toriniwa) down one side, a small light court (tsuboniwa), the main room on a rear garden.",
     sources: ["machiya", "ken"],
+  },
+  {
+    id: "jp-katsura", group: "Japan", name: "Katsura shoin group (stepped like flying geese)", make: katsura,
+    about: "Katsura Imperial Villa, Kyoto, 17th century: the Old Shoin, Middle Shoin, Music Room, and New Palace run east to west in a stepped 'flying geese' line, each under its own shingled irimoya roof, floors raised high on posts above the flood-prone ground, verandas facing the garden, and the bamboo moon-viewing platform off the Old Shoin toward the pond. Mat counts follow the sources where they give them (Old Shoin 15, 10, 9; New Palace 8, 6, and a 3-mat dais); the 4 ft floor height, the Middle Shoin rooms, the entry, and the New Palace's private rooms are sized by assumption.",
+    sources: ["katsuraKikuyo", "katsuraWiki", "katsuraBrit", "kunaicho", "ken"],
+  },
+  {
+    id: "jp-shugakuin-lower", group: "Japan", name: "Shugakuin Jugetsukan (lower villa)", make: shugakuinLower,
+    about: "Shugakuin Imperial Villa, Kyoto, 17th century, rebuilt to the old plan in the 1820s: a sukiya hall with a shingled irimoya roof. Ichi-no-ma of 15 mats including a 3-mat dais, ni-no-ma with the mizuya behind cedar doors, san-no-ma for attendants, and a 5-mat room whose window frames the view across the fields to Mt Hiei and the hills (borrowed scenery). Room sizes not given in the source are assumed.",
+    sources: ["shugakuin", "shugakuinIha", "ken"],
+  },
+  {
+    id: "jp-shugakuin-upper", group: "Japan", name: "Shugakuin upper villa teahouses", make: shugakuinUpper,
+    about: "The upper villa's two teahouses across the Yokuryu-chi pond: Rin'un-tei high on the hill (a 6-mat and a 2-mat room that open on three sides to the pond, the north hills, and the city, plus the board-floored Senshidai), and Kyusui-tei on the island (one 18-mat room with a raised corner, under a pyramidal roof, with a one-ken mizuya). Drawn close together; really they sit far apart on a hillside.",
+    sources: ["shugakuin", "shugakuinIha", "ken"],
+  },
+  {
+    id: "jp-gassho", group: "Japan", name: "Shirakawa-go gassho house", make: gassho,
+    about: "Shirakawa-go farmhouse after the Wada house's rooms: an earth floor holding the entry and stable, and a raised floor with the oe living room around the irori, the kitchen, guest rooms, Buddhist altar room, and bedroom. A thatched gable roof of about 60 degrees, steep for snow, built by the villagers; inside it, up to three attic levels were used for raising silkworms, warmed by the hearth smoke (not drawn: the app has one floor). Positions approximate.",
+    sources: ["gasshoPlan", "gasshoUnesco", "gasshoRoof", "gasshoMlit", "ken"],
   },
   {
     id: "jp-shoin", group: "Japan", name: "Shoin house with engawa", make: shoin,
@@ -489,6 +731,11 @@ export const TEMPLATES = [
     id: "kr-u", group: "Korea", name: "Hanok ㄷ (U-shaped)", make: hanokU,
     about: "Three wings around the yard: ondol rooms and the daecheong to the north, kitchen and storage on one wing, the men's sarangbang on the other.",
     sources: ["hanokShapes", "hanok", "kan"],
+  },
+  {
+    id: "kr-hyangdan", group: "Korea", name: "Hyangdan (Yangdong village)", make: hyangdan,
+    about: "Hyangdan, Yangdong village, Gyeongju, about 1540: a 9-kan servants' wing and a 日-shaped main body packed around two small inner yards instead of the usual separate halls. The anbang and andaecheong sit between the yards; kitchen, storerooms, and shed wrap the west yard, used like an open-air kitchen; the sarangchae faces east. Single-eave gable roofs. The arrangement follows the encyclopedia entry; wing depths and some room uses are approximated.",
+    sources: ["hyangdan", "hyangdanKan", "kan"],
   },
   {
     id: "kr-square", group: "Korea", name: "Hanok ㅁ (enclosed)", make: hanokSquare,
