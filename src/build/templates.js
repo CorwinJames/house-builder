@@ -51,6 +51,8 @@ export const TEMPLATE_SOURCES = {
   hanok: { name: "Wikipedia: Hanok", url: "https://en.wikipedia.org/wiki/Hanok" },
   hanokShapes: { name: "Secret Retreats: Hanok shapes", url: "https://www.secret-retreats.com/experience-hanok-culture" },
   hyangdan: { name: "Encyclopedia of Korean Culture (AKS): 경주 양동 향단", url: "https://encykorea.aks.ac.kr/Article/E0062889" },
+  changdae: { name: "Korean Heritage (AKS wiki, from the National Heritage Portal): 양평 창대리 고가", url: "https://dh.aks.ac.kr/~heritage/wiki/index.php/%EC%96%91%ED%8F%89_%EC%B0%BD%EB%8C%80%EB%A6%AC_%EA%B3%A0%EA%B0%80" },
+  changdaeStay: { name: "Korea Tourism Organization (via KoreaCharts): Hanok The One, Changdae-ri", url: "https://info.koreacharts.com/tour/3102087/contents.html" },
   hyangdanKan: { name: "Tectonic Characteristics of 'Kan' in Hyangdan at Yang-Dong Village (KIRA, 2002)", url: "https://koreascience.kr/article/JAKO200229264789965.page" },
   katsuraKikuyo: { name: "Kikuyō Bunka Kyōkai (Imperial Household Agency materials): Katsura Imperial Villa", url: "https://kikuyou.or.jp/gosyo_rikyu/katsura-rikyu.html" },
   katsuraWiki: { name: "Wikipedia: Katsura Imperial Villa", url: "https://en.wikipedia.org/wiki/Katsura_Imperial_Villa" },
@@ -630,6 +632,54 @@ function hyangdan() {
   return L.t;
 }
 
+/**
+ * Changdae-ri old house, Yangpyeong (late 18th century, Gyeonggi folklore
+ * heritage no. 7): a well-off Gyeonggi farmhouse. A ㄱ-shaped anchae with
+ * the wide daecheong between the anbang and the geonneonbang and the kitchen
+ * in front of the anbang; across the yard, the outer wing (sarangchae and
+ * haengnangchae, built separately but reading as one), the gate between
+ * them, and a wall behind the gate so you turn twice before you see the
+ * inner yard. Kan sizes and roof form are assumed.
+ */
+function changdae() {
+  const L = layout();
+  const roof = { style: "hip-and-gable", curve: 0.5, platform: 1.5, ext: EXT.timber, int: EXT.screen };
+  const K = KAN;
+  const an = L.building("anchae", { ...roof, name: "Changdae-ri anchae", ridge: "east-west" });
+  const leg = L.building("kitchen", { ...roof, name: "Changdae-ri anchae kitchen wing", ridge: "north-south" });
+  const sarang = L.building("sarang", { ...roof, name: "Changdae-ri sarangchae", ridge: "east-west", platform: 1.5 });
+  const haeng = L.building("haengnang", { ...roof, name: "Changdae-ri haengnangchae", ridge: "east-west", platform: 1 });
+  const north = rowX(L, 0, 3 * K, 1.5 * K, [
+    ["Geonneonbang (ondol)", 1.5 * K],
+    ["Daecheong (wide maru)", 2 * K],
+    ["Anbang (ondol)", 1.5 * K],
+  ], { building: an, level: 2.5 });
+  const bueok = L.room("Bueok (kitchen)", 3.5 * K, 1.25 * K, 5 * K, 3 * K, { building: leg, level: 1.5, finish: "concrete" });
+  const sarangRooms = rowX(L, 0, 0, 1.25 * K, [
+    ["Sarangbang (ondol)", 1.5 * K],
+    ["Sarang maru", K],
+  ], { building: sarang, level: 2.5 });
+  const haengRooms = rowX(L, 2.5 * K, 0, 1.25 * K, [
+    ["Daemun (gate)", 0.75 * K, { level: 1, finish: "stone" }],
+    ["Haengnang room (ondol)", K],
+    ["Gwang (storage)", 1.25 * K, { level: 1, finish: "concrete" }],
+  ], { building: haeng, level: 2 });
+  L.room("An madang (inner yard)", 0, 1.25 * K, 3.5 * K, 3 * K, { kind: "site", finish: "stone" });
+  // Yard wall on the west, and the screen wall just inside the gate.
+  L.wall(0, 1.25 * K, 0, 3 * K, EXT.brick);
+  L.wall(2.25 * K, 1.25 * K + 4, 3.4 * K, 1.25 * K + 4, EXT.brick);
+  L.door(north[0], "s", 3);
+  L.door(north[1], "s", 12, "cased");
+  L.door(north[2], "s", 3, "swing", 0.3);
+  L.door(bueok, "w", 4);
+  L.door(sarangRooms[0], "s", 3);
+  L.door(sarangRooms[1], "s", 6, "cased");
+  L.door(haengRooms[0], "s", 5);
+  L.door(haengRooms[0], "n", 5, "cased");
+  L.door(haengRooms[1], "n", 3);
+  return L.t;
+}
+
 function hanokSquare() {
   const L = layout();
   const roof = { style: "hip-and-gable", curve: 0.6, platform: 1.5, ext: EXT.timber, int: EXT.screen };
@@ -736,6 +786,11 @@ export const TEMPLATES = [
     id: "kr-hyangdan", group: "Korea", name: "Hyangdan (Yangdong village)", make: hyangdan,
     about: "Hyangdan, Yangdong village, Gyeongju, about 1540: a 9-kan servants' wing and a 日-shaped main body packed around two small inner yards instead of the usual separate halls. The anbang and andaecheong sit between the yards; kitchen, storerooms, and shed wrap the west yard, used like an open-air kitchen; the sarangchae faces east. Single-eave gable roofs. The arrangement follows the encyclopedia entry; wing depths and some room uses are approximated.",
     sources: ["hyangdan", "hyangdanKan", "kan"],
+  },
+  {
+    id: "kr-changdae", group: "Korea", name: "Changdae-ri old house (Yangpyeong)", make: changdae,
+    about: "Yangpyeong Changdae-ri old house, late 18th century, at the top of its village looking over the fields: a well-off Gyeonggi farmhouse. A ㄱ-shaped anchae (wide daecheong between the anbang and geonneonbang, the kitchen in front of the anbang), and across the inner yard the outer wing of sarangchae and haengnangchae with the gate between them; a wall behind the gate means you turn twice before you see the yard. The arrangement follows the heritage description; bay sizes and the roof form are assumed.",
+    sources: ["changdae", "changdaeStay", "kan"],
   },
   {
     id: "kr-square", group: "Korea", name: "Hanok ㅁ (enclosed)", make: hanokSquare,
