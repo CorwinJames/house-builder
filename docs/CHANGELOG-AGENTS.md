@@ -3,7 +3,7 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
-2026-11-17 | Claude | PR_LINK | Template: Yangpyeong Changdae-ri old house (양평 창대리 고가): ㄱ anchae, outer sarang/haengnang wing, gate with a screen wall behind it, around an inner yard. | Bay sizes and roof form assumed; the source gives the arrangement only.
+2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/48 | Template: Yangpyeong Changdae-ri old house (양평 창대리 고가): ㄱ anchae, outer sarang/haengnang wing, gate with a screen wall behind it, around an inner yard. | Bay sizes and roof form assumed; the source gives the arrangement only.
 
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/47 | Templates: Katsura shoin group, Shugakuin Jugetsukan, Shugakuin upper teahouses, Shirakawa-go gassho (60° gable), Hyangdan; minka gains work doma, storage, and stable. Sources cited per template; assumed sizes said in each description. | 仓垈里古宅 not identified yet; gassho attic floors and Katsura floor height are not modelled from measurements.
 
