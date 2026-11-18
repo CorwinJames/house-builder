@@ -92,7 +92,7 @@ export function createView3d(canvas, initialHouse) {
   sun.shadow.bias = -0.00035;
   scene.add(sun);
   scene.add(sun.target);
-  const sunRig = createSunRig({ scene, ambient, hemisphere, light: sun });
+  const sunRig = createSunRig({ scene, ambient, hemisphere, light: sun, renderer });
   let sunNow = null;
 
   const ground = new THREE.Mesh(
@@ -446,6 +446,7 @@ export function createView3d(canvas, initialHouse) {
     }
     phaseRoof.visible = !futureOn;
     fullRoof.visible = futureOn;
+    if (sunNow) sunRig.syncRoof(futureOn ? fullRoof : phaseRoof);
     phaseSlab.visible = !futureOn;
     fullSlab.visible = futureOn;
   }
@@ -531,8 +532,12 @@ export function createView3d(canvas, initialHouse) {
   }
 
   /** Sun and shade on: the shadow-only stand-ins (with skylight holes) shade the rooms, not the roof. */
+  function activeRoof() {
+    return state && isFutureShown(state) ? fullRoof : phaseRoof;
+  }
+
   function applySun() {
-    sunRig.apply(sunNow, house, state);
+    sunRig.apply(sunNow, house, state, activeRoof());
     roofPivot.traverse((obj) => {
       if (obj.userData?.roofSurface) obj.castShadow = !sunNow;
     });

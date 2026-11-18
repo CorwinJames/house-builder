@@ -188,6 +188,7 @@ export function createClerestoryRoof(g, roofMaterial) {
   const band = (z0, z1, material, cast = true) => {
     const mesh = quad(at(xa, y, z0), at(xb, y, z0), at(xb, y, z1), at(xa, y, z1), material);
     mesh.castShadow = cast;
+    mesh.userData.castsSun = cast;
     group.add(mesh);
   };
   band(g.lowTop, g.sill, siding);

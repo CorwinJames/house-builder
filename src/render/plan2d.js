@@ -20,7 +20,7 @@ import { offsetSegment, planDimensions } from "./dimensions.js";
 import { assemblyById } from "../build/catalog.js";
 import { pieceOutline, wallJoints } from "../build/joins.js";
 import { endsAt, isClipped } from "../build/clips.js";
-import { roofed, sunPatches, wallShadows } from "../sun/light.js";
+import { roofShadows, roofed, sunPatches, wallShadows } from "../sun/light.js";
 import { skylightFootprint } from "../build/skylights.js";
 import { foldingPanels } from "../build/catalog.js";
 import { awningPieces } from "../build/awnings.js";
@@ -1584,6 +1584,11 @@ export function createPlanView(canvas, initialHouse) {
     } else {
       for (const quad of wallShadows(house, sun, { wallVisible })) {
         traceOn(mask, quad);
+        mask.fill();
+      }
+      // The roof's shadow: eaves, rakes and ridge, so the shadow on the ground matches the 3D roof.
+      for (const outline of roofShadows(house, sun, { full: !!state && isFutureShown(state) })) {
+        traceOn(mask, outline);
         mask.fill();
       }
       for (const room of house.rooms || []) {

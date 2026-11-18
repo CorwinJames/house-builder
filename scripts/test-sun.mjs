@@ -4,7 +4,9 @@ import { costLines } from "../src/cost/list.js";
 import assert from "node:assert/strict";
 import sample from "../data/sample-house.json" with { type: "json" };
 import { SEASONS, currentSun, siteMoment, solarPosition, sunPlace, sunVector } from "../src/sun/solar.js";
-import { roomSun, sunPatches, wallShadows } from "../src/sun/light.js";
+import { roofShadows, roomSun, sunPatches, wallShadows } from "../src/sun/light.js";
+import { litRange, sunObstacles } from "../src/sun/rays.js";
+import { polygonArea } from "../src/lib/geom.js";
 import { decorateHouse } from "../src/build/walls.js";
 
 let failed = 0;
@@ -54,8 +56,12 @@ check("a south window puts a sun patch on the floor north of it", () => {
   assert.ok(living, "the living room's south window lets sun in");
   const ys = living.polygon.map((point) => point.y);
   assert.ok(Math.min(...ys) > 0.5, "the patch is inside, north of the wall");
-  // Sill 2.5 ft, head 6.5 ft, sun 30 degrees: the patch reaches about 6.5 / tan 30 = 11.3 ft in.
-  assert.ok(Math.abs(Math.max(...ys) - (0.75 + 0.75 + 6.5 / Math.tan(Math.PI / 6))) < 0.3, `far edge ${Math.max(...ys)}`);
+  // Sill 2.5 ft, head 6.5 ft, sun 30 degrees. The farthest line in grazes the
+  // head at the wall's OUTER face (y = 0 on this 1.5 ft wall), so it lands
+  // 6.5 / tan 30 = 11.26 ft north of that face; the near edge is the sill at
+  // the inner face: 1.5 + 2.5 / tan 30 = 5.83.
+  assert.ok(Math.abs(Math.max(...ys) - 6.5 / Math.tan(Math.PI / 6)) < 0.05, `far edge ${Math.max(...ys)}`);
+  assert.ok(Math.abs(Math.min(...ys) - (1.5 + 2.5 / Math.tan(Math.PI / 6))) < 0.05, `near edge ${Math.min(...ys)}`);
   assert.ok(living.area > 10, `area ${living.area}`);
   const north = sunPatches(house, { up: true, vector: sunVector(0, 30) }).find((patch) => patch.openingId === "win-living-s");
   assert.equal(north, undefined, "no sun through a south window when the sun is in the north");
@@ -161,6 +167,68 @@ check("seasons: a reference place sets the sun by season", () => {
   // No lot and no place: still by hand.
   assert.equal(sunPlace(structuredClone(sample)), null);
   assert.equal(currentSun(structuredClone(sample), { mode: "auto" }).source, "manual");
+});
+
+check("thick walls narrow the patch when the sun comes in at an angle", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const wall = house.walls.find((item) => item.id === house.openings.find((o) => o.id === "win-living-s").wallId);
+  const opening = house.openings.find((o) => o.id === "win-living-s");
+  const width = (patch) => Math.max(...patch.polygon.map((p) => p.x)) - Math.min(...patch.polygon.map((p) => p.x));
+  const square = sunPatches(house, { up: true, vector: sunVector(180, 30) }).find((p) => p.openingId === opening.id);
+  const angled = sunPatches(house, { up: true, vector: sunVector(225, 30) }).find((p) => p.openingId === opening.id);
+  // Straight on, the patch is the window's width.
+  assert.ok(Math.abs(width(square) - opening.width) < 0.05, `square ${width(square)}`);
+  // At 45 degrees off the wall the jambs hide a strip as wide as the wall is thick,
+  // and the patch is a parallelogram slanting the other way.
+  const thick = Number(wall.thickness);
+  const patchArea = Math.abs(polygonArea(angled.polygon));
+  const squareArea = Math.abs(polygonArea(square.polygon));
+  assert.ok(patchArea < squareArea, "less light in at an angle");
+  const xsAtNear = angled.polygon.filter((p) => Math.abs(p.y - Math.min(...angled.polygon.map((q) => q.y))) < 0.05).map((p) => p.x);
+  assert.ok(xsAtNear.length >= 1);
+  assert.ok(thick > 0);
+});
+
+check("a gable end's rake shades a window less than a low eave would", () => {
+  // One box roof, ridge east-west; a west window under the gable rake, 2 ft overhang.
+  const house = decorateHouse(structuredClone(sample));
+  house.roof.style = "gable";
+  const obstacles = sunObstacles(house, { up: true, vector: sunVector(270, 40) }, { full: false });
+  const own = obstacles.roofs[0];
+  assert.equal(own.box.style, "gable");
+  const midY = (own.box.y0 + own.box.y1) / 2;
+  const plate = Number(house.roof.plateHeight);
+  // At the middle of the west wall the roof overhead is far above the plate.
+  assert.ok(own.top({ x: own.box.x0 + 0.01, y: midY }) > plate + 1);
+  const at = { x: own.box.x0 + 2 - 0.01, y: midY };
+  const range = litRange(obstacles, at, 0, 30);
+  assert.ok(range, "some of the wall sees the sun");
+  // The shade line sits above the plate here (a plain eave line would be at plate - depth * tan).
+  assert.ok(range[1] > plate - 2 * Math.tan((40 * Math.PI) / 180), `top ${range && range[1]}`);
+});
+
+check("an eave line equals plate minus overhang times the profile angle", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const obstacles = sunObstacles(house, { up: true, vector: sunVector(180, 50) }, { full: false });
+  const roof = obstacles.roofs[0];
+  // The living room's south wall: outer face at y = 0.
+  const x = (roof.box.x0 + roof.box.x1) / 2;
+  const at = { x, y: -0.01 };
+  const range = litRange(obstacles, at, 0, 30);
+  const depth = 0 - roof.box.y0;
+  assert.ok(depth > 0.5, `overhang ${depth}`);
+  const expected = Number(house.roof.plateHeight) - depth * Math.tan((50 * Math.PI) / 180);
+  assert.ok(Math.abs(range[1] - expected) < 0.05, `line ${range[1]} vs ${expected}`);
+});
+
+check("the roof throws a ground shadow past the walls' own shadows", () => {
+  const house = decorateHouse(structuredClone(sample));
+  const sun = { up: true, vector: sunVector(180, 20) };
+  const roofs = roofShadows(house, sun, { full: true });
+  assert.ok(roofs.length >= 1);
+  const farRoof = Math.max(...roofs.flat().map((p) => p.y));
+  const farWall = Math.max(...wallShadows(house, sun).flat().map((p) => p.y));
+  assert.ok(farRoof > farWall + 5, `roof ${farRoof} wall ${farWall}`);
 });
 
 if (failed) {
