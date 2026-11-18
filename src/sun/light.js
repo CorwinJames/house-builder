@@ -7,22 +7,29 @@
  * - Rooms with a roof over them are in shade, except where sun comes in.
  * - Sun comes in through glass (windows and sliding doors) and open cased
  *   openings, on walls where outside is on the sunny side and a room is on the other.
- * - The patch on the floor is the opening, from its sill to its head, pushed
- *   along the sun's direction down to the floor, then trimmed to that room.
+ * - The patch on the floor is traced along straight lines from the sun. A line
+ *   gets in only if it clears the opening at both faces of the wall, so thick
+ *   walls (the window's sides, head, and sill) narrow the patch when the sun
+ *   comes in at an angle. Each line's landing spot is where it meets the floor.
  * - Skylights let sun in when the sun is in front of their roof face. The light
  *   comes down a straight shaft from the roof to the ceiling, so each of the
  *   shaft's four walls trims the patch twice: at its top (where it meets the
  *   roof) and at the ceiling. What gets through lands on the floor below.
- * - Walls cast shadows outside: each wall's top edge, pushed along the sun to the ground.
- * - The roof eave over a wall and any awning over a window throw a shadow line
- *   down the glass; only the glass below it lets sun in.
+ * - Outside, walls and roofs cast shadows on the ground: each wall's top edge,
+ *   and the roof's whole surface (eaves, rakes, ridge), pushed along the sun.
+ * - Along the top of each window, the line toward the sun is checked against
+ *   the real roof shape above it (so an eave on a long wall and a high gable
+ *   rake each shade by their real height and reach), awnings (with their real
+ *   width, so sun slips in past their ends), and other buildings and walls in
+ *   the way (see rays.js).
  * It does not follow light through a second window, bounce it, or account
- * for trees, the sides of an awning, or the slope of the ground.
+ * for trees, window frames and mullions, or the slope of the ground.
  */
 
 import { pointInPolygon, polygonArea } from "../lib/geom.js";
 import { skylightBuild } from "../build/skylights.js";
-import { shadowLine, windowShades } from "./passive.js";
+import { shadowLine } from "./passive.js";
+import { clipConvex, convexHull, litRange, sunObstacles } from "./rays.js";
 import { clerestoryBox, clerestoryGeometry } from "../build/clerestory.js";
 import { roofFootprints } from "../build/roofShape.js";
 
@@ -58,6 +65,7 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
   const v = sun.vector;
   const rooms = (house.rooms || []).filter((room) => roofed(room) && roomVisible(room));
   const patches = [];
+  const obstacles = sunObstacles(house, sun, { full, wallVisible });
   for (const opening of house.openings || []) {
     const glass = glazing(opening);
     if (!glass || glass.z1 <= glass.z0) continue;
@@ -83,20 +91,36 @@ export function sunPatches(house, sun, { wallVisible = () => true, roomVisible =
     if (roomAt(rooms, outside)) continue;
     const room = roomAt(rooms, inside);
     if (!room) continue;
-    // The light leaves the inside face of the wall.
-    const face = { x: -nx * sunSide * half, y: -ny * sunSide * half };
+    // A line from the sun gets in only if it passes the opening at both faces of the wall.
+    const out = { x: nx * sunSide * half, y: ny * sunSide * half };
     const drop = (z) => ({ x: (-v.x / v.z) * z, y: (-v.y / v.z) * z });
-    const corner = (s, z) => {
+    const onFloor = (s, z, side) => {
       const d = drop(z);
-      return { x: wall.start.x + ux * s + face.x + d.x, y: wall.start.y + uy * s + face.y + d.y };
+      return { x: wall.start.x + ux * s + side.x + d.x, y: wall.start.y + uy * s + side.y + d.y };
     };
-    // The eave above and any awning throw a shadow line down the glass.
-    const shades = windowShades(house, opening, wall, { out: { x: nx * sunSide, y: ny * sunSide } }, full);
-    const top = Math.min(glass.z1, shadowLine(shades, v.z / Math.abs(facing)));
-    if (top <= glass.z0 + 0.01) continue;
     const a = opening.offset;
     const b = opening.offset + opening.width;
-    const polygon = [corner(a, glass.z0), corner(b, glass.z0), corner(b, top), corner(a, top)];
+    // Along the outer face: which part of the opening sees the sun, every half foot.
+    const steps = Math.max(2, Math.ceil((b - a) / 0.5));
+    const samples = [];
+    for (let i = 0; i <= steps; i += 1) {
+      const along = a + ((b - a) * i) / steps;
+      // Just outside the outer face, so the wall itself isn't counted.
+      const at = { x: wall.start.x + ux * along + out.x + nx * sunSide * 0.01, y: wall.start.y + uy * along + out.y + ny * sunSide * 0.01 };
+      samples.push({ along, range: litRange(obstacles, at, glass.z0, glass.z1, wall) });
+    }
+    if (!samples.some((item) => item.range)) continue;
+    // Where the shade cuts a whole stretch, keep the top and bottom together so the outline stays one shape.
+    const lows = samples.map((item) => (item.range ? item.range[0] : glass.z1));
+    const highs = samples.map((item) => (item.range ? item.range[1] : glass.z1));
+    const outer = [
+      ...samples.map((item, i) => onFloor(item.along, lows[i], out)),
+      ...samples.map((item, i) => onFloor(item.along, highs[i], out)).reverse(),
+    ];
+    const inner = { x: -out.x, y: -out.y };
+    const hole = [onFloor(a, glass.z0, inner), onFloor(b, glass.z0, inner), onFloor(b, glass.z1, inner), onFloor(a, glass.z1, inner)];
+    const polygon = clipConvex(outer, hole);
+    if (polygon.length < 3 || Math.abs(polygonArea(polygon)) < 0.01) continue;
     patches.push({
       openingId: opening.id,
       wallId: wall.id,
@@ -129,6 +153,36 @@ export function wallShadows(house, sun, { wallVisible = () => true } = {}) {
       { x: wall.end.x + sx, y: wall.end.y + sy },
       { x: wall.start.x + sx, y: wall.start.y + sy },
     ]);
+  }
+  return out;
+}
+
+/**
+ * Ground shadows of the roofs: for each roof, its surface (eave edges, rakes,
+ * ridge, and points across it) pushed along the sun to the ground, wrapped in
+ * one outline. Together with wallShadows this is the building's shadow.
+ */
+export function roofShadows(house, sun, { full = false } = {}) {
+  if (!sun?.up) return [];
+  const v = sun.vector;
+  const obstacles = sunObstacles(house, { ...sun }, { full });
+  const out = [];
+  for (const roof of obstacles.roofs) {
+    const { x0, y0, x1, y1 } = roof.box;
+    const nx = Math.max(2, Math.ceil((x1 - x0) / 2));
+    const ny = Math.max(2, Math.ceil((y1 - y0) / 2));
+    const points = [];
+    for (let i = 0; i <= nx; i += 1) {
+      for (let j = 0; j <= ny; j += 1) {
+        const p = { x: x0 + ((x1 - x0) * i) / nx, y: y0 + ((y1 - y0) * j) / ny };
+        const z = roof.top(p);
+        points.push({ x: p.x - (v.x / v.z) * z, y: p.y - (v.y / v.z) * z });
+      }
+    }
+    // The walls under it, from the ground up: the shadow joins the building.
+    const inner = roof.box.inner;
+    if (inner) for (const p of [{ x: inner.x0, y: inner.y0 }, { x: inner.x1, y: inner.y0 }, { x: inner.x1, y: inner.y1 }, { x: inner.x0, y: inner.y1 }]) points.push(p);
+    out.push(convexHull(points));
   }
   return out;
 }

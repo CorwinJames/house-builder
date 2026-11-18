@@ -3,9 +3,12 @@
  * light moves to the real (or hand-set) sun, gets warmer and dimmer when it is
  * low, and the sky fill drops so rooms read darker where no sun reaches.
  *
- * Shadow-only stand-ins (full-height walls with their glass left open, and a
- * ceiling over every roofed room) keep the light honest when the roof is off
- * or the view is cut away. They draw nothing on screen and can't be clicked.
+ * Shadow-only stand-ins (full-height walls with their glass left open, a
+ * ceiling over every roofed room, and a copy of the real roof) keep the light
+ * honest when the roof is off or the view is cut away. The roof copy is the
+ * same shape the view draws (eaves, gable rakes, hips, ridge, curves), with
+ * the skylights cut out of its shadow, so shadows on the ground and the sun
+ * through windows match the roof you see. They draw nothing on screen and can't be clicked.
  * Each room that gets sun on its floor also gets a soft warm bounce light,
  * stronger the more of the room is sunlit.
  */
@@ -20,9 +23,43 @@ import { awningPieces } from "../build/awnings.js";
 import { pointInPolygon } from "../lib/geom.js";
 
 const BOUNCE_LIGHTS = 6;
-const DEFAULT_HEIGHT = 10;
 
-export function createSunRig({ scene, ambient, hemisphere, light }) {
+const MAX_SKYLIGHTS = 24;
+
+/**
+ * Depth material for the roof copy: the same as three's shadow depth, but
+ * skylight openings (plan quads) are left out, so the sun comes through them.
+ */
+function skylightDepthMaterial() {
+  const quads = Array.from({ length: MAX_SKYLIGHTS * 4 }, () => new THREE.Vector2());
+  const uniforms = { skyCount: { value: 0 }, skyQuads: { value: quads } };
+  const material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.skyCount = uniforms.skyCount;
+    shader.uniforms.skyQuads = uniforms.skyQuads;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vSkyWorld;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvSkyWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+varying vec3 vSkyWorld;
+uniform int skyCount;
+uniform vec2 skyQuads[${MAX_SKYLIGHTS * 4}];
+float skyEdge(vec2 a, vec2 b, vec2 p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); }`)
+      .replace("void main() {", `void main() {
+  vec2 plan = vec2(vSkyWorld.x, -vSkyWorld.z);
+  for (int i = 0; i < ${MAX_SKYLIGHTS}; i++) {
+    if (i >= skyCount) break;
+    vec2 a = skyQuads[i * 4]; vec2 b = skyQuads[i * 4 + 1]; vec2 c = skyQuads[i * 4 + 2]; vec2 d = skyQuads[i * 4 + 3];
+    float e0 = skyEdge(a, b, plan); float e1 = skyEdge(b, c, plan); float e2 = skyEdge(c, d, plan); float e3 = skyEdge(d, a, plan);
+    if ((e0 >= 0.0 && e1 >= 0.0 && e2 >= 0.0 && e3 >= 0.0) || (e0 <= 0.0 && e1 <= 0.0 && e2 <= 0.0 && e3 <= 0.0)) discard;
+  }`);
+  };
+  material.customProgramCacheKey = () => `skylight-depth-${MAX_SKYLIGHTS}`;
+  return { material, uniforms };
+}
+
+export function createSunRig({ scene, ambient, hemisphere, light, renderer = null }) {
   const defaults = {
     ambient: ambient.intensity,
     hemisphere: hemisphere.intensity,
@@ -38,6 +75,20 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
   casters.visible = false;
   scene.add(casters);
   const casterMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  // The roof copy lives in its own group, rebuilt when the roof is rebuilt.
+  const roofCasters = new THREE.Group();
+  roofCasters.name = "sun-roof-casters";
+  roofCasters.visible = false;
+  scene.add(roofCasters);
+  const roofDepth = skylightDepthMaterial();
+  // The roof is a single sheet, so its copy casts from both sides.
+  const roofCopyMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
+  let roofSource = null;
+  // Sharper shadows while the sun layer is on, as far as the graphics card allows.
+  const maxTexture = renderer?.capabilities?.maxTextureSize || 2048;
+  const sunMapSize = Math.min(4096, maxTexture);
+  const defaultMapSize = light.shadow.mapSize.x;
+  const defaultBias = { bias: light.shadow.bias, normalBias: light.shadow.normalBias };
   const bounces = Array.from({ length: BOUNCE_LIGHTS }, () => {
     const point = new THREE.PointLight(0xffd9a8, 0, 20, 1.2);
     point.castShadow = false;
@@ -49,7 +100,7 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
   let lids = [];
 
   function pick(cam) {
-    return { left: cam.left, right: cam.right, top: cam.top, bottom: cam.bottom, far: cam.far };
+    return { left: cam.left, right: cam.right, top: cam.top, bottom: cam.bottom, near: cam.near, far: cam.far };
   }
 
   function rebuildCasters(house, state) {
@@ -123,23 +174,18 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
       add(geometry, new THREE.Vector3(0, top, 0));
     }
     if (step) addClerestoryCasters(step);
-    // The roof's eaves past the walls (the roof itself stops casting while the
-    // layer is on, so skylights work), and each window's awning.
-    for (const box of roofFootprints(house, full)) {
-      const inner = wallBox(house, box, state);
-      if (!inner) continue;
-      const shape = new THREE.Shape([
-        new THREE.Vector2(box.x0, box.y0), new THREE.Vector2(box.x1, box.y0),
-        new THREE.Vector2(box.x1, box.y1), new THREE.Vector2(box.x0, box.y1),
-      ]);
-      shape.holes.push(new THREE.Path([
-        new THREE.Vector2(inner.x0, inner.y0), new THREE.Vector2(inner.x0, inner.y1),
-        new THREE.Vector2(inner.x1, inner.y1), new THREE.Vector2(inner.x1, inner.y0),
-      ]));
-      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: false });
-      geometry.rotateX(-Math.PI / 2);
-      add(geometry, new THREE.Vector3(0, Number(house.roof?.plateHeight) || 10, 0));
+    // Skylight openings for the roof copy's shadow.
+    const quads = roofDepth.uniforms.skyQuads.value;
+    let count = 0;
+    for (const skylight of house?.skylights || []) {
+      if (count >= MAX_SKYLIGHTS || !isPhaseVisible(skylight.phase, state || {})) continue;
+      const corners = skylightFootprint(skylight, house, full);
+      if (corners.length !== 4) continue;
+      corners.forEach((point, i) => quads[count * 4 + i].set(point.x, point.y));
+      count += 1;
     }
+    roofDepth.uniforms.skyCount.value = count;
+    // Each window's awning. (The roof itself is copied from the drawn roof: see syncRoof.)
     for (const piece of awningPieces(house)) {
       if (!isPhaseVisible(piece.wall.phase, state || {})) continue;
       add(new THREE.BoxGeometry(piece.length, 0.15, piece.depth), new THREE.Vector3(piece.center.x, piece.height + 0.075, -piece.center.y), piece.angle);
@@ -224,6 +270,34 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
     }
   }
 
+  /**
+   * Copy the roof that is drawn (phase 1 or full house) into shadow-only meshes.
+   * They share its geometry, so this is cheap, and they cast whether or not the
+   * roof itself is shown.
+   */
+  function syncRoof(roofGroup) {
+    if (roofGroup === roofSource && roofCasters.children.length) return;
+    roofSource = roofGroup;
+    for (const child of [...roofCasters.children]) roofCasters.remove(child);
+    if (!roofGroup) return;
+    roofGroup.updateMatrixWorld(true);
+    roofGroup.traverse((obj) => {
+      if (!obj.isMesh || obj.isSprite || !obj.geometry) return;
+      // Glass (clerestory band, skylight panes) lets the sun through.
+      if (obj.userData?.castsSun === false) return;
+      const copy = new THREE.Mesh(obj.geometry, roofCopyMaterial);
+      copy.matrixAutoUpdate = false;
+      copy.matrix.copy(obj.matrixWorld);
+      copy.matrixWorld.copy(obj.matrixWorld);
+      copy.castShadow = true;
+      copy.receiveShadow = false;
+      copy.customDepthMaterial = roofDepth.material;
+      copy.raycast = () => {};
+      copy.userData.sunCaster = true;
+      roofCasters.add(copy);
+    });
+  }
+
   function restore() {
     ambient.intensity = defaults.ambient;
     hemisphere.intensity = defaults.hemisphere;
@@ -236,18 +310,32 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
     Object.assign(light.shadow.camera, defaults.shadow);
     light.shadow.camera.updateProjectionMatrix();
     casters.visible = false;
+    roofCasters.visible = false;
+    setMapSize(defaultMapSize);
+    light.shadow.bias = defaultBias.bias;
+    light.shadow.normalBias = defaultBias.normalBias;
     for (const bounce of bounces) bounce.intensity = 0;
   }
 
+  function setMapSize(size) {
+    if (light.shadow.mapSize.x === size) return;
+    light.shadow.mapSize.set(size, size);
+    light.shadow.map?.dispose();
+    light.shadow.map = null;
+  }
+
   return {
+    syncRoof,
     /** sun: from currentSun, or null to go back to the everyday light. */
-    apply(sun, house, state) {
+    apply(sun, house, state, roofGroup = null) {
       if (!sun) {
         restore();
         return;
       }
       rebuildCasters(house, state);
+      if (roofGroup) syncRoof(roofGroup);
       casters.visible = true;
+      roofCasters.visible = true;
       const rooms = (house?.rooms || []).filter((room) => room.polygon?.length >= 3);
       const box = boundsOf(rooms);
       const cx = Number.isFinite(box?.x0) ? (box.x0 + box.x1) / 2 : 38;
@@ -266,12 +354,31 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
         const roof = lid.userData.roof;
         lid.visible = v.x * roof.downhill.x * roof.slope + v.y * roof.downhill.y * roof.slope + v.z <= 0.001;
       }
-      const reach = radius + 80;
+      // Fit the shadow camera to everything that casts. Seen from the sun, a
+      // shadow on flat ground is never farther from the house than the house
+      // is tall, so a box just round the casters covers every shadow, and the
+      // whole shadow map goes to them (about a third of an inch per pixel on a
+      // 100 ft site with a 4096 map).
+      const bounds = new THREE.Box3();
+      for (const group of [casters, roofCasters]) {
+        for (const child of group.children) {
+          if (!child.geometry) continue;
+          if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+          child.updateMatrixWorld();
+          bounds.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
+        }
+      }
+      const sphere = bounds.isEmpty() ? new THREE.Sphere(new THREE.Vector3(cx, 0, -cy), radius + 10) : bounds.getBoundingSphere(new THREE.Sphere());
+      const extent = sphere.radius + 2;
+      const reach = sphere.radius + 20;
       light.visible = true;
-      light.target.position.set(cx, 0, -cy);
-      light.position.set(cx + v.x * reach, v.z * reach, -cy - v.y * reach);
-      const extent = radius + 30 + Math.min(80, DEFAULT_HEIGHT / Math.max(0.12, Math.tan((sun.elevation * Math.PI) / 180)));
-      Object.assign(light.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, far: reach * 2 + 40 });
+      light.target.position.copy(sphere.center);
+      light.position.set(sphere.center.x + v.x * reach, sphere.center.y + v.z * reach, sphere.center.z - v.y * reach);
+      setMapSize(sunMapSize);
+      // Small offsets so surfaces don't shade themselves, without lifting shadows off thin eaves.
+      light.shadow.bias = -0.0001;
+      light.shadow.normalBias = 0.04;
+      Object.assign(light.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: reach + extent + 10 });
       light.shadow.camera.updateProjectionMatrix();
       // Low sun is weaker (more air to pass through) and warmer.
       const strength = Math.min(1, Math.sin((sun.elevation * Math.PI) / 180) * 1.8);
@@ -320,26 +427,6 @@ export function createSunRig({ scene, ambient, hemisphere, light }) {
   };
 }
 
-/** The outer faces of the walls inside one roof footprint, as a box. */
-function wallBox(house, box, state) {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const wall of house.walls || []) {
-    if (!isPhaseVisible(wall.phase, state || {})) continue;
-    const half = (Number(wall.thickness) || 0.5) / 2;
-    for (const p of [wall.start, wall.end]) {
-      if (p.x < box.x0 || p.x > box.x1 || p.y < box.y0 || p.y > box.y1) continue;
-      x0 = Math.min(x0, p.x - half);
-      y0 = Math.min(y0, p.y - half);
-      x1 = Math.max(x1, p.x + half);
-      y1 = Math.max(y1, p.y + half);
-    }
-  }
-  if (!Number.isFinite(x0)) return null;
-  return { x0: Math.max(x0, box.x0 + 0.05), y0: Math.max(y0, box.y0 + 0.05), x1: Math.min(x1, box.x1 - 0.05), y1: Math.min(y1, box.y1 - 0.05) };
-}
 
 /** The part of a room on the low (front) side of a clerestory's glass line. */
 function clipToFront(polygon, g) {

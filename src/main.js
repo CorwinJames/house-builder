@@ -15,6 +15,9 @@ import { siteCardHtml } from "./ui/sitePanel.js";
 import { blankPlan, fourRoomSample } from "./build/newPlan.js";
 import { DEFAULT_SUN, SEASONS, SITE_TIME_ZONE, clockText, compassWord, currentSun, dateText, sunPlace } from "./sun/solar.js";
 
+// The place search in the Sun panel, for a plan with no lot and no reference place.
+const sunSearch = { query: "", results: [], note: "", busy: false };
+
 const wideQuery = window.matchMedia("(min-width: 861px)");
 const state = loadViewState();
 let panelOpen = false;
@@ -472,9 +475,6 @@ function monthDay(doy) {
   while (month > 1 && DAYS_BEFORE[month - 1] >= doy) month -= 1;
   return { month, day: doy - DAYS_BEFORE[month - 1] };
 }
-
-// The place search in the Sun panel, for a plan with no lot and no reference place.
-const sunSearch = { query: "", results: [], note: "", busy: false };
 
 function sunSettings() {
   return { ...DEFAULT_SUN, ...(state.sun || {}) };
