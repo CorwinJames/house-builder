@@ -1540,6 +1540,7 @@ export function createPlanView(canvas, initialHouse) {
     drawAnnotationLabels();
     drawConstraintBadges();
     drawGuides();
+    drawAlignGuides();
     drawCompass();
     drawWatermark();
     drawMarkers();
@@ -2657,6 +2658,70 @@ export function createPlanView(canvas, initialHouse) {
       ctx.textAlign = "left";
       ctx.fillText(guide.label, left + 6, top + 16);
       ctx.setLineDash([5, 4]);
+    }
+    ctx.restore();
+  }
+
+  /** Alignment snaps while dragging a corner: thin pink lines, matched sizes, and the snapped corner. */
+  function drawAlignGuides() {
+    const guides = overlay?.alignGuides || [];
+    if (!guides.length) return;
+    const pink = "#D6336C";
+    ctx.save();
+    ctx.strokeStyle = pink;
+    ctx.fillStyle = pink;
+    ctx.lineWidth = 1.25;
+    for (const guide of guides) {
+      const a = worldToScreen(guide.a.x, guide.a.y);
+      if (guide.kind === "dot") {
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      const b = worldToScreen(guide.b.x, guide.b.y);
+      if (guide.kind === "line") {
+        // A little past both ends, like design apps.
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const ux = (b.x - a.x) / len;
+        const uy = (b.y - a.y) / len;
+        ctx.beginPath();
+        ctx.moveTo(a.x - ux * 12, a.y - uy * 12);
+        ctx.lineTo(b.x + ux * 12, b.y + uy * 12);
+        ctx.stroke();
+        continue;
+      }
+      if (guide.kind === "span") {
+        // A dimension line just outside the edge, with end ticks and the length.
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const ux = (b.x - a.x) / len;
+        const uy = (b.y - a.y) / len;
+        const nx = uy;
+        const ny = -ux;
+        const off = 10;
+        const p = { x: a.x + nx * off, y: a.y + ny * off };
+        const q = { x: b.x + nx * off, y: b.y + ny * off };
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
+        for (const end of [p, q]) {
+          ctx.moveTo(end.x - nx * 5, end.y - ny * 5);
+          ctx.lineTo(end.x + nx * 5, end.y + ny * 5);
+        }
+        ctx.stroke();
+        if (guide.label) {
+          ctx.font = "700 11px Outfit, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const mx = (p.x + q.x) / 2 + nx * 10;
+          const my = (p.y + q.y) / 2 + ny * 10;
+          const width = ctx.measureText(guide.label).width + 10;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+          ctx.fillRect(mx - width / 2, my - 8, width, 16);
+          ctx.fillStyle = pink;
+          ctx.fillText(guide.label, mx, my);
+        }
+      }
     }
     ctx.restore();
   }

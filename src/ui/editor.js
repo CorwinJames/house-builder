@@ -44,6 +44,7 @@ import { SKYLIGHT_MODELS, makeSkylight, modelLabel, refreshSkylight, roomUnder, 
 import { previewPlacement, suggestionNote } from "../build/placement.js";
 import { pointInRing } from "../build/space.js";
 import { openingFits, snapOpeningOffset } from "../build/openings.js";
+import { alignTargets, snapPoint, snapScale } from "../build/alignSnap.js";
 import { FINE_GRID_FT, placePoint, projectOntoWall, snapAngleNear, snapToGrid, snapTranslation } from "../build/snap.js";
 import { tidyHouse, wallsTouchingRoom } from "../build/tidy.js";
 import {
@@ -196,6 +197,14 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
   let roomShape = "free";
   let wallRatio = "free";
   let snapOn = false;
+  // Alignment snapping: dragged corners click onto other things' edges and sizes. On unless turned off.
+  let alignOn = (() => {
+    try {
+      return localStorage.getItem("house-builder.alignSnap") !== "off";
+    } catch {
+      return true;
+    }
+  })();
   let shiftHeld = false;
   // Lay on (default): walls that touch stay separate pieces. Clip on: they become one.
   // Holding Option (Alt) flips it for one drag.
@@ -915,6 +924,28 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     return view.layers[layer] !== false;
   }
 
+  /** Things on the plan a dragged corner can line up with: only what's shown. */
+  function alignVisible(pick) {
+    const view = getViewState();
+    if (pick.type === "wall") {
+      const wall = (house.walls || []).find((item) => item.id === pick.id);
+      return !!wall && visibleWall(wall);
+    }
+    if (pick.type === "room") {
+      const room = (house.rooms || []).find((item) => item.id === pick.id);
+      return !!room && (room.phase !== "future" || isFutureShown(view));
+    }
+    if (pick.type === "image") return view.layers.images !== false;
+    return true;
+  }
+
+  /** About 8 screen pixels, in feet. Ctrl or Cmd held: no alignment snapping for that move. */
+  function alignTolerance(event) {
+    if (!alignOn || event?.ctrlKey || event?.metaKey) return 0;
+    const scale = plan.getCamera()?.pxPerFt || 8;
+    return 8 / scale;
+  }
+
   function magnetRadius() {
     const camera = plan.getCamera();
     return Math.max(0.55, 16 / (camera.pxPerFt || 8));
@@ -1355,6 +1386,12 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         box: corner.frame.box,
         anchor: corner.anchor,
         start: Math.max(0.5, Math.hypot(corner.at.x - corner.anchor.x, corner.at.y - corner.anchor.y)),
+        from: {
+          x: corner.anchor.x === corner.frame.box.x1 ? corner.frame.box.x0 : corner.frame.box.x1,
+          y: corner.anchor.y === corner.frame.box.y1 ? corner.frame.box.y0 : corner.frame.box.y1,
+        },
+        targets: null,
+        alignGuides: [],
         before: house,
         k: 1,
         moved: false,
@@ -1655,8 +1692,22 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       // Bigger or smaller, keeping proportions; whole percent steps (Shift: 5%).
       const now = Math.hypot(world.x - gesture.anchor.x, world.y - gesture.anchor.y);
       const step = event.shiftKey ? 0.05 : 0.01;
-      const k = Math.max(0.05, Math.min(20, Math.round((now / gesture.start) / step) * step));
+      const raw = now / gesture.start;
+      let k = Math.max(0.05, Math.min(20, Math.round(raw / step) * step));
       if (!gesture.moved && Math.abs(k - 1) < 0.005) return;
+      // Alignment: the corner clicks onto other things' edges, or the same width or depth.
+      const tolerance = alignTolerance(event);
+      gesture.alignGuides = [];
+      gesture.alignSaid = "";
+      if (tolerance) {
+        if (!gesture.targets) gesture.targets = alignTargets(gesture.snapshot, gesture.set, { visible: alignVisible });
+        const snap = snapScale({ anchor: gesture.anchor, from: gesture.from, box: gesture.box, k: raw, targets: gesture.targets, tolerance });
+        if (snap.guides.length) {
+          k = Math.max(0.05, Math.min(20, snap.k));
+          gesture.alignGuides = snap.guides;
+          gesture.alignSaid = snap.said;
+        }
+      }
       gesture.moved = true;
       gesture.k = k;
       scheduleLive(scaleSelection(gesture.snapshot, gesture.set, k, gesture.anchor).house);
@@ -1708,7 +1759,24 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ? wall.end
         : wall?.start;
       const others = gesture.snapshot.walls.filter((item) => item.id !== gesture.hit.wallId);
-      const snapped = aim(world, event, other || null, others);
+      let snapped = aim(world, event, other || null, others);
+      // Alignment: unless the end already clicked onto another wall's end, line it up with other things' edges or sizes.
+      gesture.alignGuides = [];
+      gesture.alignSaid = "";
+      const tolerance = alignTolerance(event);
+      const onEnd = others.some((item) => [item.start, item.end].some((p) => Math.hypot(p.x - snapped.x, p.y - snapped.y) < 0.01));
+      if (tolerance && !onEnd) {
+        if (!gesture.alignTargets) {
+          const moving = { walls: new Set([gesture.hit.wallId]), rooms: new Set(), pieces: new Set() };
+          gesture.alignTargets = alignTargets(gesture.snapshot, moving, { visible: alignVisible });
+        }
+        const snap = snapPoint({ point: snapped, other: other || null, targets: gesture.alignTargets, tolerance });
+        if (snap.guides.length) {
+          snapped = { ...snapped, x: snap.point.x, y: snap.point.y };
+          gesture.alignGuides = snap.guides;
+          gesture.alignSaid = snap.said;
+        }
+      }
       const endName = wall && Math.hypot(wall.start.x - gesture.hit.point.x, wall.start.y - gesture.hit.point.y) < 0.2 ? "start" : "end";
       gesture.movedEnd = { wall: gesture.hit.wallId, end: endName };
       gesture.endTo = { x: snapped.x, y: snapped.y };
@@ -1814,7 +1882,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         holdCamera();
         commit(syncRooms(result.house), current.before, "resizing");
         prunePicks();
-        announce(`Resized to ${Math.round(current.k * 100)}%. Walls keep their thickness; doors, windows, and furniture keep their real size.${detachNote(result.detached)}`);
+        announce(`${current.alignSaid ? `${current.alignSaid} ` : ""}Resized to ${Math.round(current.k * 100)}%. Walls keep their thickness; doors, windows, and furniture keep their real size.${detachNote(result.detached)}`);
       } else {
         house = current.before;
         plan.setHouse(house);
@@ -2950,6 +3018,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
         ticks: gesture.end.ticks || [],
       } : null,
       guides: guidesOn ? guideBoxes() : [],
+      alignGuides: (gesture?.kind === "scale" || gesture?.kind === "endpoint") && gesture.moved ? gesture.alignGuides || [] : [],
       rect: gesture?.kind === "room" && gesture.end ? {
         x0: gesture.start.x,
         y0: gesture.start.y,
@@ -3776,6 +3845,19 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
       }
       return;
     }
+    if (event.target.closest("#align-toggle")) {
+      alignOn = !alignOn;
+      try {
+        localStorage.setItem("house-builder.alignSnap", alignOn ? "on" : "off");
+      } catch {
+        // Private mode: it still works for this visit.
+      }
+      paintSnapButton();
+      announce(alignOn
+        ? "Align snap is on. A corner you drag clicks onto the edges of other rooms, walls, and pictures, or to the same width or depth, with a line to show it. Hold Ctrl (⌘ on Mac) to drag freely."
+        : "Align snap is off.", false);
+      return;
+    }
     if (event.target.closest("#snap-toggle")) {
       snapOn = !snapOn;
       paintSnapButton();
@@ -3844,6 +3926,7 @@ export function attachEditor({ plan, model, sample, getViewState, patchViewState
     const button = document.querySelector("#snap-toggle");
     if (!button) return;
     button.setAttribute("aria-pressed", String(snapOn || shiftHeld));
+    document.querySelector("#align-toggle")?.setAttribute("aria-pressed", String(alignOn));
   }
 
   function tidySelection() {

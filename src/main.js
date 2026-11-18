@@ -150,6 +150,7 @@ app.innerHTML = `
               <button type="button" data-join="clip" aria-pressed="false">Clip on</button>
             </div>
             <button type="button" id="snap-toggle" class="hud-pill" aria-pressed="false" title="Line up wall ends while you drag">Snap to grid</button>
+            <button type="button" id="align-toggle" class="hud-pill" aria-pressed="true" title="A corner you drag clicks onto other things' edges, or the same width or depth. Hold Ctrl (⌘) to drag freely.">Align snap</button>
             <button type="button" id="tidy-shape" class="hud-pill" title="Square the selected walls and round their lengths">Tidy up shape</button>
             <button type="button" id="options-toggle" class="options-toggle hud-pill" aria-expanded="false" aria-controls="tool-options">Options</button>
             <button type="button" id="issues-toggle" class="hud-pill" aria-pressed="false">Issues only</button>

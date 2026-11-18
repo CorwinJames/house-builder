@@ -214,3 +214,48 @@ const { alignSelection, selectionUnits } = await import("../src/build/align.js")
   assert.equal(alignSelection(loose.house, loose.picks, "left").moved, 0);
 }
 console.log("align ok");
+
+// Alignment snapping while dragging a corner.
+{
+  const { snapScale, snapPoint, alignTargets } = await import("../src/build/alignSnap.js");
+  const box = (x0, y0, x1, y1) => ({ x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, width: x1 - x0, depth: y1 - y0 });
+  // A 10 x 10 box anchored at its south-west corner; another thing 24 ft wide, its right edge at x = 30.
+  const moving = box(0, 0, 10, 10);
+  const other = { box: box(6, 40, 30, 50), name: "Kitchen", sized: true };
+  const anchor = { x: 0, y: 0 };
+  const from = { x: 10, y: 10 };
+  // Cursor puts the corner at x = 29.8: clicks onto the right edge at 30 (k = 3).
+  let snap = snapScale({ anchor, from, box: moving, k: 2.98, targets: [other], tolerance: 0.5 });
+  assert.equal(snap.k, 3);
+  assert.ok(snap.guides.some((g) => g.kind === "line" && g.a.x === 30 && g.b.x === 30));
+  assert.match(snap.said, /right edge of Kitchen/);
+  // Near 24 ft wide: same width (k = 2.4).
+  snap = snapScale({ anchor, from, box: moving, k: 2.41, targets: [other], tolerance: 0.5 });
+  assert.equal(snap.k, 2.4);
+  assert.match(snap.said, /same width as Kitchen/);
+  assert.ok(snap.guides.filter((g) => g.kind === "span").length === 2);
+  // Too far from anything: no snap.
+  snap = snapScale({ anchor, from, box: moving, k: 2.7, targets: [other], tolerance: 0.5 });
+  assert.equal(snap.k, 2.7);
+  assert.equal(snap.guides.length, 0);
+  // A corner dragged the other way (anchor north-east): the left edge at x = 6 → corner x = 6.
+  snap = snapScale({ anchor: { x: 10, y: 10 }, from: { x: 0, y: 0 }, box: moving, k: 1.02, targets: [{ box: box(-0.1, 40, 6, 50), name: "Bath", sized: false }], tolerance: 0.5 });
+  assert.ok(Math.abs(snap.k - 1.01) < 1e-9, `k ${snap.k}`);
+
+  // A wall end: x lines up with an edge; a straight wall clicks to the same length.
+  let end = snapPoint({ point: { x: 29.7, y: 3.2 }, other: { x: 0, y: 3 }, targets: [other], tolerance: 0.5 });
+  assert.equal(end.point.x, 30);
+  assert.equal(end.point.y, 3.2);
+  end = snapPoint({ point: { x: 24.3, y: 3 }, other: { x: 0, y: 3 }, targets: [other], tolerance: 0.5 });
+  assert.equal(end.point.x, 24);
+  assert.match(end.said, /same width as Kitchen/);
+
+  // Targets: the sample's rooms and walls, minus what is moving.
+  const doc = decorateHouse(structuredClone(sample));
+  const all = alignTargets(doc, { walls: new Set(), rooms: new Set(), pieces: new Set() });
+  assert.ok(all.length > doc.rooms.length);
+  const room = doc.rooms[0];
+  const set = { walls: new Set(), rooms: new Set([room.id]), pieces: new Set() };
+  assert.ok(!alignTargets(doc, set).some((t) => t.name === room.name));
+}
+console.log("align snap ok");
