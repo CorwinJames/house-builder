@@ -3,7 +3,7 @@
 One line per change, newest first:
 `YYYY-MM-DD | Claude or Grok Bot | PR link or commit | what changed, in plain words | anything left open`
 
-2026-11-17 | Claude | PR_LINK | Templates: Katsura shoin group, Shugakuin Jugetsukan, Shugakuin upper teahouses, Shirakawa-go gassho (60° gable), Hyangdan; minka gains work doma, storage, and stable. Sources cited per template; assumed sizes said in each description. | 仓垈里古宅 not identified yet; gassho attic floors and Katsura floor height are not modelled from measurements.
+2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/47 | Templates: Katsura shoin group, Shugakuin Jugetsukan, Shugakuin upper teahouses, Shirakawa-go gassho (60° gable), Hyangdan; minka gains work doma, storage, and stable. Sources cited per template; assumed sizes said in each description. | 仓垈里古宅 not identified yet; gassho attic floors and Katsura floor height are not modelled from measurements.
 
 2026-11-17 | Claude | https://github.com/CorwinJames/house-builder/pull/46 | Align snap: resize corners and wall ends click onto other things' edges (same vertical or horizontal line) or to the same width/depth, with pink guide lines and a dot; toggle in the build dock, Ctrl/⌘ to skip. | Moving a whole room or picture (not resizing) doesn't align-snap yet; resizing keeps proportions, so it snaps whichever of width, depth, or an edge is nearest.
 
